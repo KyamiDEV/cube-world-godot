@@ -1,0 +1,93 @@
+# Voxel Tools — verified capability surface
+
+> Verified by `tools/probe/probe_voxel.gd` (brick 003).
+> Re-run after any engine rebuild: `godot --headless --script res://tools/probe/probe_voxel.gd`
+> Exit code 0 = required version and classes present; 1 = mismatch (blocker).
+
+## 1. Verified module
+
+| Field | Value |
+|---|---|
+| Verified on | 2026-08-31 |
+| Version | `1.7.0` |
+| Edition | `Module` (compiled into the engine, **not** GDExtension) |
+| Status | `release` |
+| Module git hash | `4fa755eda714d4097498b13571700813c4249db6` |
+| Default worker threads | `8` (host-dependent, not a contract) |
+| Registered `Voxel*` / `ZN_*` classes | `74` |
+
+**Requirement `Voxel Tools 1.7` — SATISFIED.**
+
+Version is read at runtime from the `VoxelEngine` singleton
+(`get_version_major/minor/patch`, `get_version_edition`, `get_version_git_hash`),
+so it is a property of the running binary, not of a config file.
+
+## 2. Required classes (all present)
+
+Every class the architecture in `CLAUDE.md` §1 names is registered:
+
+`VoxelTerrain`, `VoxelMesherBlocky`, `VoxelBlockyLibrary`, `VoxelBlockyModel`,
+`VoxelBlockyModelCube`, `VoxelBlockyModelMesh`, `VoxelInstancer`, `VoxelInstanceLibrary`,
+`VoxelViewer`, `VoxelBoxMover`, `VoxelStreamSQLite`, `VoxelGeneratorScript`, `VoxelTool`,
+`VoxelToolTerrain`, `VoxelBuffer`, `VoxelRaycastResult`.
+
+## 3. Full registered surface (1.7.0, this build)
+
+Grouped for planning; the probe asserts only the required subset above.
+
+**Terrain nodes** — `VoxelNode`, `VoxelTerrain`, `VoxelLodTerrain`,
+`VoxelTerrainMultiplayerSynchronizer`, `VoxelViewer`.
+
+**Meshers** — `VoxelMesher`, `VoxelMesherBlocky`, `VoxelMesherCubes`, `VoxelMesherTransvoxel`.
+
+**Blocky model system** — `VoxelBlockyLibraryBase`, `VoxelBlockyLibrary`, `VoxelBlockyTypeLibrary`,
+`VoxelBlockyType`, `VoxelBlockyModel`, `VoxelBlockyModelCube`, `VoxelBlockyModelMesh`,
+`VoxelBlockyModelEmpty`, `VoxelBlockyModelFluid`, `VoxelBlockyFluid`,
+`VoxelBlockyAttribute` (+ `Axis`, `Custom`, `Direction`, `Rotation`).
+
+**Generation** — `VoxelGenerator`, `VoxelGeneratorScript`, `VoxelGeneratorFlat`,
+`VoxelGeneratorHeightmap`, `VoxelGeneratorNoise`, `VoxelGeneratorNoise2D`,
+`VoxelGeneratorWaves`, `VoxelGeneratorImage`, `VoxelGeneratorGraph`,
+`VoxelGeneratorMultipassCB`, `VoxelGraphFunction`.
+
+**Streams / persistence** — `VoxelStream`, `VoxelStreamSQLite`, `VoxelStreamRegionFiles`,
+`VoxelStreamMemory`, `VoxelStreamScript`, `VoxelBlockSerializer`,
+`VoxelSaveCompletionTracker`, `VoxelDataBlockEnterInfo`.
+
+**Editing / query** — `VoxelTool`, `VoxelToolTerrain`, `VoxelToolLodTerrain`,
+`VoxelToolBuffer`, `VoxelToolMultipassGenerator`, `VoxelRaycastResult`, `VoxelBoxMover`,
+`VoxelAStarGrid3D`.
+
+**Data** — `VoxelBuffer`, `VoxelFormat`, `VoxelColorPalette`, `VoxelMeshSDF`, `VoxelVoxLoader`.
+
+**Instancing (vegetation/props)** — `VoxelInstancer`, `VoxelInstanceLibrary`,
+`VoxelInstanceLibraryItem`, `VoxelInstanceLibraryMultiMeshItem`,
+`VoxelInstanceLibrarySceneItem`, `VoxelInstanceGenerator`, `VoxelInstanceComponent`,
+`VoxelInstancerRigidBody`.
+
+**Modifiers (SDF only)** — `VoxelModifier`, `VoxelModifierMesh`, `VoxelModifierSphere`.
+
+**Noise helpers** — `ZN_FastNoiseLite`, `ZN_FastNoiseLiteGradient`, `ZN_SpotNoise`,
+`ZN_ThreadedTask`.
+
+> `VoxelGI` / `VoxelGIData` in the class list are core Godot rendering classes, unrelated
+> to Voxel Tools. Do not confuse them.
+
+## 4. Consequences for this project
+
+- **`VoxelStreamSQLite` is available**, so the persistence plan in `CLAUDE.md` §1/§11 stands
+  with no fallback to `VoxelStreamRegionFiles`.
+- **`VoxelTerrainMultiplayerSynchronizer` exists.** It is a *terrain-block* replication helper
+  only. It does not replace the authoritative gameplay protocol (Phase K) and must not be used
+  to move gameplay truth. Evaluate at brick 050 / Phase K.
+- **`VoxelGeneratorMultipassCB` exists**, which is the 1.7 route for generation passes that need
+  neighbour context (structures/villages spanning blocks, Phase D/E). Note it at brick 089–090.
+- **Modifiers are SDF-only**, so they are irrelevant to a `VoxelMesherBlocky` world.
+  Blocky edits go through `VoxelToolTerrain`.
+- `VoxelBlockyType` / `VoxelBlockyTypeLibrary` offer an attribute/state-based model layer above
+  raw `VoxelBlockyLibrary`. Bricks 031–038 must pick one deliberately and record the choice.
+
+## 5. Not verified here
+
+Worker-thread behavior, meshing throughput and streaming budgets are measured later
+(bricks 051–055), not asserted by this probe.

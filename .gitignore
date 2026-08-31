@@ -1,0 +1,39 @@
+# --- Godot 4 ---
+.godot/
+/android/
+*.translation
+
+# --- Export artifacts ---
+/build/
+/export/
+*.pck
+*.zip
+
+# --- Local runtime data ---
+/user/
+/saves/
+/logs/
+*.log
+*.tmp
+
+# --- Local voxel/world databases (regenerable) ---
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# --- Local-only tooling config ---
+/.local/
+/.claude/settings.local.json
+/tools/local/
+
+# --- OS / editor noise ---
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# --- Reference clone (external RE source, not part of this project's IP) ---
+/reference/

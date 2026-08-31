@@ -1,0 +1,29 @@
+# Normalize EOL for all files Git considers text.
+* text=auto eol=lf
+
+# Godot text resources
+*.gd        text eol=lf
+*.tscn      text eol=lf
+*.tres      text eol=lf
+*.godot     text eol=lf
+*.import    text eol=lf
+*.cfg       text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+*.csv       text eol=lf
+
+# Windows-only helper scripts keep CRLF
+*.bat       text eol=crlf
+*.ps1       text eol=crlf
+
+# Binary assets
+*.png       binary
+*.jpg       binary
+*.webp      binary
+*.ogg       binary
+*.wav       binary
+*.glb       binary
+*.gltf      binary
+*.blend     binary
+*.exr       binary
+*.ttf       binary

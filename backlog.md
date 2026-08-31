@@ -48,7 +48,7 @@
 | 016 | B | Define stable ID and registry contract | 015 | Not needed by default | NO | DONE |
 | 017 | B | Define save/version compatibility contract | 016 | Not needed by default | NO | DONE |
 | 018 | B | Define network command/state/event taxonomy | 017 | Not needed by default | NO | DONE |
-| 019 | B | Define server-authority invariants | 018 | Not needed by default | NO | TODO |
+| 019 | B | Define server-authority invariants | 018 | Not needed by default | NO | DONE |
 | 020 | B | Create reference matrix template for reverse engineering | 011, 018 | Not needed by default | NO | TODO |
 | 021 | B | Map CubeWorld world-related classes into conceptual subsystems | 020 | CLI/files only | NO | TODO |
 | 022 | B | Map CubeWorld entity/creature-related classes | 021 | Not needed by default | NO | TODO |

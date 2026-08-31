@@ -1,55 +1,160 @@
 # CubeWorld-Godot
 
-A clean-room **behavioral/structural reimplementation** inspired by Cube World Alpha (2013),
-built in Godot with a blocky voxel world and an authoritative client/server core.
+A clean-room **behavioural reimplementation** inspired by Cube World Alpha (2013): a
+blocky voxel world with a server-authoritative simulation, built in Godot.
 
-This repository contains newly authored code, data and assets. It does **not** redistribute
-original proprietary assets, data or trademarks. See `CLAUDE.md` §16.
+This repository contains newly authored code, data and assets. It ships no original
+game binaries, assets, data files, names or trademarks, and is not affiliated with
+Picroma or Wollay. See [§ IP discipline](#ip-discipline).
+
+> **Status: foundations.** Bricks 001–020 of 266 are done — verified toolchain, project
+> skeleton, test harness, and the core contracts (scale, time, RNG, IDs, saves,
+> protocol, authority). There is no playable world yet; the main scene prints a boot
+> report. Progress is tracked in [`backlog.md`](backlog.md) and
+> [`nextsteps.md`](nextsteps.md).
 
 ## Technical baseline
 
 | Item | Value |
 |---|---|
-| Engine | `Godot 4.7.2.stable.custom_build [ed1daf0bf]` (double-precision editor build) |
-| Voxel stack | Voxel Tools `1.7` (engine module) |
-| Renderer | Forward+ |
-| Physics (3D) | Jolt |
+| Engine | `Godot 4.7.2.stable.custom_build [ed1daf0bf]`, double-precision editor build |
+| Voxel stack | Voxel Tools `1.7.0`, compiled in as an engine **module** |
+| Renderer / physics | Forward+ / Jolt, 60 Hz |
 | Scale | `1 voxel = 0.5 m`, `1 m = 2 world units`, Y-up |
-| Authority | Server authoritative; clients send intent |
-| Generation | Deterministic from `(seed, world coords, generation version)` |
+| Authority | Server authoritative; clients send intent only |
+| Generation | Deterministic from `(seed, world coordinates, generation version)` |
+
+Both the engine build and the Voxel Tools module are **pinned and verified**: a
+mismatched binary is a hard stop, never a silent fallback. See
+[`docs/environment.md`](docs/environment.md) and
+[`docs/voxel-tools.md`](docs/voxel-tools.md).
+
+## Getting started
+
+The engine binary lives outside the repository — only its fingerprint is committed. Point
+the tooling at your copy of the contracted build:
+
+```powershell
+# $env:GODOT_BIN, or:
+"C:\path\to\godot.windows.editor.double.x86_64.exe" | Set-Content tools\local\godot_path.txt
+```
+
+Then:
+
+```powershell
+tools\scripts\check.ps1      # engine build + Voxel Tools + full GDScript compile + headless boot
+tools\scripts\test.ps1       # headless test suite
+tools\scripts\run.ps1        # run the game
+tools\scripts\godot.ps1 -e   # open the editor
+```
+
+`check.ps1` is the pre-commit gate. `test.ps1` takes `-File`, `-Filter`, `-Verbose_` and
+`-NoImport`.
+
+Current state: **15 test files, 195 tests, ~9 978 assertions, 0 failures.**
+
+## What is implemented
+
+| Area | Files | Provides |
+|---|---|---|
+| Logging | `autoload/log.gd` | levels, channels, `check()` vs `invariant()`, test capture |
+| Scale | `core/math/world_scale.gd` | metres ↔ world units ↔ voxel coordinates; the only place `0.5`/`2.0` may appear |
+| Time | `core/time/simulation_clock.gd` | 60 Hz fixed step, catch-up clamping, snapshot cadence |
+| Randomness | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for order-independent generation |
+| Identity | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, content catalogues, aliases, network indices |
+| Saves | `core/serialization/save_version.gd` | four independent version numbers, load verdicts, migration steps |
+| Protocol | `network/protocol/` | message kinds, direction rules, handshake compatibility |
+| Authority | `network/authority/command_gate.gd` | ownership, tick window, replay and rate-limit checks |
+| Tooling | `tools/` | engine verification, whole-tree compile check, test runner |
+
+## Design decisions worth knowing
+
+A few choices that shape everything else — the reasoning is in the linked documents.
+
+- **Server authority from the first system, not retrofitted.** Adding it later means
+  rewriting combat, inventory, quests and world edits.
+  → [`docs/server-authority.md`](docs/server-authority.md)
+- **Randomness is written out, not taken from the engine.** `RandomNumberGenerator` is an
+  implementation detail that may change; a world that regenerates differently after an
+  engine upgrade is a silently corrupted world. → [`docs/rng.md`](docs/rng.md)
+- **Generation is positional, not sequential.** A chunk's content must not depend on how
+  many chunks were generated before it, or a player arriving from the north would see a
+  different world than one arriving from the south.
+- **Four version numbers, not one.** Otherwise adding a block invalidates every save,
+  and a generator change is indistinguishable from it.
+  → [`docs/persistence.md`](docs/persistence.md)
+- **Fixed 60 Hz simulation; frame delta never reaches gameplay code.**
+  → [`docs/simulation-time.md`](docs/simulation-time.md)
+- **Layering is enforced by a test**, not by convention alone.
+  → [`docs/architecture.md`](docs/architecture.md)
 
 ## Repository layout
 
-See `CLAUDE.md` §3 for the authoritative directory contract.
+```
+autoload/   global services (Log)
+core/       math, serialization, RNG, time, IDs — no gameplay knowledge
+world/      terrain, generation, biomes, structures, streaming, persistence
+gameplay/   entities, combat, stats, inventory, skills, quests
+ai/         behavior, navigation, perception
+network/    protocol, packets, replication, authority
+client/     presentation, camera, UI, effects, boot scene
+server/     dedicated server entry points and simulation
+assets/ data/ tests/ tools/ docs/
+```
 
-- `autoload/` — global singletons
-- `core/` — math, serialization, RNG, time, IDs
-- `world/` — terrain, generation, biomes, structures, streaming, persistence
-- `gameplay/` — entities, combat, stats, inventory, skills, quests
-- `ai/` — behavior, navigation, perception
-- `network/` — protocol, packets, replication, authority
-- `client/` — presentation, camera, UI, effects
-- `server/` — dedicated server entry points and simulation
-- `assets/`, `data/`, `tests/`, `docs/`, `tools/`
+Each top-level directory has a README stating what it owns.
+[`docs/architecture.md`](docs/architecture.md) defines which layer may depend on which,
+and `tests/unit/test_layering.gd` fails the build when a file breaks it.
 
-## Working documents
+## Documentation
 
-| File | Purpose |
+| Document | Covers |
 |---|---|
-| `CLAUDE.md` | Development contract / policy |
-| `backlog.md` | 266 auditable implementation bricks |
-| `nextsteps.md` | Compact session handoff state |
-| `docs/` | Architecture, protocol, world generation, RE reference notes |
+| [`CLAUDE.md`](CLAUDE.md) | the development contract this project is built under |
+| [`backlog.md`](backlog.md) | 266 auditable implementation bricks with dependencies |
+| [`nextsteps.md`](nextsteps.md) | compact session handoff state |
+| [`docs/architecture.md`](docs/architecture.md) | the four kinds of code and the dependency table |
+| [`docs/conventions.md`](docs/conventions.md) | naming, files, classes, stable IDs |
+| [`docs/simulation-time.md`](docs/simulation-time.md) | fixed-step tick contract |
+| [`docs/rng.md`](docs/rng.md) | deterministic randomness |
+| [`docs/ids-and-registries.md`](docs/ids-and-registries.md) | content identity and catalogues |
+| [`docs/persistence.md`](docs/persistence.md) | save format versioning and migrations |
+| [`docs/protocol.md`](docs/protocol.md) | network message taxonomy |
+| [`docs/server-authority.md`](docs/server-authority.md) | authority invariants |
+| [`docs/logging-and-errors.md`](docs/logging-and-errors.md) | logging and error conventions |
+| [`docs/environment.md`](docs/environment.md), [`docs/voxel-tools.md`](docs/voxel-tools.md) | verified toolchain |
+| [`docs/adr/`](docs/adr/) | architecture decision records |
+| [`docs/reference/`](docs/reference/) | reverse-engineering notes, with confidence levels |
 
-## Development loop
+## Development workflow
+
+One backlog brick at a time:
 
 1. Read `CLAUDE.md`, then `nextsteps.md`.
-2. Pick the next unblocked backlog brick.
+2. Take the next unblocked brick.
 3. Implement only that brick.
-4. Run targeted tests (`tools/` helper scripts).
+4. `tools\scripts\check.ps1` and `tools\scripts\test.ps1`.
 5. Update `nextsteps.md`, review the diff, commit.
 
-## Reference sources
+A brick is done only when the implementation exists, targeted tests pass, docs are
+updated, and any visual verification is explicitly marked as needing a human playtest.
 
-- Reverse-engineering reference: <https://github.com/qad3n/CubeWorld-Reversal> (behavioral hypotheses only, never a line-by-line port)
-- Voxel Tools: <https://github.com/Zylann/godot_voxel>
+## IP discipline
+
+The reverse-engineering reference ([qad3n/CubeWorld-Reversal](https://github.com/qad3n/CubeWorld-Reversal))
+is used as a source of **behavioural hypotheses only**. It is cloned locally, is not
+committed here, and nothing is ported line by line.
+
+- Behaviour is extracted and written up in our own words, with an explicit confidence
+  level; decompiled bodies, struct layouts, constant tables and asset data never enter
+  this repository.
+- Implementations are idiomatic Godot written against a documented contract.
+- Assets and data are newly authored.
+
+Cube World and its original code, assets, names and trademarks belong to Picroma and
+Wolfram von Funck (Wollay). This project is unaffiliated fan work.
+
+## Licence
+
+Not yet chosen. Until a `LICENSE` file is added, no permissions are granted beyond
+viewing the source.

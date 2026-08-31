@@ -6,50 +6,52 @@
 ## Current project state
 
 - Project: CubeWorld-style Alpha 2013 reimplementation
-- Engine: `Godot 4.7.2.stable.custom_build [ed1daf0bf]`
-- Voxel Tools: `1.7`
-- Voxel scale: `1 voxel = 0.5 m`
-- Reference repo: `qad3n/CubeWorld-Reversal`
-- Editor/runtime MCP: Godot AI by dlight
-- Asset MCP: Blender MCP / `bpy`
-- Human visual in-game testing: required where marked; screenshots are not required
+- Engine: `4.7.2.stable.double.custom_build.ed1daf0bf` — VERIFIED (`docs/environment.md`)
+- Voxel Tools: `1.7.0`, edition `Module` — VERIFIED (`docs/voxel-tools.md`)
+- Voxel scale: `1 voxel = 0.5 m` (utility not yet implemented — brick 013)
+- Reference repo: `reference/CubeWorld-Reversal` (local, gitignored, `.gdignore`d)
+- Git: initialized, `main`, one commit per brick
+- Godot AI MCP: server failed to connect this session (`CONNECTION_CLOSED`); not needed so far
 
 ## Current phase
 
-`A — Bootstrap & repository`
+`B — Architecture & reference extraction`
 
 ## Current milestone
 
-`M001 — Repository and development contract`
+`M002 — Voxel sandbox` (M001 bootstrap: COMPLETE)
 
 ## Current task
 
-`001 — Initialize repository, git, .gitignore, and project metadata`
+`011 — Define domain/state/system/presentation layering rules`
 
-## Current status
+## Completed bricks
 
-- [ ] Exact custom Godot build verified
-- [ ] Voxel Tools 1.7 verified
-- [ ] Baseline directory tree created
-- [ ] Project opens
-- [ ] Test harness runs
-- [ ] `CLAUDE.md` installed
-- [ ] `nextsteps.md` installed
-- [ ] `backlog.md` installed
-- [ ] Reverse-engineering reference templates initialized
+`001` `002` `003` `004` `005` `006` `007` `008` `009` `010` — Phase A complete.
+
+## Commands
+
+```powershell
+tools\scripts\check.ps1      # engine + voxel + full GDScript compile + headless boot
+tools\scripts\test.ps1       # headless test suite  (-File / -Filter / -Verbose_ / -NoImport)
+tools\scripts\run.ps1        # run the game        (-Headless, game args forwarded past --)
+tools\scripts\godot.ps1 -e   # open the editor
+```
+
+Last run: `check.ps1` OK · `test.ps1` OK — 2 files, 17 tests, 60 assertions, 0 failed.
 
 ## Next 10 actions
 
-1. Initialize project metadata and git.
-2. Verify exact Godot executable fingerprint.
-3. Verify Voxel Tools 1.7 is active.
-4. Create directory tree.
-5. Implement `WorldScale`.
-6. Add CLI validation/test helpers.
-7. Add reference-document templates.
-8. Run baseline project smoke test.
-9. Complete tasks `001–010`.
-10. Update this file after every task.
+1. `011` layering rules → `docs/architecture.md`.
+2. `012` naming/file/class/ID conventions.
+3. `013` `WorldScale` in `core/math/` + unit tests (the only place `0.5`/`2.0` may appear).
+4. `014` fixed-step simulation/time contract.
+5. `015` deterministic RNG service contract.
+6. `016` stable ID + registry contract.
+7. `017` save/version compatibility contract.
+8. `018` network command/state/event taxonomy → `docs/protocol.md`.
+9. `019` server-authority invariants.
+10. `020` reference matrix template (then 021+ start reading the RE tree).
 
 ## Working set
 
@@ -62,9 +64,28 @@ At session start read:
 
 ## Human test state
 
-- Last human playtest: `NOT STARTED`
+- Last human playtest: `NOT STARTED` — nothing visual exists yet; the main scene prints a
+  boot report to a label. First `HUMAN_REQUIRED` brick is `091`.
 - Last reported visual issues: `NONE`
 - Last reported gameplay issues: `NONE`
+
+## Technical notes worth keeping
+
+- **Class cache.** Headless `--script` runs read `.godot/global_script_class_cache.cfg`
+  but never refresh it, so a new `class_name` is invisible until `godot --headless
+  --import` runs. `check.ps1` and `test.ps1` do this; a raw `godot --script` does not.
+- **Parse checking.** `load()` returns a resource even for a broken script, so validity is
+  decided by `can_instantiate()` (runner) or by parsing a detached `GDScript` copy
+  (`check_scripts.gd`). That copy renames its `class_name`, since the real file is already
+  registered globally.
+- **PowerShell 5.1.** Native stderr becomes ErrorRecords and would abort a script under
+  `ErrorActionPreference=Stop`; `Invoke-Godot` relaxes it around the call only.
+- **Warnings are errors** for integer division, narrowing conversion and shadowed
+  variables (`project.godot [debug]`). Intentional cases need `@warning_ignore_start`.
+- `VoxelGeneratorMultipassCB` exists in 1.7 — the route for generation needing neighbour
+  context (structures/villages, bricks 089–093).
+- `VoxelTerrainMultiplayerSynchronizer` exists but replicates terrain blocks only; it is
+  not a gameplay authority mechanism (evaluate at brick 050 / Phase K).
 
 ## Known risks
 
@@ -73,6 +94,7 @@ At session start read:
 - Networking must be designed before late-stage multiplayer integration.
 - Heavy voxel generation should not become a large thread-unsafe GDScript loop.
 - Visual similarity is not proof of behavioral parity.
+- The engine binary is machine-local; only its fingerprint is committed.
 
 ## Session handoff rule
 

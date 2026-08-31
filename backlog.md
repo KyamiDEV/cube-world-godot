@@ -30,16 +30,16 @@
 
 | ID | Phase | Brick | Dependencies | MCP guidance | Human test | Status |
 |---:|:---:|---|---|---|:---:|:---:|
-| 001 | A | Initialize repository, git, .gitignore, and project metadata | — | Not needed by default | NO | TODO |
-| 002 | A | Verify exact Godot 4.7.2 custom build and record executable fingerprint | 001 | CLI/files only | NO | TODO |
-| 003 | A | Verify Voxel Tools 1.7 module is active | 002 | CLI/files only | NO | TODO |
-| 004 | A | Create baseline project.godot and main scene | 003 | MCP optional | NO | TODO |
-| 005 | A | Create baseline directory tree | 004 | Not needed by default | NO | TODO |
-| 006 | A | Install compact development logging and error conventions | 005 | Not needed by default | NO | TODO |
-| 007 | A | Create CLI run/check helper scripts | 006 | CLI/files only | NO | TODO |
-| 008 | A | Create test harness and first smoke test | 007 | CLI/files only | NO | TODO |
-| 009 | A | Create clean-room/reference documentation skeleton | 008 | Not needed by default | NO | TODO |
-| 010 | A | Create initial architecture decision record | 009 | Not needed by default | NO | TODO |
+| 001 | A | Initialize repository, git, .gitignore, and project metadata | — | Not needed by default | NO | DONE |
+| 002 | A | Verify exact Godot 4.7.2 custom build and record executable fingerprint | 001 | CLI/files only | NO | DONE |
+| 003 | A | Verify Voxel Tools 1.7 module is active | 002 | CLI/files only | NO | DONE |
+| 004 | A | Create baseline project.godot and main scene | 003 | MCP optional | NO | DONE |
+| 005 | A | Create baseline directory tree | 004 | Not needed by default | NO | DONE |
+| 006 | A | Install compact development logging and error conventions | 005 | Not needed by default | NO | DONE |
+| 007 | A | Create CLI run/check helper scripts | 006 | CLI/files only | NO | DONE |
+| 008 | A | Create test harness and first smoke test | 007 | CLI/files only | NO | DONE |
+| 009 | A | Create clean-room/reference documentation skeleton | 008 | Not needed by default | NO | DONE |
+| 010 | A | Create initial architecture decision record | 009 | Not needed by default | NO | DONE |
 | 011 | B | Define domain/state/system/presentation layering rules | 010 | Not needed by default | NO | TODO |
 | 012 | B | Define naming, file, class, and ID conventions | 011 | Not needed by default | NO | TODO |
 | 013 | B | Define WorldScale and coordinate conversion API | 004 | Not needed by default | NO | TODO |

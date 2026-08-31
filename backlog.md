@@ -43,7 +43,7 @@
 | 011 | B | Define domain/state/system/presentation layering rules | 010 | Not needed by default | NO | DONE |
 | 012 | B | Define naming, file, class, and ID conventions | 011 | Not needed by default | NO | DONE |
 | 013 | B | Define WorldScale and coordinate conversion API | 004 | Not needed by default | NO | DONE |
-| 014 | B | Define fixed-step simulation/time contract | 013 | Not needed by default | NO | TODO |
+| 014 | B | Define fixed-step simulation/time contract | 013 | Not needed by default | NO | DONE |
 | 015 | B | Define deterministic RNG service contract | 014 | Not needed by default | NO | TODO |
 | 016 | B | Define stable ID and registry contract | 015 | Not needed by default | NO | TODO |
 | 017 | B | Define save/version compatibility contract | 016 | Not needed by default | NO | TODO |

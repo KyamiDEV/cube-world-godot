@@ -46,7 +46,7 @@
 | 014 | B | Define fixed-step simulation/time contract | 013 | Not needed by default | NO | DONE |
 | 015 | B | Define deterministic RNG service contract | 014 | Not needed by default | NO | DONE |
 | 016 | B | Define stable ID and registry contract | 015 | Not needed by default | NO | DONE |
-| 017 | B | Define save/version compatibility contract | 016 | Not needed by default | NO | TODO |
+| 017 | B | Define save/version compatibility contract | 016 | Not needed by default | NO | DONE |
 | 018 | B | Define network command/state/event taxonomy | 017 | Not needed by default | NO | TODO |
 | 019 | B | Define server-authority invariants | 018 | Not needed by default | NO | TODO |
 | 020 | B | Create reference matrix template for reverse engineering | 011, 018 | Not needed by default | NO | TODO |

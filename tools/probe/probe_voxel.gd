@@ -42,6 +42,8 @@ func _initialize() -> void:
 		_finish(failures)
 		return
 
+	# VoxelEngine is exposed as a bare Object; accessors cannot be statically typed.
+	@warning_ignore_start("unsafe_method_access")
 	var ve := Engine.get_singleton("VoxelEngine")
 	var version := Vector3i(
 		ve.get_version_major(), ve.get_version_minor(), ve.get_version_patch())
@@ -58,6 +60,8 @@ func _initialize() -> void:
 	if ve.get_version_edition() != "Module":
 		failures.append("voxel edition is '%s', expected 'Module' (GDExtension builds are not the target)."
 				% ve.get_version_edition())
+
+	@warning_ignore_restore("unsafe_method_access")
 
 	var missing: PackedStringArray = []
 	for cls in REQUIRED_CLASSES:

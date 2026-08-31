@@ -40,7 +40,7 @@
 | 008 | A | Create test harness and first smoke test | 007 | CLI/files only | NO | DONE |
 | 009 | A | Create clean-room/reference documentation skeleton | 008 | Not needed by default | NO | DONE |
 | 010 | A | Create initial architecture decision record | 009 | Not needed by default | NO | DONE |
-| 011 | B | Define domain/state/system/presentation layering rules | 010 | Not needed by default | NO | TODO |
+| 011 | B | Define domain/state/system/presentation layering rules | 010 | Not needed by default | NO | DONE |
 | 012 | B | Define naming, file, class, and ID conventions | 011 | Not needed by default | NO | TODO |
 | 013 | B | Define WorldScale and coordinate conversion API | 004 | Not needed by default | NO | TODO |
 | 014 | B | Define fixed-step simulation/time contract | 013 | Not needed by default | NO | TODO |

@@ -63,6 +63,10 @@ integer voxel coordinate. Compare floats with `assert_almost_eq`.
 ## Harness notes
 
 - The runner never halts on the first failure; it reports every test, then exits 1.
+- **A test that records zero assertions fails.** A GDScript runtime error unwinds the
+  method without stopping the runner, so an empty assertion count is the only available
+  signal that the body aborted — for instance because a dependency did not compile.
+  Reporting it as a pass is how a broken class turns a whole suite green.
 - A test file that does not compile is reported as a failing file. `load()` returns a
   resource even for a broken script, so the runner checks `can_instantiate()`.
 - Tests may `await`. The runner drives the real main loop, so `wait_frames()` works.

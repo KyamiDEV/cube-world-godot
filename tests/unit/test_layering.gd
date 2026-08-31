@@ -53,21 +53,25 @@ func test_scan_found_project_scripts() -> void:
 
 
 func test_no_layer_violations() -> void:
+	var violations: PackedStringArray = []
 	for source in _references:
 		var source_layer := _layer_of(source)
 		if source_layer.is_empty() or UNRESTRICTED_SOURCES.has(source_layer):
 			continue
 		if not ALLOWED.has(source_layer):
-			fail("%s sits in unknown layer '%s'" % [source, source_layer])
+			violations.append("%s sits in unknown layer '%s'" % [source, source_layer])
 			continue
 		var allowed: Array = ALLOWED[source_layer]
 		for target in _references[source]:
 			var target_layer := _layer_of(target)
 			if target_layer.is_empty() or IGNORED_ROOTS.has(target_layer):
 				continue
-			assert_true(allowed.has(target_layer),
-					"%s (%s) may not reference %s (%s)" % [
-							source, source_layer, target, target_layer])
+			if not allowed.has(target_layer):
+				violations.append("%s (%s) may not reference %s (%s)" % [
+						source, source_layer, target, target_layer])
+	# Collected rather than asserted one by one, so the count is a single assertion
+	# that fires whether or not any file currently has a cross-layer reference.
+	assert_size(violations, 0, "layer violations: " + " | ".join(violations))
 
 
 func test_allowed_table_is_acyclic_in_the_directions_that_matter() -> void:

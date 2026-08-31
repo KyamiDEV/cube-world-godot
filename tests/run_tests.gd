@@ -91,11 +91,20 @@ func _run_method(case: TestCase, method: String) -> void:
 	case._runner_end_test()
 
 	var failures := case._runner_failures()
+	var assertion_count := case._runner_assertion_count()
+	# A method that asserted nothing did not pass — it aborted. A GDScript runtime
+	# error unwinds the method without stopping the runner, so "zero assertions" is
+	# the only signal that the body never finished. Reporting it as a pass is how a
+	# broken dependency turns a whole suite green.
+	if assertion_count == 0 and failures.is_empty():
+		failures = PackedStringArray([
+			"no assertions were recorded — the method aborted, or it asserts nothing"])
+
 	_tests_run += 1
-	_assertions += case._runner_assertion_count()
+	_assertions += assertion_count
 	if failures.is_empty():
 		if _verbose:
-			print("  ok   %s (%d)" % [method, case._runner_assertion_count()])
+			print("  ok   %s (%d)" % [method, assertion_count])
 	else:
 		_tests_failed += 1
 		print("  FAIL %s" % method)

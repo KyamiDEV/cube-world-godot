@@ -3,7 +3,8 @@
   Validates the development environment and the whole GDScript tree (brick 007).
 .DESCRIPTION
   Four checks, in dependency order:
-    1. engine build matches the contract (CLAUDE.md section 1)
+    1. engine build matches the contract (CLAUDE.md section 1), then a project
+       import so newly added `class_name` scripts are registered
     2. Voxel Tools 1.7 module and required classes are present
     3. every project .gd file compiles, warnings-as-errors included
     4. the project boots headless without errors
@@ -29,6 +30,10 @@ try {
     # Nothing below is meaningful on the wrong engine.
     exit 1
 }
+
+Write-Section 'Project import'
+Update-ClassCache
+Write-Host '  class cache refreshed'
 
 Write-Section 'Voxel Tools'
 $voxel = Invoke-Godot -GodotArgs @('--headless', '--script', 'res://tools/probe/probe_voxel.gd') -Quiet

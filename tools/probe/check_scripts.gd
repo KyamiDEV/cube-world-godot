@@ -48,8 +48,18 @@ func _parse_fails(path: String) -> bool:
 		printerr("unreadable: ", path)
 		return true
 	var probe := GDScript.new()
-	probe.source_code = text
+	probe.source_code = _suffix_class_name(text)
 	return probe.reload(false) != OK
+
+
+## The real file is already registered as a global class, so a detached copy
+## declaring the same `class_name` is rejected with "hides a global script class".
+## Renaming only the declaration sidesteps that: references to the original name
+## inside the file still resolve, through the global class list, to the real script.
+func _suffix_class_name(text: String) -> String:
+	var regex := RegEx.new()
+	regex.compile("(?m)^class_name[ \t]+([A-Za-z_][A-Za-z0-9_]*)")
+	return regex.sub(text, "class_name $1__selfcheck")
 
 
 func _collect(dir_path: String) -> PackedStringArray:

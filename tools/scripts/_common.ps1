@@ -69,6 +69,17 @@ function Invoke-Godot {
     return [pscustomobject]@{ ExitCode = $code; Output = $output }
 }
 
+# Rescans the project so scripts declaring `class_name` are registered in
+# .godot/global_script_class_cache.cfg. Headless `--script` runs read that cache
+# but never refresh it, so a newly added global class is invisible until this runs.
+function Update-ClassCache {
+    $result = Invoke-Godot -GodotArgs @('--headless', '--import') -Quiet
+    if ($result.ExitCode -ne 0) {
+        Write-Host ($result.Output | Select-Object -Last 10) -ForegroundColor Red
+        throw "Project import failed (exit $($result.ExitCode))."
+    }
+}
+
 function Write-Section {
     param([string]$Text)
     Write-Host ''

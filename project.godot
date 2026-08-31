@@ -20,6 +20,7 @@ boot_splash/show_image=false
 
 [autoload]
 
+Log="*res://autoload/log.gd"
 _mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [debug]

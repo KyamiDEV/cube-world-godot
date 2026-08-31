@@ -11,7 +11,7 @@ extends Node
 func _ready() -> void:
 	var report := _collect_boot_report()
 	for line in report:
-		print("[boot] ", line)
+		Log.info(Log.CH_BOOT, line)
 	_status.text = "\n".join(report)
 
 

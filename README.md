@@ -7,19 +7,22 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: voxel infrastructure complete (Phase C).** Bricks 001–055 of 266 are done —
+> **Status: world generation in progress (Phase D).** Bricks 001–064 of 266 are done —
 > verified toolchain, project skeleton, test harness, the core contracts (scale, time,
 > RNG, IDs, saves, protocol, authority), the reverse-engineering reference mapping
-> (Phase B), and a working voxel edit pipeline: a block schema/registry, a generated
-> grass/dirt/stone block set, a `VoxelBlockyLibrary` builder, a baseline `VoxelTerrain` +
-> `VoxelMesherBlocky` + `VoxelViewer`, block raycast/place/remove with layered structural
-> + gameplay validation, an undo/delta representation, SQLite-backed save/load proven by
-> an integration test, world bounds/authority policy, chunk profiling hooks, the
-> `mesh_block_size` 16-vs-32 benchmarks, and a baseline voxel performance budget
-> ([`docs/performance-budget.md`](docs/performance-budget.md)). Next up is Phase D —
-> procedural world generation. There is no playable world yet; the main scene prints a
-> boot report. Progress is tracked in [`backlog.md`](backlog.md) and
-> [`nextsteps.md`](nextsteps.md).
+> (Phase B), a complete voxel edit pipeline (Phase C: block schema/registry, a generated
+> block set, a `VoxelBlockyLibrary` builder, a baseline `VoxelTerrain` +
+> `VoxelMesherBlocky` + `VoxelViewer`, raycast place/remove with layered structural +
+> gameplay validation, undo/delta representation, SQLite-backed save/load proven by an
+> integration test, world bounds/authority policy, chunk profiling hooks, the
+> `mesh_block_size` 16-vs-32 benchmarks and a baseline voxel performance budget
+> ([`docs/performance-budget.md`](docs/performance-budget.md))), and the first nine passes
+> of procedural generation (Phase D: world seed, generation versioning, coordinate hashing
+> and grids, shared determinism fixtures, a value-noise primitive, and the
+> continentalness → elevation → erosion → terrace → temperature chain,
+> [`docs/world-generation.md`](docs/world-generation.md)). There is no playable world yet —
+> nothing is written to a `VoxelBuffer` and the main scene prints a boot report. Progress
+> is tracked in [`backlog.md`](backlog.md) and [`nextsteps.md`](nextsteps.md).
 
 ## Technical baseline
 
@@ -59,7 +62,7 @@ tools\scripts\godot.ps1 -e   # open the editor
 `check.ps1` is the pre-commit gate. `test.ps1` takes `-File`, `-Filter`, `-Verbose_` and
 `-NoImport`.
 
-Current state: **30 test files, 304 tests, ~10 336 assertions, 0 failures.**
+Current state: **41 test files, 521 tests, ~83 195 assertions, 0 failures.**
 
 ## What is implemented
 
@@ -78,6 +81,10 @@ Current state: **30 test files, 304 tests, ~10 336 assertions, 0 failures.**
 | Terrain | `world/terrain/voxel_terrain_builder.gd`, `voxel_viewer_builder.gd` | baseline `VoxelTerrain` (collision, placeholder flat-ground generator, `VoxelMesherBlocky`, configurable `mesh_block_size`, world bounds) plus a `VoxelViewer` for streaming interest |
 | Editing | `world/terrain/block_raycast_service.gd`, `block_edit_validator.gd`, `block_edit_applicator.gd`, `block_edit_delta.gd` | raycast → structural + gameplay validation → apply → undoable delta, the full server-authoritative edit pipeline |
 | Persistence | `world/persistence/voxel_stream_builder.gd`, `world/terrain/world_bounds.gd` | `VoxelStreamSQLite` deltas-only save/load, proven end-to-end by an integration test; authoritative world extent |
+| Generation | `world/generation/world_seed.gd`, `generation_version.gd`, `generation_hash.gd`, `generation_grid.gd` | world identity as `(value, text, generation version)` with a client/server parity check; the version lifecycle and its self-check; positional hashing bound to one world; the five coordinate spaces generation asks questions at, with floor-correct conversions |
+| Generation | `world/generation/value_noise.gd` | the coherent-noise primitive every field stands on — an integer voxel lattice, a quintic fade (never `cos`: libm is not bit-reproducible and both sides generate), octaves separated by a lattice offset, and a slope bound derived before any sample is taken |
+| Generation | `world/generation/continentalness.gd`, `elevation_field.gd`, `erosion_pass.gd`, `terrace_pass.gd`, `temperature_field.gd` | the world-shape chain: a land/ocean macro field → signed ground height on a datum → a ruggedness/valley erosion pass that only ever lowers → 4 m terracing that makes it a block world → the first climate axis, independent of elevation |
+| Tests | `tests/fixtures/generation_fixtures.gd` | the shared determinism floor every generation pass is tested against: pinned named worlds, coordinate samples chosen for negative axes/cell boundaries/world corners, repeatability + order-independence + seed-sensitivity + range + variation checks, and golden signatures |
 | Profiling | `world/terrain/voxel_terrain_metrics.gd`, `tools/benchmarks/` | typed access to Voxel Tools' own debug counters; a `mesh_block_size` (16 vs 32) benchmark harness |
 | Tooling | `tools/` | engine verification, whole-tree compile check, test runner, content generators, benchmarks |
 
@@ -94,6 +101,11 @@ A few choices that shape everything else — the reasoning is in the linked docu
 - **Generation is positional, not sequential.** A chunk's content must not depend on how
   many chunks were generated before it, or a player arriving from the north would see a
   different world than one arriving from the south.
+- **Generation constants are pinned, not tuned.** Cell sizes, amplitudes and curves are
+  part of every world ever made with them, so changing one is a *generation version bump*,
+  not a knob. Every pass pins a golden signature over a shared fixture set, so the bump has
+  to be made deliberately instead of noticed by a player whose world moved.
+  → [`docs/world-generation.md`](docs/world-generation.md)
 - **Four version numbers, not one.** Otherwise adding a block invalidates every save,
   and a generator change is indistinguishable from it.
   → [`docs/persistence.md`](docs/persistence.md)
@@ -137,10 +149,12 @@ and `tests/unit/test_layering.gd` fails the build when a file breaks it.
 | [`docs/rng.md`](docs/rng.md) | deterministic randomness |
 | [`docs/ids-and-registries.md`](docs/ids-and-registries.md) | content identity and catalogues |
 | [`docs/persistence.md`](docs/persistence.md) | save format versioning and migrations |
+| [`docs/world-generation.md`](docs/world-generation.md) | seeds, generation versioning, coordinate spaces, and every generation pass |
 | [`docs/protocol.md`](docs/protocol.md) | network message taxonomy |
 | [`docs/server-authority.md`](docs/server-authority.md) | authority invariants |
 | [`docs/logging-and-errors.md`](docs/logging-and-errors.md) | logging and error conventions |
 | [`docs/environment.md`](docs/environment.md), [`docs/voxel-tools.md`](docs/voxel-tools.md) | verified toolchain |
+| [`docs/performance-budget.md`](docs/performance-budget.md) | measured baselines, regression thresholds, re-measure triggers |
 | [`docs/adr/`](docs/adr/) | architecture decision records |
 | [`docs/reference/`](docs/reference/) | reverse-engineering notes, with confidence levels |
 

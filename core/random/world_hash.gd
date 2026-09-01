@@ -40,6 +40,27 @@ const _AXIS_Z := 1442695040888963407     # Knuth's LCG increment, odd
 ## (`docs/world-generation.md` §2.1).
 const _COMBINE := -7046029254386353131   # 0x9E3779B97F4A7C15, golden-ratio odd constant
 
+## Added after each fold, and the reason multiplying is not enough on its own.
+##
+## `_COMBINE` alone left a *second* route to the same mirror world, which brick 059's
+## fixtures found: multiplication distributes over negation (`(-v) * C == -(v * C)`), so
+## whenever the running value happens to come out of a fold as the exact negative of its
+## mirror, the next axis's own negation mask cancels against it and the two coordinates
+## hash identically again. The running value does come out that way, systematically:
+## `s ^ (-a) == -(s ^ a)` holds for every `a` odd whenever the effective seed
+## `seed_value * 31 + salt` is **even** — that is, for half of all (seed, salt) pairs, and
+## there for every column with both coordinates odd. Measured before the fix: 15% of a
+## 151 263-pair sweep, mirrored through the origin.
+##
+## An odd constant added after the multiply breaks the identity outright: the mirror value
+## becomes `-v + 2 * _ROUND`, which is no longer any negation mask away from `v`, so
+## nothing downstream can cancel it. Chosen over a rotation, which fixes the same class
+## and measured 69% slower in this interpreter, against 2% for the addition.
+##
+## Found and fixed by brick 059, still before any world had been generated
+## (`docs/rng.md` §3).
+const _ROUND := 2685821657736338717      # 0x2545F4914F6CDD1D, odd
+
 ## Salts keep independent generation passes from correlating: the tree pass and the ore
 ## pass must not agree about which cells are "high". Add one per pass; never reuse a
 ## salt for a different purpose, and never renumber an existing one — the values are
@@ -58,9 +79,9 @@ const SALT_LOOT := 9
 ## 64-bit hash of a 3D voxel or chunk coordinate under a world seed and pass salt.
 static func hash3(seed_value: int, x: int, y: int, z: int, salt: int = 0) -> int:
 	var value := seed_value * 31 + salt
-	value = (value ^ (x * _AXIS_X)) * _COMBINE
-	value = (value ^ (y * _AXIS_Y)) * _COMBINE
-	value = (value ^ (z * _AXIS_Z)) * _COMBINE
+	value = (value ^ (x * _AXIS_X)) * _COMBINE + _ROUND
+	value = (value ^ (y * _AXIS_Y)) * _COMBINE + _ROUND
+	value = (value ^ (z * _AXIS_Z)) * _COMBINE + _ROUND
 	return DeterministicRng.mix64(value)
 
 
@@ -69,9 +90,9 @@ static func hash3(seed_value: int, x: int, y: int, z: int, salt: int = 0) -> int
 ## at y = 0 do not produce identical patterns.
 static func hash2(seed_value: int, x: int, z: int, salt: int = 0) -> int:
 	var value := seed_value * 31 + salt
-	value = (value ^ (x * _AXIS_X)) * _COMBINE
-	value = (value ^ (z * _AXIS_Z)) * _COMBINE
-	value = (value ^ _AXIS_Y) * _COMBINE  # distinguishes 2D from 3D-at-y-0
+	value = (value ^ (x * _AXIS_X)) * _COMBINE + _ROUND
+	value = (value ^ (z * _AXIS_Z)) * _COMBINE + _ROUND
+	value = (value ^ _AXIS_Y) * _COMBINE + _ROUND  # distinguishes 2D from 3D-at-y-0
 	return DeterministicRng.mix64(value)
 
 

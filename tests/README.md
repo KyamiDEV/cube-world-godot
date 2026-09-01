@@ -6,6 +6,14 @@
 | `integration/` | multi-system and network tests |
 | `fixtures/` | deterministic inputs and golden outputs |
 
+Files in `fixtures/` are **not** test files: the runner only collects `test_*.gd`, so a
+fixture is named for its subject (`generation_fixtures.gd`) and declares no `test_*`
+method. `tests/unit/test_conventions.gd` enforces both halves.
+
+`generation_fixtures.gd` (brick 059) is the one every Phase D test uses — the named
+worlds, the coordinate samples and the determinism checks. Its contract is
+`docs/world-generation.md` §4.
+
 Human in-game playtests are policy category C (`CLAUDE.md` §7) and are tracked in
 `nextsteps.md`, not here.
 

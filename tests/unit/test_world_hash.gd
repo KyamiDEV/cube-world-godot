@@ -55,6 +55,35 @@ func test_negated_coordinates_are_a_different_place() -> void:
 	assert_ne(WorldHash.hash3(SEED, -6, -10, 0), WorldHash.hash3(SEED, 6, 10, 0))
 
 
+func test_no_mirror_world_at_any_seed_and_salt_parity() -> void:
+	# Regression, found by brick 059 — the same mirror world as above, reached by a
+	# second route the brick-058 fix left open, and invisible to the assertions above
+	# because they all happen to use an odd `seed * 31 + salt`.
+	#
+	# `(-v) * C == -(v * C)`, so multiplying preserves an exact negation; and
+	# `s ^ (-a) == -(s ^ a)` holds for every odd `a` whenever `s` is even. Half of all
+	# (seed, salt) pairs are therefore mirrored through the origin, for every column with
+	# both coordinates odd. Both parities are swept here so a fix that only moves the
+	# parity around does not pass.
+	var collisions: PackedStringArray = []
+	var checked := 0
+	for seed_value in [0, 1, 12345, -1, 987654321, 2398121596163494691]:
+		for salt in [0, 1, 2, 3, WorldHash.SALT_ELEVATION, 4096, 4097]:
+			for x in [1, 3, 7, 9, 12, 16, 1023, 65536, 524287]:
+				for z in [1, 3, 9, 10, 24, 32, 1024, 65537, 524288]:
+					checked += 1
+					if WorldHash.hash2(seed_value, x, z, salt) \
+							== WorldHash.hash2(seed_value, -x, -z, salt):
+						collisions.append("hash2 seed=%d salt=%d (%d, %d)" % [
+								seed_value, salt, x, z])
+					if WorldHash.hash3(seed_value, x, 5, z, salt) \
+							== WorldHash.hash3(seed_value, -x, -5, -z, salt):
+						collisions.append("hash3 seed=%d salt=%d (%d, 5, %d)" % [
+								seed_value, salt, x, z])
+	assert_true(checked >= 3000, "the sweep actually ran (%d pairs)" % checked)
+	assert_size(collisions, 0, "mirrored coordinates: " + " | ".join(collisions))
+
+
 func test_different_seeds_give_different_worlds() -> void:
 	assert_ne(WorldHash.hash3(1, 10, 10, 10), WorldHash.hash3(2, 10, 10, 10))
 

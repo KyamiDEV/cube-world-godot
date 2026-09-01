@@ -312,3 +312,136 @@ exists.
 - Using `is_region_in_world()` for anything. Region-scale placement is bricks 089–090.
 - A region *record* — what a region contains, and whether it is cached. This brick
   defines the coordinate and its hash, nothing that lives at it.
+
+## 4. Deterministic test fixtures (brick 059)
+
+Implementation: `tests/fixtures/generation_fixtures.gd` (`GenerationFixtures`).
+Tests: `tests/unit/test_generation_fixtures.gd`.
+
+### 4.1 What every generation pass owes
+
+Bricks 060–090 each add one pass — a noise layer, a field, a classifier, a placement
+rule. Every one of them owes the same four properties, which come straight from
+`CLAUDE.md` §1's determinism rule:
+
+| Property | The failure it rules out |
+|---|---|
+| **repeatable** | the same coordinate answered twice gives two answers |
+| **order-free** | the answer depends on what was generated before it, so walking into a chunk from the east builds different ground than walking in from the west |
+| **seed-sensitive** | the seed never reaches the result, and every world is the same world |
+| **in range** | a value leaves its stated interval, or is NaN, and the terrain built from it is silently missing |
+
+Left to each brick, those would be re-asserted thirty different ways, each against
+whichever handful of coordinates its author happened to think of — and, as §4.3 explains,
+the coordinates an author thinks of are the ones that work.
+
+`GenerationFixtures` is the shared floor: the worlds, the coordinates, and the checks.
+A pass's own test file supplies the pass; everything else is common.
+
+### 4.2 The named worlds
+
+Four `WorldSeed`s, each with a **pinned** numeric value: seed `0` (the accidental default
+of every uninitialised field, and the seed where a pass that multiplies by it collapses),
+a typed phrase through the string-hash branch, `"12345"` through `seed_from_text()`'s
+face-value branch, and `-1`, every bit set, for a pass that assumes a non-negative seed.
+
+The values are pinned rather than computed. That makes the fixture set a **contract on the
+seed hash**: if `WorldHash.seed_from_text()` ever changes, the fixture fails rather than
+quietly agreeing with itself, and `docs/rng.md` §3 says a changed hash after brick 060 is
+a version bump. The same argument is why `test_generation_fixtures.gd` also pins one
+golden signature (§4.5).
+
+### 4.3 The coordinate samples
+
+Five sample lists — voxels, columns, chunks, chunk columns, regions — every entry present
+for a stated reason, and each list handed out freshly built so a test that sorts what it
+was given does not change what the next test samples.
+
+What they deliberately cover:
+
+- **the origin**, which every off-by-one lands on or beside;
+- **negative axes**, where `floor_div` vs truncation and sign symmetries live — half the
+  world, and the half a positive-quadrant sample set never visits;
+- **`(-7, 5, -9)` and its mirror `(7, 5, 9)`**, the exact pair brick 058's defect
+  identified, so a returning symmetry is visible rather than merely improbable;
+- **`(9, -9)` and `(-9, 9)`**, two columns holding the same numbers in the opposite
+  order, which a pass that folds x and z together cannot tell apart and a diagonal-only
+  sample set never asks about;
+- **cell boundaries**: the last voxel of a chunk and the first of the next, on both sides
+  of the origin; the last column of region `(0, 0)` and the first of `(1, 1)`;
+- **the extremes**: the world ceiling and floor, the far horizontal corners of
+  `WorldBounds`, and both corners of the region grid — coordinates large enough that a
+  32-bit intermediate overflows and a float one loses exactness.
+
+`self_check()` re-asserts that coverage. Adding a sample is free; deleting the one
+negative-axis voxel would quietly turn every Phase D determinism test into a
+positive-quadrant test, and nothing else would notice.
+
+### 4.4 The checks, and why two of them take a factory
+
+All of them return `""` when the property holds and a reason when it does not — the
+convention `WorldSeed.validate()`, `GenerationHash.refuse_reason()` and
+`GenerationVersion.self_check()` already use, so a check reads the same in a test, in a
+debug probe and in a server-side self-test.
+
+`repeatability_reason()`, `range_reason()` and `variation_reason()` take a sampler.
+`determinism_reason()` and `seed_sensitivity_reason()` take a **factory** that builds one,
+because their properties can only be observed against a freshly built pass: a pass that
+numbers cells as it first meets them answers a repeated call consistently — it passes
+repeatability — and is entirely visit-order dependent. Order independence is checked by
+running three orders (forward, reversed, odds-then-evens) against three separate
+instances.
+
+`variation_reason()` is the least obvious and not the least useful: a stub returning
+`0.0`, a field whose amplitude ended up zero, and a mask nothing ever passes are all
+repeatable, all order-free, all in range, and all wrong.
+
+### 4.5 Golden signatures
+
+`signature()` digests what a sampler answered across a sample list into 16 hex digits —
+order-sensitive, and type-strict, so a field that started returning integers moves it. A
+pass pins one string; when it changes, the test asks the question that matters: **is this
+a bug, or a generation version bump?** (§2.1). Pinning one digest is cheap; pinning a
+hundred expected values is how a test file stops being read.
+
+The digest reads the exact bits of a float rather than its `str()` form, because two
+genuinely different terrains print identically to six digits.
+
+### 4.6 A second defect this found in the primitive
+
+Brick 058 fixed one route to a mirror world (§3.5). The first fixture run found a second
+one, which that fix had left open: for the `typed` world, `value01_column(-7, -9)` and
+`value01_column(7, 9)` were still equal, and so were `(9, -9)` and `(-9, 9)`.
+
+Multiplication distributes over negation — `(-v) * C == -(v * C)` — so multiplying
+*preserves* an exact negation instead of destroying it. And the running value does come
+out of the first fold as the exact negative of its mirror, systematically:
+`s ^ (-a) == -(s ^ a)` holds for every odd `a` whenever the effective seed
+`seed_value * 31 + salt` is **even**. The second axis's own negation mask then cancels
+against it and the two coordinates hash identically. That is half of all (seed, salt)
+pairs, mirrored through the origin, for every column with both coordinates odd — measured
+at 15% of a 151 263-pair sweep before the fix.
+
+Brick 058's own regression test did not catch it because every assertion in it happens to
+use an odd effective seed, where the identity does not hold. The lesson is in the test
+now: `test_no_mirror_world_at_any_seed_and_salt_parity` sweeps both parities.
+
+The fix adds an odd constant after each fold (`WorldHash._ROUND`), which turns the mirror
+value into `-v + 2 * _ROUND` — no longer any negation mask away from `v`, so nothing
+downstream can cancel it. A rotation fixes the same class and was measured 69% slower in
+this interpreter against 2% for the addition, on what `generation_hash.gd` already calls
+the hottest path in the project. Free to fix now; after brick 060 it is a version bump
+(`docs/rng.md` §3).
+
+Both defects were found the same way: by a test that sampled a coordinate somebody had
+picked *because* it was awkward. That is the entire argument for §4.3.
+
+### 4.7 Out of scope for this brick
+
+- Any generation pass to run the checks against. 060 is the first one.
+- Golden *terrain* — a stored chunk of voxel content to diff against. Nothing generates
+  voxels yet, and the digest in §4.5 is the cheaper form of the same guarantee.
+- A performance fixture. Generation's row in `docs/performance-budget.md` stays empty
+  until there is something to measure (bricks 257–258).
+- Making the checks available to production code. They live under `tests/`, which
+  `docs/architecture.md` already exempts from the layer rules in one direction only.

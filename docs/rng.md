@@ -68,11 +68,21 @@ is a **generation version bump**, with the old version kept readable or the worl
 explicitly retired — the lifecycle lives in `world/generation/generation_version.gd`
 (brick 057, `docs/world-generation.md` §2), whose bump checklist §2.5 names this case.
 
-`WorldHash`'s combining step counts as part of that contract, and it changed once, in
-brick 058: XOR-combining the per-axis products made `hash2(-7, -9)` equal `hash2(7, 9)`,
-mirroring a quarter of the world through the origin. It was free to change then because
-no world existed yet; the same change made after brick 060 is a version bump.
-`docs/world-generation.md` §3.5 has the mechanism.
+`WorldHash`'s combining step counts as part of that contract, and it has changed twice,
+both times to close the *same* mirror world and both times before any world existed:
+
+- **Brick 058** — XOR-combining the per-axis products made `hash2(-7, -9)` equal
+  `hash2(7, 9)`, mirroring a quarter of the world through the origin. Fixed by
+  multiplying by an odd constant between folds (`docs/world-generation.md` §3.5).
+- **Brick 059** — multiplying preserves an exact negation (`(-v) * C == -(v * C)`), and
+  the running value is the exact negative of its mirror whenever `seed * 31 + salt` is
+  even, so half of all (seed, salt) pairs were still mirrored. Fixed by adding an odd
+  constant after each fold (`docs/world-generation.md` §4.6).
+
+The same change made after brick 060 is a version bump, not a fix. Note what the second
+one cost to find: 058's regression test used one seed and salt 0, an odd effective seed,
+where the identity does not hold. A hash regression test sweeps **both parities** of
+`seed * 31 + salt`.
 
 ## 4. Salts and streams
 
@@ -107,6 +117,10 @@ no world existed yet; the same change made after brick 060 is a version bump.
 - **`shuffled()` copies.** Never shuffle a definition list in place.
 - **One stream, one owner.** `DeterministicRng` is not thread-safe. A generation worker
   takes a positional stream of its own rather than sharing one across threads.
+- **Test a generation pass through the shared fixtures.** `tests/fixtures/
+  generation_fixtures.gd` (brick 059, `docs/world-generation.md` §4) holds the worlds,
+  the coordinates and the checks; both defects above were found by sampling a coordinate
+  chosen because it was awkward, which is not what a pass's author picks unaided.
 
 ## 6. Seeds
 

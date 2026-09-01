@@ -132,6 +132,10 @@ to this document, not an ad-hoc decision at a call site:
 ## 6. Tests
 
 - File `tests/**/test_<subject>.gd`; the subject matches what is under test.
+- **Except `tests/fixtures/`**, which holds shared inputs and helpers, not tests: the
+  runner only ever collects `test_*.gd`, so a fixture named `test_` would be collected as
+  a test that asserts nothing. A fixture file therefore declares no `test_*` method, and
+  `test_conventions.gd` enforces both halves.
 - Method `test_<behavior_being_asserted>` — a sentence fragment, not `test_1`.
 - Every assertion gets a message when the expression alone would not tell a reader what
   broke.

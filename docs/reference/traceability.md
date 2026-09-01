@@ -205,7 +205,8 @@ matrix level). Two different reasons cover almost all of it:
   most of Phase C (031–055, `VoxelBlockyLibrary`/`VoxelTerrain`/`VoxelMesherBlocky`
   wiring — Voxel Tools supersedes the reference's own `Chunk`/`ChunkBuffer`, per
   `matrix-world.md` §1), all of Phase B's own contract bricks (011–020, 029–030 — these
-  *produced* the matrices, they don't consume one), and most of Phase L (257–266,
+  *produced* the matrices, they don't consume one), brick 059 (Phase D's test fixtures —
+  harness work, not generated behavior), and most of Phase L (257–266,
   profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148
   respawn state, 145 knockback, 147 death state, most of 231's settings-shell scope

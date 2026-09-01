@@ -8,6 +8,11 @@ extends TestCase
 ## Top-level directories this project does not own.
 const IGNORED_ROOTS: PackedStringArray = ["addons", "reference"]
 
+## Shared test inputs and helpers, not test files (`docs/conventions.md` §6, brick 059).
+## The runner only ever collects `test_*.gd`, so a file here named `test_` would be
+## collected as a test that asserts nothing, and one not named `test_` is exactly right.
+const FIXTURE_DIR := "res://tests/fixtures/"
+
 ## Generic names too ambiguous to claim in the flat global class namespace.
 const RESERVED_BARE_NAMES: PackedStringArray = [
 	"World", "Entity", "Player", "Item", "Block", "Chunk", "Camera", "Server",
@@ -57,11 +62,27 @@ func test_test_files_are_named_test_subject() -> void:
 		if not path.begins_with("res://tests/") or not path.ends_with(".gd"):
 			continue
 		var file_name := path.get_file()
-		# The harness itself is not a test file.
-		if file_name in ["test_case.gd", "run_tests.gd"]:
+		# The harness itself is not a test file, and neither is a fixture.
+		if file_name in ["test_case.gd", "run_tests.gd"] or path.begins_with(FIXTURE_DIR):
 			continue
 		assert_true(file_name.begins_with("test_"),
 				"%s is either named test_<subject>.gd or is not in tests/" % path)
+
+
+func test_fixture_files_hold_no_tests() -> void:
+	# The exemption above is only safe while it stays true: a `test_*` method in a
+	# fixture file is a test the runner never collects and nobody ever sees fail.
+	var regex := RegEx.new()
+	regex.compile("(?m)^func[ \\t]+test_")
+	var checked := 0
+	for path in _scripts:
+		if not path.begins_with(FIXTURE_DIR) or not path.ends_with(".gd"):
+			continue
+		checked += 1
+		assert_null(regex.search(FileAccess.get_file_as_string(path)),
+				"%s is a fixture, so its assertions belong in a test file the runner runs"
+						% path)
+	assert_true(checked >= 1, "the fixture scan found files (found %d)" % checked)
 
 
 # ---------------------------------------------------------------------------

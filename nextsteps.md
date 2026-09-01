@@ -17,11 +17,11 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `022 — Map CubeWorld entity/creature-related classes`
+- Next task `023 — Map CubeWorld AI-related classes`
 
 ## Completed bricks
 
-`001`–`021`. Phase A complete; Phase B contracts complete (011–020); reference tree
+`001`–`022`. Phase A complete; Phase B contracts complete (011–020); reference tree
 reading started at `021`.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
@@ -34,6 +34,19 @@ process loop supersede them — do not reimplement a parallel chunk cache. Four 
 questions recorded (matrix §4), most importantly Q2: the original client re-ran world
 generation locally rather than only presenting replicated state — confirm this was a
 singleplayer-only pattern before brick 056.
+
+`022` mapped `*/entity/` (6 classes: `Creature`, `Sprite`, `SpriteManager`, `Speech`,
+`QuestText`, `QuestTextNode`) into `docs/reference/matrix-entity.md`. Notable:
+`Creature`'s own attributed functions are almost entirely ctor/dtor/container plumbing
+— actual creature behavior (locomotion, player-controller reset, replicated-state
+apply, appearance/equipment defaults) is scattered across `game_misc` and the client
+`World`/`Interface` sections and was split out in matrix §2, same pattern as `World` in
+brick 021. `QuestText`/`QuestTextNode` are physically in `*/entity/` but reserved for
+`matrix-quests.md` (026) per `matrix-index.md` — rows added with `Placed = NONE` so
+they aren't silently dropped. Three open questions recorded (matrix §4): Q1 no backlog
+brick currently cites this matrix for creature/player locomotion (112/116/128/243); Q2
+`*/db/` (`cube::Database`) has no planned matrix at all; Q3 `Sprite`/`SpriteManager`
+are stub-only in both binaries, role undetermined.
 
 ## Commands
 
@@ -62,15 +75,15 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `022` map `*/entity/` classes (`Creature`, `Sprite`, `SpriteManager`, `Speech`) → `docs/reference/matrix-entity.md`. Note: combat/creature functions filed under `game_misc` next to `World` were deliberately skipped in `matrix-world.md` — pick them up here.
-2. `023` map `*/ai/` (`cube::Behavior` tree); also resolve Q3 from `matrix-world.md` (what world query surface `NavGraph` needs).
-3. `024` combat · `025` items · `026` quests · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
-4. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
-5. `030` traceability index from notes to bricks.
-6. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
-7. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
-8. `052`–`055` mesh block size benchmarks; record the measured choice.
-9. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?).
+1. `023` map `*/ai/` (`cube::Behavior` tree) → `docs/reference/matrix-ai.md`; also resolve Q3 from `matrix-world.md` (what world query surface `NavGraph` needs).
+2. `024` combat (pick up `CombatBehavior`/`Combat_*`/stat formulas deferred from both `matrix-world.md` and `matrix-entity.md`) · `025` items · `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+3. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
+4. `030` traceability index from notes to bricks.
+5. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
+6. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
+7. `052`–`055` mesh block size benchmarks; record the measured choice.
+8. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?).
+9. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick).
 10. Update this file after every brick.
 
 ## Working set

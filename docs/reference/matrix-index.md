@@ -10,7 +10,7 @@ how much of it is guesswork. Bricks 021–028 fill them in, one group at a time.
 
 | Brick | Matrix file | Group | Reference paths | Status |
 |---:|---|---|---|:---:|
-| 021 | `matrix-world.md` | World, Zone, Region, Dungeon, House, Spawn, Field, Chunk, LandscapeTile, WorldMap | `*/world/` | TODO |
+| 021 | `matrix-world.md` | World, Zone, Region, Dungeon, House, Spawn, Field, Chunk, LandscapeTile, WorldMap | `*/world/` | DONE |
 | 022 | `matrix-entity.md` | Creature, Sprite, SpriteManager, Speech | `*/entity/` | TODO |
 | 023 | `matrix-ai.md` | the `cube::Behavior` tree | `*/ai/` | TODO |
 | 024 | `matrix-combat.md` | combat resolution, damage, hit detection | `*/entity/`, `*/game_misc/` | TODO |

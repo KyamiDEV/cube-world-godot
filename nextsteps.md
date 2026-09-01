@@ -17,14 +17,23 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `021 — Map CubeWorld world-related classes into conceptual subsystems`
+- Next task `022 — Map CubeWorld entity/creature-related classes`
 
 ## Completed bricks
 
-`001`–`020`. Phase A complete; Phase B contracts complete (011–020).
+`001`–`021`. Phase A complete; Phase B contracts complete (011–020); reference tree
+reading started at `021`.
 
-Everything through 020 is contract-and-foundation work. **From 021 the reference tree is
-actually read** — a different kind of task, so start it with a fresh context.
+`021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
+`Spawn`, `Field`, `Chunk`, `ChunkBuffer`, `LandscapeTile`, `WorldInfo`, `WorldMap`,
+`ZoneTile`) into `docs/reference/matrix-world.md`. Notable: `World` is a god-object
+whose functions were split by behavior, not kept as one row (see matrix §2); several
+classes (`Chunk`, `ChunkBuffer`, block/column accessors, the client per-frame world
+tick) are `Placed = NONE` because `VoxelTerrain`/`VoxelMesherBlocky`/Godot's own
+process loop supersede them — do not reimplement a parallel chunk cache. Four open
+questions recorded (matrix §4), most importantly Q2: the original client re-ran world
+generation locally rather than only presenting replicated state — confirm this was a
+singleplayer-only pattern before brick 056.
 
 ## Commands
 
@@ -53,15 +62,15 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `021` map `*/world/` classes → `docs/reference/matrix-world.md` (copy `_matrix_template.md`).
-2. `022` map `*/entity/` classes.
-3. `023` map `*/ai/` (`cube::Behavior` tree).
-4. `024` combat · `025` items · `026` quests · `027` UI · `028` client/server split.
-5. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
-6. `030` traceability index from notes to bricks.
-7. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
-8. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
-9. `052`–`055` mesh block size benchmarks; record the measured choice.
+1. `022` map `*/entity/` classes (`Creature`, `Sprite`, `SpriteManager`, `Speech`) → `docs/reference/matrix-entity.md`. Note: combat/creature functions filed under `game_misc` next to `World` were deliberately skipped in `matrix-world.md` — pick them up here.
+2. `023` map `*/ai/` (`cube::Behavior` tree); also resolve Q3 from `matrix-world.md` (what world query surface `NavGraph` needs).
+3. `024` combat · `025` items · `026` quests · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+4. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
+5. `030` traceability index from notes to bricks.
+6. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
+7. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
+8. `052`–`055` mesh block size benchmarks; record the measured choice.
+9. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?).
 10. Update this file after every brick.
 
 ## Working set

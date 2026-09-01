@@ -6,6 +6,7 @@ Developer tooling that is not shipped game code.
 |---|---|
 | `probe/` | headless GDScript probes run via `--script` |
 | `generators/` | headless GDScript content generators run via `--script`; output is committed to `assets/`/`data/`, re-run to regenerate |
+| `benchmarks/` | headless GDScript performance measurement harnesses run via `--script`; numbers observed are recorded in `nextsteps.md`, not committed as data files |
 | `scripts/` | PowerShell entry points |
 | `local/` | machine-local overrides (gitignored) |
 
@@ -41,6 +42,12 @@ To point the tools at a different copy of the same build:
 | Generator | Writes |
 |---|---|
 | `generators/generate_block_set.gd` | `assets/textures/blocks/*.png`, `data/blocks/*.tres` — the default grass/dirt/stone block set (brick 038) |
+
+## Benchmarks
+
+| Benchmark | Measures |
+|---|---|
+| `benchmarks/benchmark_mesh_block_size.gd` | `VoxelTerrainBuilder.build()`'s `mesh_block_size` (16 vs 32) against the project's default block set and view distance — bricks 052/053. Entry file must not statically reference `Log`-touching project classes; see `mesh_block_size_benchmark_runner.gd`'s header comment. |
 
 ## Probes
 

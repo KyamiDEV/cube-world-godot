@@ -55,6 +55,15 @@ extends RefCounted
 ## generator below applies that same offset so its output already matches whatever
 ## the 040 mesher will assign to that value — no separate "generator epoch" to keep in
 ## sync.
+##
+## `mesh_block_size` (052): an explicit optional parameter, `DEFAULT_MESH_BLOCK_SIZE` (16)
+## unless a caller passes `32` — the only two values `VoxelTerrain.mesh_block_size` accepts
+## (confirmed against upstream `VoxelTerrain.xml`, `godot_voxel` reference repo, tag `v1.7`).
+## Named explicitly, same "explicit is a decision" reasoning `material_override` (041) and
+## `max_view_distance` (042) already use, so bricks 052-053's benchmarks change exactly one
+## call-site argument rather than two independently-defaulted literals. An out-of-range
+## value is rejected the same way an unlocked registry is: `Log.check` plus a null return,
+## not silently clamped or passed through to the engine.
 
 ## Altitude of the placeholder ground plane, in voxel coordinates — `VoxelGeneratorFlat.
 ## height` operates directly in voxel space, not world units (`core/math/world_scale.gd`
@@ -70,14 +79,28 @@ const PLACEHOLDER_BLOCK_ID := "block.stone"
 ## clamped" invariant survives either default changing later.
 const DEFAULT_VIEW_DISTANCE := 128
 
+## `VoxelTerrain.mesh_block_size`'s own engine default (052) — the value bricks 039-051
+## already ran under implicitly. Named explicitly here so a caller changing it (053's
+## benchmark) touches one argument, not a silently-relied-upon default.
+const DEFAULT_MESH_BLOCK_SIZE := 16
 
-## Returns null (and logs why) when `registry` is not locked, or does not contain
-## `PLACEHOLDER_BLOCK_ID` — both are programmer/data errors, not runtime conditions a
-## caller should silently paper over. `stream` (048) is assigned as given, `null` by
-## default.
-static func build(registry: BlockRegistry, stream: VoxelStream = null) -> VoxelTerrain:
+## The only two values `VoxelTerrain.mesh_block_size` accepts (052, confirmed against
+## upstream `VoxelTerrain.xml`: "Values other than 16 and 32 are not supported.").
+const VALID_MESH_BLOCK_SIZES: PackedInt32Array = [16, 32]
+
+
+## Returns null (and logs why) when `registry` is not locked, does not contain
+## `PLACEHOLDER_BLOCK_ID`, or `mesh_block_size` is not one of `VALID_MESH_BLOCK_SIZES` —
+## all three are programmer/data errors, not runtime conditions a caller should silently
+## paper over. `stream` (048) is assigned as given, `null` by default.
+static func build(registry: BlockRegistry, stream: VoxelStream = null,
+		mesh_block_size: int = DEFAULT_MESH_BLOCK_SIZE) -> VoxelTerrain:
 	if not Log.check(registry.is_locked(), Log.CH_VOXEL,
 			"block registry must be locked before building a VoxelTerrain"):
+		return null
+
+	if not Log.check(VALID_MESH_BLOCK_SIZES.has(mesh_block_size), Log.CH_VOXEL,
+			"mesh_block_size must be 16 or 32", {"mesh_block_size": mesh_block_size}):
 		return null
 
 	var generator := _build_placeholder_generator(registry)
@@ -96,6 +119,7 @@ static func build(registry: BlockRegistry, stream: VoxelStream = null) -> VoxelT
 	terrain.generate_collisions = true
 	terrain.max_view_distance = DEFAULT_VIEW_DISTANCE
 	terrain.bounds = WorldBounds.aabb()
+	terrain.mesh_block_size = mesh_block_size
 	return terrain
 
 

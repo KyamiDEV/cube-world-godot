@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–051)
+- Phase `C — Voxel infrastructure` — in progress (031–052)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `052 — Benchmark mesh block size 16`
+- Next task `053 — Benchmark mesh block size 32`
 
 ## Completed bricks
 
-`001`–`051`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`052`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -32,7 +32,60 @@ baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest basel
 block raycast interaction service, 044 block edit command model, 045 block edit
 validation layer, 046 block edit application layer, 047 edit undo/delta representation,
 048 initial voxel save stream wiring, 049 voxel load/save integration test, 050 voxel
-world bounds/authority policy, 051 voxel chunk metrics/profiling hooks).
+world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh block
+size 16 benchmark).
+
+`052` gave `VoxelTerrainBuilder.build()` a third optional parameter,
+`mesh_block_size: int = DEFAULT_MESH_BLOCK_SIZE` (16, `VoxelTerrain`'s own engine
+default) — the last `VoxelTerrain` property Phase C had left implicit since 039.
+Confirmed against upstream `VoxelTerrain.xml` (`godot_voxel` reference repo, tag `v1.7`):
+only `16`/`32` are valid; an out-of-range value is rejected via `Log.check` + null return,
+same pattern as an unlocked registry.
+
+Added a new headless benchmark harness, split into two files on purpose:
+`tools/benchmarks/benchmark_mesh_block_size.gd` (the `--script` entry, no static
+references to any `Log`-touching project class) and
+`mesh_block_size_benchmark_runner.gd` (the actual measurement logic, `load()`ed at
+runtime). The split exists because of a genuine, empirically-confirmed engine behavior
+this brick surfaced: **a file passed to `--script` is compiled before project autoloads
+are registered as global identifiers**, so a script that statically references a
+`Log`-touching class (`VoxelTerrainBuilder`, `BlockSet`, `VoxelTerrainMetrics` all call
+`Log` internally) at the top level fails to compile with `Identifier not found: Log`,
+cascading into every one of those classes. `tests/run_tests.gd` never hits this because it
+only statically references `TestCase` (no `Log` dependency) and reaches every real,
+`Log`-dependent test file through a runtime `load()` call instead. Any future
+`tools/**/*.gd` script that wants to call `Log`-touching project code needs the same
+entry/runner split — recorded in both files' own header comments and
+`docs/voxel-tools.md` §17, not just here.
+
+A second finding changed how the harness detects "done": `VoxelTerrain.get_statistics()`'s
+`updated_blocks` reads as "blocks updated on this specific tick", not a running total — an
+early version polled it for a stable plateau and reported "settled" while it sat at a
+constant `0` for an entire run that still grew `memory_pools.block_count` from `0` to
+hundreds and printed real final statistics; the actual update burst happened between two
+polls and was never sampled. Settle detection now watches
+`VoxelTerrainMetrics.engine_snapshot()`'s `memory_pools.block_count` (monotonically
+non-decreasing while streaming is in flight) plus every `tasks` queue reading `0`, for 30
+consecutive frames — a direct "no more in-flight background work" signal.
+
+**Measured** (`mesh_block_size = 16`, `view_distance = 128` matching
+`VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, default block set, placeholder flat-stone
+generator, three repeated runs on the dev machine): settles in 52 polled frames (30 of
+which are the fixed stability window, so real work completes by roughly frame 22) and
+375.7-377.9 ms wall-clock; `memory_pools.block_count = 324`, `voxel_used ~= 2.65 MB`;
+`dropped_block_loads = dropped_block_meshs = 0`. Brick 053 repeats this unchanged except
+`--block-size=32`; 054 compares both bricks' numbers to choose a default; 055 writes both
+into a formal performance-budget document — none of that comparison/choice/documentation
+work is done by 052 itself.
+
+`docs/reference/traceability.md` §4 already confirmed no reference matrix cites 031-055,
+so no reference read was needed. Full reasoning in `docs/voxel-tools.md` §17 (new
+section).
+
+Tests: `tests/unit/test_voxel_terrain_builder.gd` (+2 tests, now also covers 052) — an
+invalid `mesh_block_size` (8, 64) is rejected; an explicit `32` is wired through
+unchanged; the existing `test_builds_a_configured_voxel_terrain` gained one assertion
+(default is 16). Full suite: `files=30 tests=304 assertions=10336 failed=0`.
 
 `051` added `world/terrain/voxel_terrain_metrics.gd` (`VoxelTerrainMetrics`) — named,
 typed access to Voxel Tools' own debug-statistics dictionaries, so bricks 052-055 (mesh
@@ -906,7 +959,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 289 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 30 files, 304 tests, 10 336 assertions, 0 failed.
 
 ## What exists now
 
@@ -922,7 +975,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 28
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build(registry, stream = null)`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` is an optional parameter, `null` unless the caller passes one (048); `bounds = WorldBounds.aabb()` (050) |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build(registry, stream = null, mesh_block_size = 16)`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` is an optional parameter, `null` unless the caller passes one (048); `bounds = WorldBounds.aabb()` (050); `mesh_block_size` optional, 16 or 32 only (052) |
+| Benchmarks | `tools/benchmarks/benchmark_mesh_block_size.gd` + `mesh_block_size_benchmark_runner.gd` | Headless harness measuring `VoxelTerrainBuilder`'s `mesh_block_size` (16 vs 32) against the default block set/view distance; entry/runner split works around a `--script`-vs-autoload compile-order quirk (052, `docs/voxel-tools.md` §17) |
 | Persistence | `world/persistence/voxel_stream_builder.gd` | `VoxelStreamBuilder.build(database_path)`: a configured `VoxelStreamSQLite` — deltas-only (`save_generator_output = false`), key cache enabled, unbounded `COORDINATE_FORMAT_STRING_CSD` — a fixed-width format would now fit `WorldBounds`, but switching is a genuinely optional future revisit, not owed by brick 050 (048/050, `docs/voxel-tools.md` §13/§15) |
 | World | `world/terrain/world_bounds.gd` | `WorldBounds.aabb()`/`contains(voxel_position)`: the authoritative world extent — `+-524288` voxels horizontal (X/Z), `+-2048` vertical (Y); assigned to `VoxelTerrainBuilder.build()`'s `terrain.bounds` unconditionally (050, `docs/voxel-tools.md` §15) |
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
@@ -938,7 +992,11 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 28
 
 ## Next 10 actions
 
-1. `051` voxel chunk metrics/profiling hooks (next task). None of 039–050 added a
+1. `053` benchmark mesh block size 32 (next task) — rerun
+   `tools/benchmarks/benchmark_mesh_block_size.gd -- --block-size=32` (same harness, one
+   flag) and record the numbers next to 052's in `docs/voxel-tools.md`/`nextsteps.md`, same
+   shape as 052's own entry above. `054` then compares both bricks' numbers to choose a
+   default; `055` documents the baseline performance budget. None of 039–052 added a
    `.tscn`, and no player/camera exists yet to raycast from or to parent the 042
    `VoxelViewer` under — deciding where these nodes actually live in a scene is still open
    (039's nextsteps entry, carried forward again by 042/043/044/045/046/048/049/050).
@@ -946,16 +1004,15 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 28
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
    Not blocking for editor/headless dev and testing; see Known risks below.
-3. `052`–`055` mesh block size benchmarks; record the measured choice.
-4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved. Phase D generation must also fit inside `WorldBounds` (050, `world/terrain/world_bounds.gd`).
-5. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
-6. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). (`matrix-items.md` Q1 / `matrix-ui.md` Q2 — `GameController` scoping — is now **resolved**, see brick 028 above: no new matrix or brick.)
-7. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
-8. Before `141`–`144`: resolve `matrix-combat.md` Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread). (`matrix-combat.md` Q1 is now **resolved** by brick 028 — quest-script trigger data, not a network format; bricks 249/251 design combat-event replication fresh, with no reference wire format to draw on.)
-9. Before `206`–`209`: resolve Q1 from `matrix-quests.md` (the unrecovered 11-counter quest-progress score behind `computeQuestScore` — likely resolvable by design decision alone). Q2 (`check_quest_id_match`'s `event type 0x19`) is unaffected by brick 028's Q1 resolution — still open, still relevant before `251`.
-10. Before phase J/K UI bricks (224–231) start: resolve Q1 from `matrix-ui.md` (character creation, main menu/title screen, and merchant/trade dialog have no owning backlog brick yet — a scoping pass may need to insert new bricks).
-11. Before `235`/`236`: optionally resolve Q3 from `matrix-client-server.md` (no connect/login/handshake function was found in either binary — a targeted raw read of `server/net/Server.cpp`, only if reference corroboration is wanted; not required by clean-room policy).
-12. Update this file after every brick.
+3. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved. Phase D generation must also fit inside `WorldBounds` (050, `world/terrain/world_bounds.gd`).
+4. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
+5. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). (`matrix-items.md` Q1 / `matrix-ui.md` Q2 — `GameController` scoping — is now **resolved**, see brick 028 above: no new matrix or brick.)
+6. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
+7. Before `141`–`144`: resolve `matrix-combat.md` Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread). (`matrix-combat.md` Q1 is now **resolved** by brick 028 — quest-script trigger data, not a network format; bricks 249/251 design combat-event replication fresh, with no reference wire format to draw on.)
+8. Before `206`–`209`: resolve Q1 from `matrix-quests.md` (the unrecovered 11-counter quest-progress score behind `computeQuestScore` — likely resolvable by design decision alone). Q2 (`check_quest_id_match`'s `event type 0x19`) is unaffected by brick 028's Q1 resolution — still open, still relevant before `251`.
+9. Before phase J/K UI bricks (224–231) start: resolve Q1 from `matrix-ui.md` (character creation, main menu/title screen, and merchant/trade dialog have no owning backlog brick yet — a scoping pass may need to insert new bricks).
+10. Before `235`/`236`: optionally resolve Q3 from `matrix-client-server.md` (no connect/login/handshake function was found in either binary — a targeted raw read of `server/net/Server.cpp`, only if reference corroboration is wanted; not required by clean-room policy).
+11. Update this file after every brick.
 
 ## Working set
 
@@ -1044,6 +1101,23 @@ opening the reference tree.
   page and the actual behavior disagree, prefer reading the source directly over trusting
   the XML doc — this project's `VoxelTerrainMetrics.KEY_*` constants
   (`world/terrain/voxel_terrain_metrics.gd`) already reflect only the real 7.
+- **A file passed to `--script` is compiled before project autoloads are registered as
+  global identifiers.** A script that statically references a `Log`-touching project class
+  at its top level (`VoxelTerrainBuilder`, `BlockSet`, `VoxelTerrainMetrics` all call `Log`
+  internally) fails to compile with `Identifier not found: Log` when it *is* the `--script`
+  entry file — confirmed empirically, brick 052. `tests/run_tests.gd` avoids this by only
+  statically referencing `TestCase` (no `Log` dependency) and reaching every real test file
+  through a runtime `load()` call instead. Any future `tools/**/*.gd` entry script needs
+  the same split: a thin entry file with no such static references, plus a `load()`ed
+  runner that does the real work (`tools/benchmarks/benchmark_mesh_block_size.gd` +
+  `mesh_block_size_benchmark_runner.gd`, `docs/voxel-tools.md` §17).
+- **`VoxelTerrain.get_statistics()`'s `updated_blocks` (and `time_request_blocks_to_update`)
+  read as "this specific tick", not a running total.** Polling `updated_blocks` for a
+  stable plateau can report "settled" while the value sits at a constant `0` for an entire
+  run that still completed real work — the update burst can land between two polls and
+  never be sampled (brick 052). Use `VoxelEngine.get_stats()`'s `memory_pools.block_count`
+  (monotonic while streaming) plus every `tasks` queue reading `0` instead, for a direct
+  "no more in-flight background work" signal.
 
 ## Known risks
 

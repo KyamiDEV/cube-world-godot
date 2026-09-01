@@ -74,6 +74,22 @@ func test_builds_a_configured_voxel_terrain() -> void:
 			"042: never silently clamps a baseline VoxelViewer below what it requests")
 	assert_eq(terrain.bounds, WorldBounds.aabb(),
 			"050: the project's own authoritative extent, not the engine's unbounded default")
+	assert_eq(terrain.mesh_block_size, VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE,
+			"052: the engine default (16), now named explicitly")
+
+
+func test_rejects_an_invalid_mesh_block_size() -> void:
+	var registry := _registry_with_stone()
+	assert_null(VoxelTerrainBuilder.build(registry, null, 8))
+	assert_null(VoxelTerrainBuilder.build(registry, null, 64))
+
+
+func test_builds_with_an_explicit_mesh_block_size_of_32() -> void:
+	var registry := _registry_with_stone()
+	var terrain := track_node(VoxelTerrainBuilder.build(registry, null, 32))
+
+	assert_not_null(terrain)
+	assert_eq(terrain.mesh_block_size, 32)
 
 
 func test_builds_with_a_stream_when_one_is_passed() -> void:

@@ -501,3 +501,65 @@ documented ones); `engine_snapshot()` has the 3 documented top-level keys;
 `log_terrain_snapshot(null, ...)` emits no statistics line; `log_terrain_snapshot()` on a
 real terrain emits exactly one `Log.debug` line carrying the statistics as its context
 dict. Full suite: `files=30 tests=302 assertions=10328 failed=0`.
+
+## 17. Mesh block size benchmark (brick 052)
+
+`VoxelTerrainBuilder.build()` gained a third optional parameter, `mesh_block_size: int =
+DEFAULT_MESH_BLOCK_SIZE` (16) — the last `VoxelTerrain` property Phase C had not yet given
+an explicit value (039-051 all ran under the engine's own implicit default). Confirmed
+against upstream `VoxelTerrain.xml` (`godot_voxel` reference repo, tag `v1.7`): only `16`
+and `32` are supported ("Values other than 16 and 32 are not supported"); an out-of-range
+value is rejected the same `Log.check` + null-return way an unlocked registry already is,
+not clamped or passed through. `VALID_MESH_BLOCK_SIZES` names the two-value domain as a
+constant rather than an inline literal check, same "named, not inline" style as
+`DEFAULT_VIEW_DISTANCE`.
+
+A new headless harness, `tools/benchmarks/benchmark_mesh_block_size.gd` +
+`mesh_block_size_benchmark_runner.gd`, builds a terrain from the default block set
+(`BlockSet.load_default()`) and the existing placeholder flat-stone generator, with one
+`VoxelViewer` at `view_distance = 128` (matching `DEFAULT_VIEW_DISTANCE`, the project's own
+existing baseline) — `mesh_block_size` is the only variable this harness changes between a
+052 run (16) and a 053 run (32), so the two are comparable. It polls
+`VoxelTerrainMetrics.engine_snapshot()` once per frame until `memory_pools.block_count`
+stops changing and every `tasks` queue reads `0` for 30 consecutive frames, then prints the
+final `terrain_snapshot()`/`engine_snapshot()` dictionaries and the elapsed wall-clock time.
+
+**Two engine behaviors surfaced empirically this brick, neither documented upstream:**
+
+1. **A `--script` entry file is compiled before project autoloads are registered as global
+   identifiers.** The first version of the harness statically referenced
+   `VoxelTerrainBuilder`/`BlockSet`/`VoxelTerrainMetrics` directly in the file passed to
+   `--script`, and failed with `Compile Error: Identifier not found: Log` — cascading into
+   every one of those classes' own files, since all three call the `Log` autoload
+   internally. `tests/run_tests.gd` never hits this: it only statically references
+   `TestCase` (which never touches `Log`) and reaches every `Log`-dependent test file
+   through a runtime `load()` call instead, by which point autoloads are live. The fix,
+   applied here, is the same indirection: `benchmark_mesh_block_size.gd` (the `--script`
+   entry) has no static references to any `Log`-touching class and `load()`s
+   `mesh_block_size_benchmark_runner.gd` (which does the real work) at runtime. Any future
+   `tools/**/*.gd` entry script reusing `Log`-touching project code needs the same split.
+2. **`VoxelTerrain.get_statistics()`'s `updated_blocks` (and `time_request_blocks_to_update`)
+   read as "this specific tick", not a running total.** An early version of the harness
+   polled `updated_blocks` for a stable plateau; it stayed `0` for an entire run that still
+   grew `memory_pools.block_count` from `0` to hundreds and printed real final statistics —
+   the actual update burst happened between two polls and was never sampled. Settle
+   detection now watches `engine_snapshot()`'s `memory_pools.block_count` (monotonically
+   non-decreasing while streaming is in flight) and `tasks` (every queue empty) instead —
+   a direct "no more in-flight background work" signal `terrain_snapshot()` alone doesn't
+   give.
+
+**Measured (052, `mesh_block_size = 16`, `view_distance = 128`, three repeated runs on the
+dev machine):** settles in 52 polled frames (30 of which are the stability window, so real
+work completes by roughly frame 22) and 375.7-377.9 ms wall-clock; `memory_pools.block_count
+= 324`, `voxel_used ~= 2.65 MB`; `dropped_block_loads = dropped_block_meshs = 0` (no dropped
+work); every `tasks` queue and `thread_pools.general.tasks` reads `0` at settle. Brick 053
+repeats this unchanged except `--block-size=32`; 054 compares the two brick's numbers to
+choose a default; 055 writes the two into a formal performance-budget document.
+
+Not reverse-engineered: `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031-055.
+
+Tests: `tests/unit/test_voxel_terrain_builder.gd` (+2 tests, now also covers 052) — an
+invalid `mesh_block_size` (8, 64) is rejected; an explicit `32` is wired through unchanged;
+the existing `test_builds_a_configured_voxel_terrain` gained one assertion (default is 16).
+Full suite: `files=30 tests=304 assertions=10336 failed=0`.

@@ -81,7 +81,7 @@
 | 049 | C | Create basic voxel load/save integration test | 048 | Not needed by default | NO | DONE |
 | 050 | C | Create voxel world bounds/authority policy | 049 | Not needed by default | NO | DONE |
 | 051 | C | Create voxel chunk metrics/profiling hooks | 050 | Not needed by default | NO | DONE |
-| 052 | C | Benchmark mesh block size 16 | 010, 029 | Not needed by default | NO | TODO |
+| 052 | C | Benchmark mesh block size 16 | 010, 029 | Not needed by default | NO | DONE |
 | 053 | C | Benchmark mesh block size 32 | 052 | Not needed by default | NO | TODO |
 | 054 | C | Choose initial mesh block size from measured data | 053 | Not needed by default | NO | TODO |
 | 055 | C | Document baseline voxel performance budget | 054 | Not needed by default | NO | TODO |

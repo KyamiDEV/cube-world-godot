@@ -37,6 +37,14 @@ extends RefCounted
 ## `BlockyLibraryBuilder.build()` output (037). Built from the same `registry` argument
 ## as the generator below, so the two can never disagree about which block ids exist.
 ##
+## `bounds` (050): `WorldBounds.aabb()` — the project's own authoritative world extent,
+## replacing the Voxel Tools engine default (`docs/voxel-tools.md` §15). Confirmed against
+## upstream `VoxelTerrain.xml`: `bounds` clips what an infinite generator will fill
+## ("blocks will only generate within this region... everything outside will be left
+## empty"), not edits — `block_edit_validator.gd` (045)'s own `OUT_OF_BOUNDS` check, which
+## reads this same live `terrain.bounds` property, remains the actual edit-authority
+## enforcement.
+##
 ## The generator is an explicit, temporary placeholder: a flat plane of one registered
 ## block ID, not real world generation (Phase D, bricks 056-067, deterministic
 ## noise/height/climate fields per `docs/reference/matrix-world.md`). Phase D replaces
@@ -87,6 +95,7 @@ static func build(registry: BlockRegistry, stream: VoxelStream = null) -> VoxelT
 	terrain.material_override = null
 	terrain.generate_collisions = true
 	terrain.max_view_distance = DEFAULT_VIEW_DISTANCE
+	terrain.bounds = WorldBounds.aabb()
 	return terrain
 
 

@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–049)
+- Phase `C — Voxel infrastructure` — in progress (031–050)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `050 — Create voxel world bounds/authority policy`
+- Next task `051 — Create voxel chunk metrics/profiling hooks`
 
 ## Completed bricks
 
-`001`–`049`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`050`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -31,7 +31,35 @@ grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
 block raycast interaction service, 044 block edit command model, 045 block edit
 validation layer, 046 block edit application layer, 047 edit undo/delta representation,
-048 initial voxel save stream wiring, 049 voxel load/save integration test).
+048 initial voxel save stream wiring, 049 voxel load/save integration test, 050 voxel
+world bounds/authority policy).
+
+`050` added `world/terrain/world_bounds.gd` (`WorldBounds`, static `aabb() -> AABB` and
+`contains(voxel_position: Vector3i) -> bool`) — the first real value for `VoxelTerrain.
+bounds`, left at the engine's effectively-unbounded default since 039. A clean-room policy
+decision, not reverse-engineered (`traceability.md` §4 confirms no reference matrix cites
+031–055, and the reference's own `Zone`/`WorldMap` classes carry no recovered world-size
+constant): `+-524288` voxels (`+-262.144 km`) horizontally (X/Z), `+-2048` voxels
+(`+-1.024 km`) vertically (Y) — round powers of two (`2^19`, `2^11`), same style
+`DEFAULT_VIEW_DISTANCE`/`mesh_block_size` already use. `voxel_terrain_builder.gd` (039)
+now sets `terrain.bounds = WorldBounds.aabb()` unconditionally in `build()`.
+
+Confirmed against upstream `VoxelTerrain.xml` (`godot_voxel` reference repo, tag `v1.7`,
+fetched this brick): `bounds` only clips what an infinite generator fills in ("blocks will
+only generate within this region... everything outside will be left empty") — it is not
+documented as an edit-authority gate. The real edit-authority enforcement remains
+`block_edit_validator.gd`'s (045) `OUT_OF_BOUNDS` verdict, which already reads this same
+live `terrain.bounds` property independently — giving `bounds` a real value fixes both the
+generator's clip and the edit-authority boundary at once, with zero code change to 045.
+Full reasoning (including why `VoxelTerrainMultiplayerSynchronizer` stays deferred to
+Phase K rather than adopted here) in `docs/voxel-tools.md` §15 (new section).
+
+Tests: `tests/unit/test_world_bounds.gd` (new, 5 tests) — symmetric AABB, vertical extent
+smaller than horizontal, `contains()` accepts the origin and exact face points
+(`AABB.has_point()` is inclusive at both min and max), rejects one voxel past each face,
+two `aabb()` calls agree. `tests/unit/test_voxel_terrain_builder.gd` (+1 assertion):
+`terrain.bounds == WorldBounds.aabb()`. Full suite: `files=29 tests=297 assertions=10306
+failed=0`.
 
 `049` added `tests/integration/test_voxel_load_save.gd` (1 test) — the first file under
 `tests/integration/`, closing the loop 048 opened by actually proving an edit survives a
@@ -868,8 +896,9 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 28
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build(registry, stream = null)`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` is an optional parameter, `null` unless the caller passes one (048) |
-| Persistence | `world/persistence/voxel_stream_builder.gd` | `VoxelStreamBuilder.build(database_path)`: a configured `VoxelStreamSQLite` — deltas-only (`save_generator_output = false`), key cache enabled, unbounded coordinate format pending brick 050's bounds decision (048, `docs/voxel-tools.md` §13) |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build(registry, stream = null)`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` is an optional parameter, `null` unless the caller passes one (048); `bounds = WorldBounds.aabb()` (050) |
+| Persistence | `world/persistence/voxel_stream_builder.gd` | `VoxelStreamBuilder.build(database_path)`: a configured `VoxelStreamSQLite` — deltas-only (`save_generator_output = false`), key cache enabled, unbounded `COORDINATE_FORMAT_STRING_CSD` — a fixed-width format would now fit `WorldBounds`, but switching is a genuinely optional future revisit, not owed by brick 050 (048/050, `docs/voxel-tools.md` §13/§15) |
+| World | `world/terrain/world_bounds.gd` | `WorldBounds.aabb()`/`contains(voxel_position)`: the authoritative world extent — `+-524288` voxels horizontal (X/Z), `+-2048` vertical (Y); assigned to `VoxelTerrainBuilder.build()`'s `terrain.bounds` unconditionally (050, `docs/voxel-tools.md` §15) |
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
 | Terrain | `world/terrain/block_raycast_service.gd`, `block_raycast_hit.gd` | `BlockRaycastService.cast(terrain, registry, origin, direction, max_distance)`: wraps `VoxelTool.raycast()`, resolves the hit voxel value back to a `BlockDefinition` id through the registry (043, `docs/voxel-tools.md` §10) |
 | Network | `network/packets/edit_block_command.gd` | `EditBlockCommand`: PLACE/REMOVE intent (`kind`, `position`, `face_normal`, `block_id`, `tick`); `from_hit()` builds one from a `BlockRaycastHit`; `validate()` is structural only (044) |
@@ -883,21 +912,16 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 28
 
 ## Next 10 actions
 
-1. `050` voxel world bounds/authority policy: decide real `VoxelTerrain.bounds` (left at
-   the engine's effectively-unbounded default since 039) — `block_edit_validator.gd`
-   (045) already reads `terrain.bounds` directly for its `OUT_OF_BOUNDS` check, and
-   `voxel_stream_builder.gd` (048)'s `COORDINATE_FORMAT_STRING_CSD` choice was explicitly
-   deferred pending this decision (a fixed-width coordinate format may become viable once
-   bounds are known). None of 039–049 added a `.tscn`, and no player/camera exists yet to
-   raycast from or to parent the 042 `VoxelViewer` under — deciding where these nodes
-   actually live in a scene is still open (039's nextsteps entry, carried forward again by
-   042/043/044/045/046/048/049).
+1. `051` voxel chunk metrics/profiling hooks (next task). None of 039–050 added a
+   `.tscn`, and no player/camera exists yet to raycast from or to parent the 042
+   `VoxelViewer` under — deciding where these nodes actually live in a scene is still open
+   (039's nextsteps entry, carried forward again by 042/043/044/045/046/048/049/050).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
    Not blocking for editor/headless dev and testing; see Known risks below.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
-4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
+4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved. Phase D generation must also fit inside `WorldBounds` (050, `world/terrain/world_bounds.gd`).
 5. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
 6. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). (`matrix-items.md` Q1 / `matrix-ui.md` Q2 — `GameController` scoping — is now **resolved**, see brick 028 above: no new matrix or brick.)
 7. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
@@ -943,7 +967,10 @@ opening the reference tree.
 - `VoxelGeneratorMultipassCB` exists in 1.7 — the route for generation needing neighbour
   context (structures/villages, bricks 089–093).
 - `VoxelTerrainMultiplayerSynchronizer` exists but replicates terrain blocks only; it is
-  not a gameplay authority mechanism (evaluate at brick 050 / Phase K).
+  not a gameplay authority mechanism. Evaluated at brick 050 (`docs/voxel-tools.md` §15):
+  the 043–046 raycast/command/validate/apply pipeline is already the real edit-authority
+  path, so wiring the synchronizer stays deferred to Phase K, where a real multiplayer
+  scene/peer set will exist to wire it into.
 - **Voxel value = `BlockRegistry.network_index(id) + 1`; voxel `0` is air.**
   `blocky_library_builder.gd` (037) inserts air at library index 0 and appends blocks in
   `registry.ids()` order — `network_index()` itself is unchanged (still 0-based, used by
@@ -977,7 +1004,11 @@ opening the reference tree.
   unbounded (`AABB(-536870900, ..., 1073741800, ...)`) — confirmed against upstream
   `VoxelTerrain.xml` (v1.7 tag), brick 045. `block_edit_validator.gd` (045) reads it
   directly for the layer-2 "in bounds" check rather than inventing a second bounds
-  concept; a future world-size decision (brick 050) only has to set this property.
+  concept. As of brick 050, `voxel_terrain_builder.gd` sets a real value:
+  `WorldBounds.aabb()` (`world/terrain/world_bounds.gd`, `+-524288` voxels horizontal,
+  `+-2048` vertical). `bounds` itself only clips generator output, not edits — confirmed
+  against the same doc page; 045's own check remains the actual edit-authority
+  enforcement (`docs/voxel-tools.md` §15).
 
 ## Known risks
 

@@ -113,7 +113,7 @@ across bricks 039–042:
 | `mesher` | 040 | a `VoxelMesherBlocky` (below) |
 | `material_override` | 041 | explicit `null` (§8) |
 | `max_view_distance` | 042 | `DEFAULT_VIEW_DISTANCE` = 128 (§9) |
-| `bounds` | 050 (world bounds/authority policy) | left at the engine default; read directly by `block_edit_validator.gd` (045, §11) for layer-2 bounds checking in the meantime |
+| `bounds` | 050 (world bounds/authority policy) | `WorldBounds.aabb()` (§15) — read directly by `block_edit_validator.gd` (045, §11) for layer-2 bounds checking |
 
 **The generator is a temporary placeholder, not world generation.** Phase D
 (056–067, `docs/reference/matrix-world.md`) owns the real deterministic
@@ -400,3 +400,62 @@ No scene (`.tscn`) added, no player/camera decision made — same "where do thes
 live" deferral 039-048 all carry (`nextsteps.md`'s own next-actions list). The test builds
 and tears down its own terrain/viewer pair entirely inside one method, same pattern
 043/045/046's tests already use, just twice.
+
+## 15. World bounds/authority policy (brick 050)
+
+`world/terrain/world_bounds.gd` (`WorldBounds`, static `aabb() -> AABB` and
+`contains(voxel_position: Vector3i) -> bool`) gives `VoxelTerrain.bounds` (left at the
+engine's effectively-unbounded default since 039, §6) a real, deliberate value:
+`+-524288` voxels (`+-262.144 km`) horizontally (X/Z), `+-2048` voxels (`+-1.024 km`)
+vertically (Y). Both are round powers of two (`2^19`, `2^11`) — the same style
+`DEFAULT_VIEW_DISTANCE`/`mesh_block_size` already use — chosen large enough to never be a
+real near-term constraint and small enough to be a named policy rather than a copy of the
+engine's own `AABB(-536870900, ..., 1073741800, ...)` (roughly `+-2^29`) default. This is a
+clean-room policy decision, not a reverse-engineered one: `docs/reference/traceability.md`
+§4 already confirmed no reference matrix cites 031-055, and the reference's own recovered
+`Zone`/`WorldMap` classes (`matrix-world.md`) carry no recovered world-size constant to
+draw on. `voxel_terrain_builder.gd` (039) now sets `terrain.bounds = WorldBounds.aabb()`
+unconditionally — every existing caller gets the real extent, not an opt-in parameter,
+since there is no reason a baseline terrain should ever be built without one.
+
+**What `bounds` actually gates — confirmed against upstream `VoxelTerrain.xml`
+(`godot_voxel` reference repo, CLAUDE.md §15 source, tag `v1.7`, fetched this brick):**
+"If an infinite world generator is used, blocks will only generate within this region.
+Everything outside will be left empty." That is a **generation clip**, not an edit-authority
+gate — the doc says nothing about refusing `VoxelTool` writes outside `bounds`. The actual
+edit-authority enforcement is, and remains, `block_edit_validator.gd`'s (045, §11)
+`OUT_OF_BOUNDS` verdict, which reads this same live `terrain.bounds` property independently.
+Setting a real `bounds` value therefore does two things at once with no code change to 045:
+constrains what the placeholder (and later, Phase D's real) generator will ever fill in,
+*and* gives the already-existing edit-authority check a real boundary to enforce instead of
+the engine's practically-infinite one. This two-effects-from-one-property relationship is
+the "authority" half of this brick's title — `docs/server-authority.md` §1's "the server
+decides what happened" already covers *why* 045 enforces bounds server-side; this brick
+only had to give that enforcement a real number to enforce.
+
+**`VoxelTerrainMultiplayerSynchronizer` (`nextsteps.md`'s carried-forward technical
+note) stays deferred to Phase K, evaluated not adopted here.** It replicates terrain block
+*data* to clients — a presentation/streaming concern — not a decision-making authority
+mechanism; nothing in 039-050 makes voxel edits any less server-authoritative without it
+(the 043-046 raycast -> command -> layer-2-validate -> apply pipeline already is the
+authority path, run in-process for single-player per `docs/server-authority.md` §5). Wiring
+a live synchronizer needs a real multiplayer scene and peer set, neither of which exists
+before Phase K (231-256); inventing one now would be exactly the "silently expanding scope"
+`CLAUDE.md` §6 warns against.
+
+Deliberately *not* revisited here: `voxel_stream_builder.gd`'s (048, §13)
+`COORDINATE_FORMAT_STRING_CSD` choice. That format has no fixed coordinate-range cap; a
+fixed-width format could now technically fit `WorldBounds`'s extent, but switching only
+affects a *new* database (048's own doc note) and buys nothing this project needs yet —
+left as a genuinely optional future revisit, not a follow-up this brick owes.
+
+Tests: `tests/unit/test_world_bounds.gd` (new, 5 tests) — the AABB is exactly symmetric
+around the origin on all three axes, the vertical extent is smaller than the horizontal
+one, `contains()` accepts the origin and points exactly on each face (`AABB.has_point()` is
+inclusive at both min and max — confirmed by reading the engine's own `has_point`
+semantics, not assumed), `contains()` rejects one voxel past each face, and two `aabb()`
+calls produce equal (not merely equivalent-shaped) values. `tests/unit/
+test_voxel_terrain_builder.gd`'s existing `test_builds_a_configured_voxel_terrain` gained
+one assertion (`terrain.bounds == WorldBounds.aabb()`), same shape as every prior
+039-042/048 property addition to that same test. Full suite: `files=29 tests=297
+assertions=10306 failed=0`.

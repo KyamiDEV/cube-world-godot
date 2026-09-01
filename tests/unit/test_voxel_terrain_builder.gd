@@ -1,5 +1,5 @@
 extends TestCase
-## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042, 048).
+## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042, 048, 050).
 
 var _temp_paths: PackedStringArray = []
 
@@ -72,6 +72,8 @@ func test_builds_a_configured_voxel_terrain() -> void:
 	assert_true(terrain.generate_collisions)
 	assert_eq(terrain.max_view_distance, VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE,
 			"042: never silently clamps a baseline VoxelViewer below what it requests")
+	assert_eq(terrain.bounds, WorldBounds.aabb(),
+			"050: the project's own authoritative extent, not the engine's unbounded default")
 
 
 func test_builds_with_a_stream_when_one_is_passed() -> void:

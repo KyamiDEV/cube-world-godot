@@ -40,7 +40,7 @@ const MAX_OCTAVES := 16
 ## interpolation ramp across the whole map.
 const MAX_CELL_SIZE_VOXELS := 2 * WorldBounds.HALF_EXTENT_HORIZONTAL_VOXELS
 
-## Maximum slope of `_fade()`, at `t = 0.5`: `fade'(t) = 30t²(1−t)²`, so `30/16`. Used by
+## Maximum slope of `fade()`, at `t = 0.5`: `fade'(t) = 30t²(1−t)²`, so `30/16`. Used by
 ## `max_slope_per_voxel()` — stated here rather than measured, because the whole point of
 ## the bound is that it is known before any sample is taken.
 const FADE_MAX_SLOPE := 1.875
@@ -226,6 +226,20 @@ func max_slope01_per_voxel() -> float:
 	return max_slope_per_voxel() * 0.5
 
 
+## Perlin's quintic fade, `6t⁵ − 15t⁴ + 10t³`. Zero first *and* second derivative at both
+## ends, so cell boundaries leave no crease in the field — a cubic smoothstep leaves a
+## visible one once the field becomes a slope, and a raw linear blend leaves a ridge along
+## every lattice line.
+##
+## Public because it is the project's one blending curve: any later pass that blends
+## between two shapes across a band (brick 061's shore band is the first) has the same
+## reason to want a `C²` join, and a second copy of the polynomial would be a second thing
+## to keep in step with `FADE_MAX_SLOPE`. `t` outside `[0, 1]` is the caller's business —
+## clamp before calling, as `_octave_at()` does by construction.
+static func fade(t: float) -> float:
+	return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
@@ -239,8 +253,8 @@ func _octave_at(column: Vector2i, cell: int, shift: Vector2i) -> float:
 			GenerationGrid.floor_div(column.x, cell),
 			GenerationGrid.floor_div(column.y, cell)) + shift
 	var inverse_cell := 1.0 / float(cell)
-	var weight_x := _fade(float(GenerationGrid.floor_mod(column.x, cell)) * inverse_cell)
-	var weight_z := _fade(float(GenerationGrid.floor_mod(column.y, cell)) * inverse_cell)
+	var weight_x := fade(float(GenerationGrid.floor_mod(column.x, cell)) * inverse_cell)
+	var weight_z := fade(float(GenerationGrid.floor_mod(column.y, cell)) * inverse_cell)
 	var low := lerpf(_corner(corner), _corner(corner + Vector2i(1, 0)), weight_x)
 	var high := lerpf(_corner(corner + Vector2i(0, 1)),
 			_corner(corner + Vector2i(1, 1)), weight_x)
@@ -252,11 +266,3 @@ func _octave_at(column: Vector2i, cell: int, shift: Vector2i) -> float:
 ## per-column pass that happens to share this salt.
 func _corner(lattice: Vector2i) -> float:
 	return _hash.value01_column(lattice, _salt) * 2.0 - 1.0
-
-
-## Perlin's quintic fade, `6t⁵ − 15t⁴ + 10t³`. Zero first *and* second derivative at both
-## ends, so cell boundaries leave no crease in the field — a cubic smoothstep leaves a
-## visible one once the field becomes a slope, and a raw linear blend leaves a ridge along
-## every lattice line.
-static func _fade(t: float) -> float:
-	return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)

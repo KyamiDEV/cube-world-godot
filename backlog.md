@@ -90,7 +90,7 @@
 | 058 | D | Create world coordinate hashing | 057 | Not needed by default | NO | DONE |
 | 059 | D | Create deterministic generation test fixtures | 056 | Not needed by default | NO | DONE |
 | 060 | D | Create continentalness/noise layer | 059 | Not needed by default | NO | DONE |
-| 061 | D | Create elevation field | 058, 060 | Not needed by default | NO | TODO |
+| 061 | D | Create elevation field | 058, 060 | Not needed by default | NO | DONE |
 | 062 | D | Create erosion/shape pass | 061 | Not needed by default | NO | TODO |
 | 063 | D | Create terrace/block-world shaping pass | 061 | Not needed by default | NO | TODO |
 | 064 | D | Create temperature field | 062 | Not needed by default | NO | TODO |

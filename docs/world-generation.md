@@ -578,3 +578,136 @@ mean `0.501`.
   them this brick's.
 - Any voxel. Nothing is written to a `VoxelBuffer` yet; the generator that does that
   arrives with the passes that have something to write.
+
+## 6. The elevation field (brick 061)
+
+Implementation: `world/generation/elevation_field.gd` (`ElevationField`).
+Tests: `tests/unit/test_elevation_field.gd`.
+Reference: `docs/reference/terrain-base-height-field.md`.
+
+The first field that answers a question about *terrain* rather than about the world map.
+`Continentalness` (§5.5) says how far inland a column is; this turns that into a height.
+
+### 6.1 The datum
+
+**Elevation is a signed height in voxels, measured from `y = 0`.** That plane is the
+centre of `WorldBounds`' vertical extent and the only vertical landmark this project has
+agreed on. Voxels rather than metres, because the generator that will consume this field
+writes voxels; `at_metres()` exists for a log line, never for generation arithmetic.
+
+`y = 0` is a datum, **not a sea level**. Where the water goes is brick 080, and it is a
+constant applied to these numbers rather than a property of them — which is what lets 080
+move the waterline without regenerating a column.
+
+### 6.2 The composition
+
+```text
+shore     = shore_weight(continentalness(column))          # [0, 1]
+base      = lerp(OCEAN_FLOOR_VOXELS, LAND_BASE_VOXELS, shore)
+amplitude = lerp(RELIEF_AMPLITUDE · RELIEF_OCEAN_SCALE, RELIEF_AMPLITUDE, shore)
+height    = base + amplitude · relief01(column)            # relief01 in [0, 1]
+```
+
+| Constant | Value | Why |
+|---|---|---|
+| `OCEAN_FLOOR_VOXELS` | `-96` = −48 m | the floor of a basin, deep enough to read as ocean once 080 fills it |
+| `LAND_BASE_VOXELS` | `64` = +32 m | the continental plain. Not symmetric with the ocean floor: relief is added *upward*, so the mean of the land is `LAND_BASE + RELIEF_AMPLITUDE / 2`, and a symmetric pair would put that mean far above anything the ocean floor balances |
+| `RELIEF_AMPLITUDE_VOXELS` | `128` = 64 m | valley floor to ridge line on fully landward ground |
+| `RELIEF_OCEAN_SCALE` | `0.25` | what a fully seaward column keeps of that amplitude. Not zero — a dead-flat sea floor is as wrong as a mountainous one |
+| `SHORE_MIDPOINT` / `SHORE_WIDTH` | `0.5` / `0.16` | §6.3 |
+| relief layer | cell `1024`, 6 octaves, gain `0.5`, salt `WorldHash.SALT_ELEVATION` | §6.4 |
+
+Range: `[-96, +192]` voxels, i.e. `[-48 m, +96 m]`. The minimum is the bare ocean floor,
+because **relief is additive-upward and never signed** — the base is a genuine floor, and
+an ocean floor cannot be turned into a mountain by a noise sample. That is the one shape
+decision taken from the original (`terrain-base-height-field.md` §3, claim 2). Both ends
+sit inside a quarter of `WorldBounds.HALF_EXTENT_VERTICAL_VOXELS`, leaving room for caves
+below (077) and sky above; the test asserts the headroom rather than trusting it.
+
+### 6.3 The shore band
+
+`shore_weight()` is `0` at or below continentalness `0.42`, `1` at or above `0.58`, and
+Perlin's quintic in between — the same `ValueNoise.fade()` the noise layer interpolates
+with, exposed for the purpose rather than copied.
+
+Two decisions:
+
+1. **The band is narrow and centred on `0.5`.** Narrow, so the ocean floor and the
+   interior are each themselves over most of their range and the transition is a *coast*
+   rather than a world-wide ramp. Centred on the field's own middle, because how much of
+   the world ends up as **land** is 080's decision (where the water plane goes), not
+   something 061 should pre-bake. §5.6 said a land-fraction target belongs to the brick
+   that makes it; this is that promise kept.
+2. **The quintic, not a cubic `smoothstep()`.** §5.3's argument one level up, and it bites
+   harder here: a `C¹`-only curve leaves a slope discontinuity at each end of the band, and
+   a slope discontinuity in a *blend* becomes a crease running along a continentalness
+   contour — in-game, a straight-edged terrace following the coast at exactly the band's
+   edge. Written through `ValueNoise.fade()` rather than the engine's `smoothstep()` for
+   the same reason the fade is a polynomial at all: the shape of the world should not
+   depend on an engine implementation detail.
+
+### 6.4 Relief starts where continentalness stops
+
+The relief layer's coarsest cell is `GenerationGrid.REGION_SIZE_VOXELS` (1024 voxels =
+512 m) — **exactly the cell size at which `Continentalness`' finest octave stops** (§5.5).
+The two fields meet at the region grid instead of overlapping: continentalness carries
+every scale coarser than a region, relief every scale finer. Six octaves take the finest
+relief cell to 32 voxels = 16 m, a hillside feature and still four times the terrace
+height brick 063 will quantise to, so the detail survives that pass rather than being
+rounded away by it.
+
+The layer has its own salt (`SALT_ELEVATION`), not continentalness's: two fields sharing a
+salt are one field, and the test asserts they differ.
+
+### 6.5 The step bound, and what it is for
+
+`max_step_per_voxel()` states the most `at()` can change between two columns one voxel
+apart. Derived before any sample is taken, in the same spirit as
+`ValueNoise.max_slope_per_voxel()` (§5.4):
+
+```text
+|dh/dx| <= (|LAND_BASE - OCEAN_FLOOR| + RELIEF_AMPLITUDE·(1 - RELIEF_OCEAN_SCALE))
+           · shore_max_slope() · |dc/dx|          # the coast
+         + RELIEF_AMPLITUDE · |dr/dx|             # the hillside
+```
+
+which comes to **2.179 voxels per voxel**. `shore_max_slope()` is
+`ValueNoise.FADE_MAX_SLOPE / SHORE_WIDTH` = `11.719`: narrowing the shore band steepens
+the coast in exact proportion, which is why it is a named number rather than a division
+buried in the bound.
+
+The bound is a worst case over the whole world; a real kilometre walk across the origin
+measures a largest step of `0.231` voxels and 95 voxels of total climb. What the number is
+*for* is that the test can assert a real walk against a figure derived from the constants
+alone — and `test_the_step_bound_is_a_real_constraint` runs the same check over raw
+`GenerationHash` values at the same amplitude, where it fails on essentially every step, so
+the assertion is known to be capable of failing.
+
+### 6.6 What the field measures
+
+Over 2304 columns spread across ~24 continentalness cells per axis (the same sweep §5.5
+uses): lowest `-93.2`, highest `+180.5`, mean `+24.3` voxels. 50.1% of those columns are
+landward of the shore midpoint and 53.1% stand above the datum — the field is not biased
+toward either end of its own range, which is the property a height field can satisfy every
+determinism check while failing.
+
+### 6.7 Out of scope for this brick
+
+- **Sea level, water, and the land fraction.** Brick 080. This field says how high the
+  rock is and nothing about what covers it.
+- **Erosion and a per-place ruggedness field.** Brick 062. The original modulates each of
+  its three relief tiers by a separate *squared* weight field one decade coarser
+  (`terrain-base-height-field.md` §3, claim 3), which is the mechanism 062 should reach
+  for first — the squaring is the part that makes flat the default and mountains the
+  exception. 061 modulates by the field it already has and stops there.
+- **Terracing.** Brick 063. `at()` returns a continuous height on purpose; the blocky
+  silhouette is a separate, later quantisation, and the relief layer's finest octave is
+  sized so it survives that pass.
+- **Rivers, roads, and structure flattening.** Bricks 062, 080–083, 089–090. The original
+  applies all of them as terms that scale relief *toward* the base and never away from it
+  (claim 6) — worth keeping when those bricks arrive.
+- **Climate.** Bricks 064–065. Whether temperature and humidity share elevation's weight
+  fields or get their own is `terrain-base-height-field.md` `U2`, and 064 should resolve
+  it rather than assume.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`; the surface a column's height
+  lands on is the generator's business.

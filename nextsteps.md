@@ -9,7 +9,10 @@
 - Engine: `4.7.2.stable.double.custom_build.ed1daf0bf` — VERIFIED (`docs/environment.md`)
 - Voxel Tools: `1.7.0`, edition `Module` — VERIFIED (`docs/voxel-tools.md`)
 - Voxel scale: `1 voxel = 0.5 m` — implemented in `core/math/world_scale.gd`
-- Reference repo: `reference/CubeWorld-Reversal` (local, gitignored, `.gdignore`d) — **not read yet**
+- Reference repo: `reference/CubeWorld-Reversal` (local, gitignored, `.gdignore`d). Read so
+  far: the class-mapping pass of 021–028, plus targeted full reads for 058
+  (`region-coordinate-hashing.md`), 060 (`terrain-value-noise.md`) and 061
+  (`terrain-base-height-field.md`). `docs/reference/traceability.md` is the index.
 - Git: `main`, one commit per brick
 - Godot AI MCP: failed to connect this session (`CONNECTION_CLOSED`); not needed so far
 
@@ -19,15 +22,20 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–060 done, 061–090 open)
-- Next task `061 — Create elevation field` (deps: 058 — DONE, 060 — DONE). **The world now
-  has generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise` or
-  `Continentalness`'s pinned constants is a generation version bump (`docs/rng.md` §3,
-  `docs/world-generation.md` §2.1), not a free fix. Both free fixes were taken (058, 059).
+- Phase `D — World generation` — **IN PROGRESS** (056–061 done, 062–090 open)
+- Next task `062 — Create erosion/shape pass` (dep: 061 — DONE). **The world now has
+  generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the
+  pinned constants in `Continentalness` or `ElevationField` is a generation version bump
+  (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free fix. Both free fixes
+  were taken (058, 059). 062's starting point is written down: the original modulates each
+  relief tier by a separate **squared** noise weight field one decade coarser
+  (`docs/reference/terrain-base-height-field.md` §3 claim 3, `docs/world-generation.md`
+  §6.7), and the squaring is the part that makes flat the default. `063 — terrace/block-
+  world shaping` is unblocked in parallel (dep 061 only).
 
 ## Completed bricks
 
-`001`–`060`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`061`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -42,7 +50,99 @@ size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decisio
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
-layer.
+layer, 061 elevation field.
+
+`061` is the first field that answers a question about **terrain** rather than about the
+world map: `world/generation/elevation_field.gd` (`ElevationField`), one new file plus a
+three-line change to `value_noise.gd`.
+
+Elevation is a **signed height in voxels measured from `y = 0`** — the centre of
+`WorldBounds`' vertical extent, and a datum, *not* a sea level (080 still owns the water
+plane, and it is a constant applied to these numbers rather than a property of them).
+Composition, per column:
+
+```text
+shore     = shore_weight(continentalness)                    # quintic over [0.42, 0.58]
+base      = lerp(-96, 64, shore)                             # voxels
+amplitude = lerp(128 * 0.25, 128, shore)
+height    = base + amplitude * relief01(column)              # relief01 in [0, 1]
+```
+
+Range `[-96, +192]` voxels = `[-48 m, +96 m]`, both ends inside a quarter of
+`HALF_EXTENT_VERTICAL_VOXELS` so 077's caves have room below and there is sky above (the
+test asserts the headroom rather than trusting it). Relief layer: cell `1024`, 6 octaves,
+gain `0.5`, `WorldHash.SALT_ELEVATION`.
+
+Five decisions worth keeping:
+
+1. **Relief is additive-upward, never signed** — the base is a genuine floor, so an ocean
+   floor cannot be turned into a mountain by a noise sample, and `MINIMUM_VOXELS` has an
+   exact value instead of a bound. This is the one shape decision taken from the original
+   (see the reference read below), and it is what `test_relief_never_digs_below_the_base`
+   pins.
+2. **The relief layer's coarsest cell is exactly `Continentalness`' finest cell** (one
+   region, 1024 voxels). The two fields *meet* at the region grid instead of overlapping:
+   continentalness carries every scale coarser than a region, relief every scale finer.
+   Six octaves put the finest relief cell at 32 voxels = 16 m — four times the terrace
+   height 063 will quantise to, so the detail survives that pass instead of being rounded
+   away by it.
+3. **The shore band is narrow (`0.16`) and centred on `0.5`**, the field's own middle.
+   Narrow so the transition is a *coast* rather than a world-wide ramp; centred because
+   how much of the world is **land** is 080's decision (where the water plane goes), not
+   something 061 should pre-bake — §5.6 promised the land-fraction target to the brick
+   that makes it, and this is that promise kept.
+4. **The shore curve is the quintic, through `ValueNoise.fade()`, not a cubic
+   `smoothstep()`.** §5.3's argument one level up and it bites harder here: a `C¹`-only
+   curve leaves a slope discontinuity at each end of the band, and a slope discontinuity
+   in a *blend* becomes a crease along a continentalness contour — in-game, a
+   straight-edged terrace following the coast at exactly the band's edge. `_fade()` was
+   renamed to `fade()` for this (output unchanged, so **not** a version bump); it is now
+   the project's one blending curve, so nothing has a second copy to keep in step with
+   `FADE_MAX_SLOPE`.
+5. **`max_step_per_voxel()` is derived, not measured**, like 060's: `(coast span +
+   amplitude swing) · shore_max_slope() · continentalness step + amplitude · relief step`
+   = **2.179 voxels per voxel**. `shore_max_slope()` = `FADE_MAX_SLOPE / SHORE_WIDTH` =
+   `11.719` is named rather than inlined, because narrowing the band steepens the coast in
+   exact proportion. A real kilometre walk across the origin measures a largest step of
+   `0.231` and 95 voxels of climb; `test_the_step_bound_is_a_real_constraint` runs the same
+   check over raw `GenerationHash` values at the same amplitude, where it fails on
+   essentially every step, so the assertion is known to be capable of failing.
+
+Measured over the same 2304-column sweep 060 used: lowest `-93.2`, highest `+180.5`, mean
+`+24.3` voxels; 50.1% of columns landward of the shore midpoint, 53.1% above the datum.
+
+**Reference read** (`traceability.md` §1: 061 sits in the `060–067` rows and in
+`region-coordinate-hashing.md`'s `058, 061, 089–090` row, no gating question): full read of
+`World_baseHeightField` (`server/world/World.cpp:4496–4900`), recorded as
+**`docs/reference/terrain-base-height-field.md`**. It closes `terrain-value-noise.md`'s
+`U2`. Findings: the ladder is **three decade-spaced relief tiers** (`0.0002` ×2 at
+amplitude 200, `0.002` ×2 at 100, `0.01` ×1 at 40), not an fBm; every term is
+**positive-only** (`(noise + 1) · k`), so relief stacks upward on a base; **each tier's
+amplitude is modulated by a separate noise field one decade coarser, squared** (`w²` has
+mean `1/3`, so flat is the default and mountains are the exception); the **base itself is
+blended from region-array heights**, not from noise, with the region sites jittered ±768
+units by noise; and four post-passes (river/climate gate, roads, water depth, structure
+falloff) all scale relief *toward* the base and never away from it. §8 is the divergence
+table — we keep only the additive-upward shape, because their base is world *state* where
+ours must be a pure function of `(seed, column)`.
+
+The squared per-tier weight field is deliberately **left to 062**: a per-place ruggedness
+field is a shaping decision, and 061 modulates by the field it already has. It is written
+into `docs/world-generation.md` §6.7 as the mechanism 062 should reach for first.
+
+Explicitly *not* in scope: sea level, water and the land fraction (080); erosion and a
+ruggedness field (062); terracing — `at()` is continuous on purpose (063); rivers, roads
+and structure flattening (062, 080–083, 089–090); climate, where whether temperature and
+humidity share elevation's weight fields is the new note's `U2` for 064 to resolve; any
+voxel — still nothing is written to a `VoxelBuffer`.
+
+Docs: `docs/world-generation.md` §6 (new, seven subsections); new
+`docs/reference/terrain-base-height-field.md`; `terrain-value-noise.md` `U2` marked
+resolved; `docs/README.md` and `traceability.md` §2 list the new note.
+
+Tests: `tests/unit/test_elevation_field.gd` (new, 22 tests) pinning a golden
+`signature()` (`0babd0a337dd7cab`). Full suite: `files=38 tests=449 assertions=11469
+failed=0`. `check.ps1` OK (79 scripts).
 
 `060` is **the first brick that generates anything**, and it is two files under
 `world/generation/`, split the way the brick title is:

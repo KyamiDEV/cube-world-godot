@@ -63,6 +63,7 @@ behavioural claim carries a `HIGH` / `MEDIUM` / `LOW` confidence level.
 | [`reference/world-generation-authority.md`](reference/world-generation-authority.md) | who may generate world content, and why seed agreement is a network contract |
 | [`reference/region-coordinate-hashing.md`](reference/region-coordinate-hashing.md) | how the original turned world coordinates into generated content, and why ours differs |
 | [`reference/terrain-value-noise.md`](reference/terrain-value-noise.md) | the original's `valueNoise2D` — value noise, cosine interpolation, an unseeded field, and a lattice mirrored about the origin |
+| [`reference/terrain-base-height-field.md`](reference/terrain-base-height-field.md) | the original's `World_baseHeightField` — a three-tier relief ladder, each tier placed by a squared coarser weight field, stacked upward on a region-blended base |
 
 ## Adding a document
 

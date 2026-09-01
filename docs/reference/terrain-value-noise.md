@@ -111,7 +111,7 @@ keep unchanged: a coordinate's value never depends on what was sampled before it
 | # | Unknown | How it could be resolved | Impact if wrong |
 |---|---|---|---|
 | U1 | Whether the `0x8001d4`/`0x8001d8` offsets are derived from the world seed (claim 8) | reading the writers of those slots | None for us: we reject offset-based seeding either way (§9), because it makes two worlds translations of one another |
-| U2 | The octave weights and count in `World_baseHeightField` (claim 9) | reading the ~500-line body | None for our correctness; it would only tell us whether our 4-octave, `gain = 0.5` ladder is close to or far from the original's feel, which is a tuning question for bricks 061–067 |
+| U2 | ~~The octave weights and count in `World_baseHeightField` (claim 9)~~ — **RESOLVED (brick 061)** | resolved by reading the body: `terrain-base-height-field.md` §3, claims 1 and 3 | Answered: the ladder is decade-spaced (`0.0002`, `0.002`, `0.01`) with roughly halving amplitude, and each tier's amplitude is *modulated by a squared noise field one decade coarser*. Claim 9's `0.0001`/`0.0005` frequencies turn out to be weight and jitter fields, not relief octaves |
 | U3 | Whether the mirror in §4 was ever reachable in the original | mapping the unsigned region grid onto the float coordinates the noise is sampled at | None — we do not have the original's coordinate convention, and our own grid is signed |
 
 ## 9. Deliberate divergences

@@ -16,20 +16,49 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–043)
+- Phase `C — Voxel infrastructure` — in progress (031–044)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `044 — Create block edit command model`
+- Next task `045 — Create block edit validation layer`
 
 ## Completed bricks
 
-`001`–`043`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`044`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
-block raycast interaction service).
+block raycast interaction service, 044 block edit command model).
+
+`044` added `network/packets/edit_block_command.gd` (`EditBlockCommand`) — the
+`docs/protocol.md` §2 worked example given a concrete shape. Carries only intent: `kind`
+(`PLACE`/`REMOVE`), `position` (the voxel to write), `face_normal` (the struck face, for
+gameplay validation in 045 that needs approach direction), `block_id` (required and
+`StableId`-checked for `PLACE`, must be empty for `REMOVE`), and `tick`
+(`MessageTaxonomy.requires_tick()`). Deliberately excludes peer/owner/sequence — per
+`docs/server-authority.md` A4, ownership is resolved by `CommandGate` from the connection,
+never carried in the payload. `from_hit(hit: BlockRaycastHit, kind, block_id, tick)`
+picks `hit.placement_position` for `PLACE` and `hit.hit_position` for `REMOVE`
+automatically, so no caller re-derives that distinction (043's hand-off note). `validate()`
+is structural only (well-formed id, correct domain, empty/non-empty `block_id` matching
+`kind`, non-negative tick) — whether the position is in-bounds or the block is placeable
+is 045's job, against world state, not this type's. Tests:
+`tests/unit/test_edit_block_command.gd` (10 tests, +263 total).
+
+One non-obvious parser interaction surfaced and is worth keeping: `check_scripts.gd`'s
+self-check (renames a copy's `class_name` to `X__selfcheck` to parse it without
+conflicting with the already-registered real class) makes a **bare** nested-type
+reference (e.g. `Kind` used unqualified as a parameter type) resolve to the *local*
+(renamed) copy, while a **fully-qualified** reference (`EditBlockCommand.Kind`, or the
+class's own name written out as a return type) resolves through the global class-cache
+lookup to the *real* class — two nominally different types for the same enum. A static
+factory that both takes its own nested enum as a parameter and constructs itself via the
+explicit class name (`EditBlockCommand.new(...)`) must qualify the parameter type the
+same way (`p_kind: EditBlockCommand.Kind`, not bare `Kind`) or the self-check fails with
+a spurious argument/return-type mismatch that only exists under the renamed copy, never
+in a real run. No prior file collided with this (existing self-constructing factories
+like `DeterministicRng.from_seed()` pass only primitives).
 
 `043` added `world/terrain/block_raycast_service.gd` (`BlockRaycastService`, static
 `cast(terrain, registry, origin, direction, max_distance) -> BlockRaycastHit`) — the
@@ -614,7 +643,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 22 files, 252 tests, 10 174 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 23 files, 263 tests, 10 200 assertions, 0 failed.
 
 ## What exists now
 
@@ -633,6 +662,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 22 files, 252 tests, 10 17
 | Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` left null for 048 |
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
 | Terrain | `world/terrain/block_raycast_service.gd`, `block_raycast_hit.gd` | `BlockRaycastService.cast(terrain, registry, origin, direction, max_distance)`: wraps `VoxelTool.raycast()`, resolves the hit voxel value back to a `BlockDefinition` id through the registry (043, `docs/voxel-tools.md` §10) |
+| Network | `network/packets/edit_block_command.gd` | `EditBlockCommand`: PLACE/REMOVE intent (`kind`, `position`, `face_normal`, `block_id`, `tick`); `from_hit()` builds one from a `BlockRaycastHit`; `validate()` is structural only (044) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -640,18 +670,19 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 22 files, 252 tests, 10 17
 
 ## Next 10 actions
 
-1. `044` block edit command model, consuming `BlockRaycastService.cast()` (043, now DONE)
-   to know which voxel a command targets. Remember `blocky_library_builder.gd`'s `+1`
-   voxel-value offset (library index = network_index + 1, air = 0) wherever raw voxel
-   values are read or written — `block_raycast_service.gd` already applies it once for
-   the hit-resolution direction; block edit *application* (046) will need the inverse
-   direction (id -> raw value) when writing. None of 039–043 added a `.tscn`, and no
-   player/camera exists yet to raycast from or to parent the 042 `VoxelViewer` under —
-   deciding where these nodes actually live in a scene is still open (039's nextsteps
-   entry, carried forward again by 042/043). Per CLAUDE.md §12, an edit is a
-   command/intent the server validates, not something the client applies directly —
-   044's command model should carry a target position/face and an edit intent (place/
-   remove + block id), not a raw voxel write.
+1. `045` block edit validation layer: gameplay validation (layer 2, `docs/server-authority.md`
+   §3) for the `EditBlockCommand` payload (044, now DONE) — is `position` within the
+   world's editable bounds, does `REMOVE` target a `destructible` block, does `PLACE`
+   target an empty/overwritable voxel, does the registry actually contain `block_id`.
+   This is world-state validation, distinct from 044's `validate()` (structural only).
+   Remember `blocky_library_builder.gd`'s `+1` voxel-value offset (library index =
+   network_index + 1, air = 0) wherever raw voxel values are read or written —
+   `block_raycast_service.gd` already applies it once for the hit-resolution direction;
+   block edit *application* (046) will need the inverse direction (id -> raw value) when
+   writing. None of 039–044 added a `.tscn`, and no player/camera exists yet to raycast
+   from or to parent the 042 `VoxelViewer` under — deciding where these nodes actually
+   live in a scene is still open (039's nextsteps entry, carried forward again by
+   042/043/044).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

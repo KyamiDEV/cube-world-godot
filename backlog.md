@@ -75,7 +75,7 @@
 | 043 | C | Create basic block raycast interaction service | 042 | Not needed by default | NO | DONE |
 | 044 | C | Create block edit command model | 043 | Not needed by default | NO | DONE |
 | 045 | C | Create block edit validation layer | 044 | Not needed by default | NO | DONE |
-| 046 | C | Create block edit application layer | 045 | Not needed by default | NO | TODO |
+| 046 | C | Create block edit application layer | 045 | Not needed by default | NO | DONE |
 | 047 | C | Create edit undo/delta representation | 046 | Not needed by default | NO | TODO |
 | 048 | C | Create initial voxel save stream wiring | 047 | Not needed by default | NO | TODO |
 | 049 | C | Create basic voxel load/save integration test | 048 | Not needed by default | NO | TODO |

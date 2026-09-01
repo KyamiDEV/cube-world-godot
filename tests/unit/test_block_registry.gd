@@ -9,6 +9,7 @@ func _grass() -> BlockDefinition:
 	definition.texture_top = "res://assets/textures/blocks/grass_top.png"
 	definition.texture_side = "res://assets/textures/blocks/grass_side.png"
 	definition.texture_bottom = "res://assets/textures/blocks/dirt.png"
+	definition.footstep_tag = "grass"
 	return definition
 
 
@@ -19,6 +20,7 @@ func _dirt() -> BlockDefinition:
 	definition.texture_top = "res://assets/textures/blocks/dirt.png"
 	definition.texture_side = "res://assets/textures/blocks/dirt.png"
 	definition.texture_bottom = "res://assets/textures/blocks/dirt.png"
+	definition.footstep_tag = "dirt"
 	return definition
 
 

@@ -8,9 +8,6 @@ extends Resource
 ## storage, locking and network indices; this file only defines the shape and the
 ## self-validation every domain's definition type is responsible for
 ## (`docs/ids-and-registries.md` §5).
-##
-## Footstep/surface-tag fields are added by a dedicated brick (036) rather than
-## guessed here.
 
 ## Stable content ID, domain "block" — e.g. "block.grass". Written into save files and
 ## network packets; see `docs/ids-and-registries.md`.
@@ -72,6 +69,18 @@ extends Resource
 ## named item actually exists is a data-loading-time concern, not this resource's.
 @export var drop_item_id: String = ""
 
+## Surface-material category for footstep/movement audio (backlog brick 036) — e.g.
+## "grass", "dirt", "stone", "sand". A plain lowercase tag, not a stable ID: it names a
+## material *category* shared by many block kinds, not one piece of identified content,
+## so it carries no domain prefix and is not looked up through a registry. Brick 220
+## ("footstep/audio surface mapping", Phase J) builds the tag -> sound-event table this
+## feeds; that mapping stays out of scope here, same as 037's texture/material
+## resolution staying out of scope for 033. Required like the texture fields — every
+## block kind a player can stand on needs a footstep category, and unlike `hardness`
+## (meaningless but harmless when `destructible` is false) there is no default that
+## would be correct for an unset tag.
+@export var footstep_tag: String = ""
+
 
 ## Returns an empty string when well-formed, otherwise a human-readable reason — same
 ## convention as `StableId.validate()`, so a bad data file logs a useful error instead
@@ -98,6 +107,8 @@ func validate() -> String:
 			return "drop_item_id: " + drop_problem
 		if StableId.domain_of(drop_item_id) != "item":
 			return "drop_item_id must be in the 'item' domain, got '%s'" % drop_item_id
+	if footstep_tag.is_empty():
+		return "footstep_tag is empty"
 	return ""
 
 

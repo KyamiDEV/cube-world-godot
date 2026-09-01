@@ -9,6 +9,7 @@ func _valid() -> BlockDefinition:
 	definition.texture_top = "res://assets/textures/blocks/grass_top.png"
 	definition.texture_side = "res://assets/textures/blocks/grass_side.png"
 	definition.texture_bottom = "res://assets/textures/blocks/dirt.png"
+	definition.footstep_tag = "grass"
 	return definition
 
 
@@ -132,6 +133,12 @@ func test_rejects_a_drop_item_id_from_another_domain() -> void:
 	definition.drop_item_id = "block.dirt"
 	assert_eq(definition.validate(),
 			"drop_item_id must be in the 'item' domain, got 'block.dirt'")
+
+
+func test_rejects_a_missing_footstep_tag() -> void:
+	var definition := _valid()
+	definition.footstep_tag = ""
+	assert_eq(definition.validate(), "footstep_tag is empty")
 
 
 func test_registers_into_a_block_registry() -> void:

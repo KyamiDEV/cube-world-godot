@@ -9,8 +9,8 @@ extends Resource
 ## self-validation every domain's definition type is responsible for
 ## (`docs/ids-and-registries.md` §5).
 ##
-## Collision, interaction/destruction and footstep/surface-tag fields are added by
-## dedicated bricks (034–036) rather than guessed here.
+## Interaction/destruction and footstep/surface-tag fields are added by dedicated
+## bricks (035–036) rather than guessed here.
 
 ## Stable content ID, domain "block" — e.g. "block.grass". Written into save files and
 ## network packets; see `docs/ids-and-registries.md`.
@@ -35,6 +35,16 @@ extends Resource
 ## 037 can set the mesher model's flag directly. Defaults to opaque, matching
 ## `VoxelBlockyModel`'s own default.
 @export var transparent: bool = false
+
+## Whether this block kind produces collision at all (backlog brick 034). Mirrors
+## `docs/conventions.md` §5's own worked example for this exact concept
+## (`is_solid, has_collision`). Deliberately a plain predicate, not a raw
+## `VoxelBlockyModel.collision_mask` bitmask — which physics layer(s) a solid block
+## occupies is an engine-integration decision for the `VoxelBlockyLibrary` bootstrap
+## (037), not block-kind data. Defaults to true: most reference blocks (stone, dirt,
+## grass) are walkable/solid; a block kind that should not collide (e.g. a future
+## decorative or liquid-surface kind) sets this to false explicitly.
+@export var is_solid: bool = true
 
 
 ## Returns an empty string when well-formed, otherwise a human-readable reason — same

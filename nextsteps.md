@@ -16,16 +16,35 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–033)
+- Phase `C — Voxel infrastructure` — in progress (031–034)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `034 — Create block collision property schema`
+- Next task `035 — Create block interaction/destruction property schema`
 
 ## Completed bricks
 
-`001`–`033`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`034`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
-material property schema).
+material property schema, 034 collision property schema).
+
+`034` extended `world/terrain/block_definition.gd` with a single `is_solid: bool = true`
+field — whether the block kind produces collision at all. Deliberately a plain predicate,
+not a raw `VoxelBlockyModel.collision_mask` bitmask: `docs/conventions.md` §5 already uses
+`is_solid`/`has_collision` as its own worked example of the boolean-naming rule, which
+reads as an intentional pointer to this exact field name, so no reference read or extra
+design was needed to pick it. Unlike 033's texture fields, `is_solid` is not a direct
+1:1 mirror of one `VoxelBlockyModel` property the way `transparent` is — which physics
+layer(s) a solid block occupies is left as an engine-integration decision for the
+`VoxelBlockyLibrary` bootstrap (037: e.g. `is_solid ? 1 : 0` or similar), not block-kind
+data. No `validate()` change: like `transparent`, a bool has no invalid state, so
+`is_valid()` stays true regardless of `is_solid`'s value. `docs/reference/traceability.md`
+§4 already confirmed no reference matrix cites 031–055, so no reference read was needed,
+same as 031–033. Tests extended in `tests/unit/test_block_definition.gd` (13 tests, +2):
+default-true check, and an explicit-false-stays-valid check documenting that collision is
+engine-integration, not a validity rule. `tests/unit/test_block_registry.gd` needed no
+change — `is_solid` defaults to true, so its existing `_grass()`/`_dirt()` helpers stay
+valid unmodified. No docs page added — same "direct application of an existing
+convention" reasoning as 031–033, not a new contract.
 
 `033` extended `world/terrain/block_definition.gd` with the material fields 031 deferred:
 `texture_top` / `texture_side` / `texture_bottom` (plain `res://...` `String` paths, same
@@ -273,7 +292,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 215 tests, 10 038 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 217 tests, 10 040 assertions, 0 failed.
 
 ## What exists now
 
@@ -284,7 +303,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 215 tests, 10 03
 | Time | `core/time/simulation_clock.gd` | 60 Hz fixed step, catch-up clamp, snapshot cadence |
 | RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation |
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
-| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `validate()` |
+| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `is_solid`, `validate()` |
 | Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
@@ -293,11 +312,11 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 215 tests, 10 03
 
 ## Next 10 actions
 
-1. `034`–`038` remaining block property schemas (collision, interaction/destruction,
-   footstep/surface tags — material done in 033), `VoxelBlockyLibrary` bootstrap, first
-   grass/dirt/stone block set. Phase C is original Godot/Voxel-Tools engineering;
-   `docs/reference/traceability.md` §4 confirms no matrix cites this range — no reference
-   read needed before starting.
+1. `035`–`038` remaining block property schemas (interaction/destruction, footstep/
+   surface tags — material done in 033, collision done in 034), `VoxelBlockyLibrary`
+   bootstrap, first grass/dirt/stone block set. Phase C is original Godot/Voxel-Tools
+   engineering; `docs/reference/traceability.md` §4 confirms no matrix cites this range —
+   no reference read needed before starting.
 2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
 4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.

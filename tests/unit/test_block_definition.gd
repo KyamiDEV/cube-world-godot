@@ -68,6 +68,17 @@ func test_transparent_defaults_to_false() -> void:
 	assert_false(definition.transparent, "VoxelBlockyModel's own default is opaque")
 
 
+func test_is_solid_defaults_to_true() -> void:
+	var definition := _valid()
+	assert_true(definition.is_solid, "most reference blocks are walkable/solid")
+
+
+func test_is_solid_can_be_set_false_and_stays_valid() -> void:
+	var definition := _valid()
+	definition.is_solid = false
+	assert_true(definition.is_valid(), "collision is engine-integration, not a validity rule")
+
+
 func test_registers_into_a_block_registry() -> void:
 	# End-to-end with DefinitionRegistry (brick 016) — the registry only checks the id,
 	# so a valid-but-unvalidated-by-the-registry definition still needs its own check.

@@ -19,12 +19,12 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056 done, 057–090 open)
-- Next task `057 — Create generation versioning` (deps: 056 — DONE)
+- Phase `D — World generation` — **IN PROGRESS** (056–057 done, 058–090 open)
+- Next task `058 — Create world coordinate hashing` (deps: 057 — DONE)
 
 ## Completed bricks
 
-`001`–`056`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`057`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -37,7 +37,75 @@ validation layer, 046 block edit application layer, 047 edit undo/delta represen
 world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh block
 size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decision, 055
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
-Phase D open: 056 world seed configuration.
+Phase D open: 056 world seed configuration, 057 generation versioning.
+
+`057` gave the generation version a lifecycle: `world/generation/generation_version.gd`
+(`GenerationVersion`, static-only, second file under `world/generation/`). The number
+itself stays `SaveVersion.GENERATION_VERSION` — `core/` cannot depend on `world/`, so
+`core/serialization/save_version.gd` (017) keeps the constants and the header verdicts,
+`world_seed.gd` (056) keeps "which version applies to *this* world", and this file
+answers the three things neither did: **when the number must be bumped**, **which
+algorithms this build can still reproduce**, and **what happens to a world whose
+algorithm is gone**.
+
+Surface: `CURRENT` (= `SaveVersion.GENERATION_VERSION`), `SUPPORTED` (`PackedInt32Array`,
+`[1]` today), `SUMMARIES` (one describable line per version, kept for retired versions
+too), `enum Status {CURRENT_VERSION, LEGACY, RETIRED, FUTURE, INVALID}`, plus
+`supported()`/`is_supported()`/`oldest_supported()`, `status()`/`status_name()`/
+`summary()`/`explain()`, `classify_header()`/`can_load_header()`/`explain_header()`, and
+`self_check()`.
+
+Four decisions worth keeping:
+
+1. **Two pure forms, deliberately.** `status_of(version, current, supported)` and
+   `self_check_of(current, supported, min_supported, summaries)` take their inputs
+   instead of reading the constants, and the zero-argument forms delegate. That is what
+   makes version histories this build does not have yet (a retirement, a hole, a newer
+   peer) testable today — and `status_of()` is the shape bricks 235–236 need anyway,
+   since a handshake judges the *other* side's declared set, not its own.
+2. **`classify_header()` is the only supported way to ask about a world header.**
+   `SaveVersion.classify()` called without an explicit list falls back to the
+   `MIN_SUPPORTED_GENERATION_VERSION..GENERATION_VERSION` **range**, which is correct
+   only while `SUPPORTED` has no holes. Holes are legal (retiring one short-lived broken
+   algorithm while keeping its neighbours is a real decision), so the wrapper always
+   passes the list. This is the concrete reason the constant is not just
+   `range(min, current + 1)` spelled out.
+3. **The bump checklist is enforced, not remembered.** `self_check()` requires: newest
+   supported == `CURRENT` (a build must reproduce what it writes, or every world it
+   creates is unloadable by the build that made it); `SUPPORTED[0]` ==
+   `SaveVersion.MIN_SUPPORTED_GENERATION_VERSION` (the two files can never disagree about
+   the oldest world that still opens); sorted/unique/positive entries; every supported
+   version described; no summary outside `1..CURRENT`. `test_generation_version.gd`
+   asserts it, so a half-finished bump fails the suite rather than the first save nobody
+   can open. Steps 1 (raise the constant) and 5 (write down what changed) are the parts a
+   human still has to mean.
+4. **A refusal names the world.** `explain()`/`explain_header()` quote the version's own
+   `SUMMARIES` line — `docs/persistence.md` §2's "a player told only 'cannot load'
+   deletes the save", applied to the generation axis.
+
+`world_seed.gd`'s constructor default moved from `SaveVersion.GENERATION_VERSION` to
+`GenerationVersion.CURRENT` (identical value) so "a new world is created under this
+build's current algorithm" reads from the lifecycle owner; its doc comment lost the "brick
+057 will…" placeholder. No other production file changed — nothing yet calls
+`classify_header()`, because nothing yet loads a world save (that path lands with
+102–103).
+
+Explicitly *not* in scope: implementing a second algorithm or any migration/side-by-side
+execution of two (nothing needs it until a second version exists); enforcing version
+agreement across a session (235–236 run the checks this brick and 056 provide); where the
+header is stored (102–103).
+
+Docs: `docs/world-generation.md` §2 (new, six subsections: bump triggers, the supported
+set, the status table, retiring, the enforced checklist, out-of-scope) and §1.7's pointer
+updated; `docs/persistence.md` §3 and `docs/rng.md` §3 gained pointer paragraphs naming
+`GenerationVersion` as the owner and warning off the bare `SaveVersion.classify()` call.
+No new docs file, so `docs/README.md` needed no change.
+`docs/reference/traceability.md` needed none either: its Phase D row `056–067` already
+covers 057 (`matrix-world.md` §1, LOW), and no open question gates it — Q2, the one that
+gated 056, is resolved.
+
+Tests: `tests/unit/test_generation_version.gd` (new, 14 tests). Full suite: `files=32
+tests=338 assertions=10440 failed=0`. `check.ps1` OK (67 scripts).
 
 `056` is the first Phase D brick, and the first one this project started with an open
 reference question actually gating it (`traceability.md` §1's rule). Two pieces, in
@@ -1146,6 +1214,7 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 | Tests | `tests/integration/test_voxel_load_save.gd` | End-to-end proof: an edit survives a real save/reload round trip through `VoxelStreamSQLite`; an untouched voxel still comes from the placeholder generator (049, `docs/voxel-tools.md` §14) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Generation | `world/generation/world_seed.gd` | `WorldSeed`: world identity as `(value, text, generation_version)` — `from_text()`/`from_value()`/`arbitrary()`/`from_header()`, `validate()` (text must re-hash to value), `display_text()`, `mismatch_reason()`/`matches()` (the client/server parity check), `rng_for(key)`, `to_header(extra)` (writes the world's own generation version over the build's constant) (056, `docs/world-generation.md` §1) |
+| Generation | `world/generation/generation_version.gd` | `GenerationVersion`: the version *lifecycle* — `CURRENT`/`SUPPORTED`/`SUMMARIES`, `status()`/`status_of()` (`CURRENT_VERSION`/`LEGACY`/`RETIRED`/`FUTURE`/`INVALID`), `explain()`, `classify_header()`/`can_load_header()`/`explain_header()` (always passing the explicit supported list — never let `SaveVersion` fall back to its range), and `self_check()`, which fails the suite on a half-finished bump (057, `docs/world-generation.md` §2) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
 | Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `world-generation.md`, `adr/0001`, `adr/0002` | the contracts those files implement |
@@ -1154,18 +1223,24 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 
 ## Next 10 actions
 
-1. `057` create generation versioning (next task) — dep 056 (DONE). Scope it against what
-   056 deliberately left out: `WorldSeed.generation_version` already *records* a version
-   and `SaveVersion` already holds `GENERATION_VERSION`/`MIN_SUPPORTED_GENERATION_VERSION`
-   plus `classify()`'s `GENERATOR_UNAVAILABLE` verdict, so 057 owns the **lifecycle** —
-   what a bump means, which versions a build declares it can still reproduce, and how a
-   world on a retired version is refused (`docs/persistence.md` §3). Write it into
-   `docs/world-generation.md` §2. Still open and carried forward from Phase C: no `.tscn`
-   exists, and no player/camera to raycast from or to parent the 042 `VoxelViewer` under —
-   a Phase F question (039's nextsteps entry, carried by 042–056). Phase D generation must
-   fit inside `WorldBounds` (050, `world/terrain/world_bounds.gd`), and the
-   `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
-   Phase D lands (its §5 says so; feeds bricks 257–258).
+1. `058` create world coordinate hashing (next task) — dep 057 (DONE). Scope it against
+   what already exists, the same way 057 was scoped against 056: `core/random/world_hash.gd`
+   (015) **already** provides the positional primitives — `hash3`/`hash2`,
+   `value01_3`/`value01_2`, `rng_at`/`rng_at_column`, `hash_voxel`/`rng_at_voxel`,
+   `chance_at`, `seed_from_text`, and the `SALT_*` allocation. So 058 is not a second hash
+   function; the gap it can honestly fill is the **coordinate space** generation actually
+   works in — voxel ↔ chunk/block ↔ region/zone conversions (against `WorldBounds`, 050,
+   and the 16³ data-block granularity `docs/voxel-tools.md` records), plus binding a
+   `WorldSeed` to them so a call site hashes a *chunk* or a *region* without re-deriving
+   the arithmetic or re-passing `seed.value` (`CLAUDE.md` §1's one-shared-utility rule).
+   Confirm that reading before designing, and if the brick really is already satisfied by
+   `WorldHash`, say so explicitly rather than inventing a parallel API.
+   Still open and carried forward from Phase C: no `.tscn` exists, and no player/camera to
+   raycast from or to parent the 042 `VoxelViewer` under — a Phase F question (039's
+   nextsteps entry, carried by 042–057). Phase D generation must fit inside `WorldBounds`
+   (050, `world/terrain/world_bounds.gd`), and the `docs/performance-budget.md` §3
+   benchmark is re-run against the real generator once Phase D lands (its §5 says so;
+   feeds bricks 257–258).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

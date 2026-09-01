@@ -38,15 +38,16 @@ var value: int
 var text: String
 
 ## Generation algorithm version this world was created under. Pinned at creation from
-## the build's `SaveVersion.GENERATION_VERSION` and then carried unchanged for the life
-## of the world — a loaded world keeps its own version even on a newer build. The
-## version *lifecycle* (what a bump means, which versions a build still implements) is
-## brick 057's; this field only records which one applies.
+## `GenerationVersion.CURRENT` and then carried unchanged for the life of the world — a
+## loaded world keeps its own version even on a newer build. This field only records
+## which version applies; the version *lifecycle* (what a bump means, which versions a
+## build still implements, what happens to a world on a retired one) is
+## `world/generation/generation_version.gd` (brick 057, `docs/world-generation.md` §2).
 var generation_version: int
 
 
 func _init(p_value: int, p_text: String = "",
-		p_generation_version: int = SaveVersion.GENERATION_VERSION) -> void:
+		p_generation_version: int = GenerationVersion.CURRENT) -> void:
 	value = p_value
 	text = p_text
 	generation_version = p_generation_version

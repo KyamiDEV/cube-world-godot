@@ -73,6 +73,14 @@ worlds that used it stop loading and say so plainly, rather than corrupting them
 `classify()` takes the available versions so a build can declare exactly what it still
 implements.
 
+That declaration has an owner as of brick 057: `world/generation/generation_version.gd`
+(`GenerationVersion`, `docs/world-generation.md` §2) holds the supported set, says when
+the number must be bumped, and explains a refusal by naming what the world was made
+with. Call `GenerationVersion.classify_header()` rather than `SaveVersion.classify()`
+directly for a world header — the latter's empty-list fallback is the
+`MIN_SUPPORTED_GENERATION_VERSION..GENERATION_VERSION` range, which cannot express a
+retired version between the two ends.
+
 ## 4. Data version: content drift is normal
 
 Content grows. `data_version` differing is **not** an error and does not block loading;

@@ -64,8 +64,9 @@ written out: `String.hash()` is 32-bit and engine-defined, and these hashes key 
 data and content IDs.
 
 Changing either algorithm changes every world ever generated. That is not a bug fix; it
-is a **generation version bump** (brick 057), with the old version kept readable or the
-world explicitly retired.
+is a **generation version bump**, with the old version kept readable or the world
+explicitly retired — the lifecycle lives in `world/generation/generation_version.gd`
+(brick 057, `docs/world-generation.md` §2), whose bump checklist §2.5 names this case.
 
 ## 4. Salts and streams
 

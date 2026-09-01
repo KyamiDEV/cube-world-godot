@@ -9,6 +9,9 @@ The stream object itself — `world/persistence/voxel_stream_builder.gd`
 (`VoxelStreamBuilder`, brick 048, `docs/voxel-tools.md` §13) — is wired for exactly this
 "deltas, not full snapshots" shape (`save_generator_output = false`); the on-disk
 save-directory layout it plugs into is still open, deferred to bricks 102–103.
+`tests/integration/test_voxel_load_save.gd` (brick 049, `docs/voxel-tools.md` §14)
+confirms end-to-end that an edit survives a real save/reload round trip through that
+stream, while an untouched voxel still comes from the generator, not a stale save.
 
 ## 1. Four versions, not one
 

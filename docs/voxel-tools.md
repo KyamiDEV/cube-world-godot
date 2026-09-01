@@ -360,3 +360,43 @@ test_voxel_terrain_builder.gd` gained one test — a stream passed to `build()` 
 onto `terrain.stream` unchanged — alongside its existing null-by-default assertion,
 whose comment was updated from "no save format yet" (no longer true) to "defaults to
 null when the caller passes none".
+
+## 14. Voxel load/save integration test (brick 049)
+
+`tests/integration/test_voxel_load_save.gd` (1 test) — the first file under
+`tests/integration/`, closing the loop 048 opened: does an edit written through a real
+`VoxelStreamSQLite` actually survive a terrain teardown/rebuild, and does an untouched
+voxel correctly keep coming from the placeholder generator rather than a stale/duplicated
+stream entry (`save_generator_output = false`, §13)? Neither question is answerable by a
+unit test of `VoxelStreamBuilder`, `VoxelTerrainBuilder`, or `BlockEditApplicator` in
+isolation — each only exercises its own piece.
+
+Two engine APIs are used here for the first time and needed doc confirmation (fetched
+`doc/classes/VoxelTerrain.xml`, `VoxelSaveCompletionTracker.xml`, `VoxelStreamSQLite.xml`,
+`godot_voxel` reference repo, CLAUDE.md §15 source, tag `v1.7`):
+
+1. **`VoxelTerrain.save_modified_blocks() -> VoxelSaveCompletionTracker`** — forces every
+   modified block to be written to the terrain's stream. Its own doc is explicit that
+   saving is asynchronous ("the save may complete only a short time after you call this
+   method"), so the test polls the returned tracker's `is_complete()` per frame (same
+   poll-don't-assume-frame-count shape `is_area_meshed()` already gets in
+   043/045/046's tests) rather than assuming one frame is enough.
+2. **No documented `close()`/flush on `VoxelStreamSQLite`** — its connection lifetime is
+   tied to the resource's own lifetime (a `RefCounted`, `doc/classes/VoxelStreamSQLite.xml`
+   states no separate close call). The test therefore frees the first terrain (and the
+   stream it held the only reference to) explicitly — `terrain.free()`, not `track_node()`,
+   which only frees after the whole test method returns, too late for a second stream to
+   safely open the same database file within the same test — then waits two frames before
+   opening the same path again.
+
+Scope: one edit (`REMOVE` at the placeholder ground's top voxel), not a matrix of
+PLACE/REMOVE/multiple-edits/concurrent-terrain scenarios — brick 049's own backlog wording
+is "basic... integration test", and `nextsteps.md`'s own action item for this brick names
+exactly this one round trip. A future brick that needs broader save-format coverage
+(e.g. bricks 102-103's own storage-layout work) can extend this file rather than starting
+a new one.
+
+No scene (`.tscn`) added, no player/camera decision made — same "where do these nodes
+live" deferral 039-048 all carry (`nextsteps.md`'s own next-actions list). The test builds
+and tears down its own terrain/viewer pair entirely inside one method, same pattern
+043/045/046's tests already use, just twice.

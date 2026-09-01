@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–048)
+- Phase `C — Voxel infrastructure` — in progress (031–049)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `049 — Create basic voxel load/save integration test`
+- Next task `050 — Create voxel world bounds/authority policy`
 
 ## Completed bricks
 
-`001`–`048`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`049`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -31,7 +31,41 @@ grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
 block raycast interaction service, 044 block edit command model, 045 block edit
 validation layer, 046 block edit application layer, 047 edit undo/delta representation,
-048 initial voxel save stream wiring).
+048 initial voxel save stream wiring, 049 voxel load/save integration test).
+
+`049` added `tests/integration/test_voxel_load_save.gd` (1 test) — the first file under
+`tests/integration/`, closing the loop 048 opened by actually proving an edit survives a
+real save/reload round trip rather than only that `VoxelStreamBuilder`/
+`VoxelTerrainBuilder`'s `stream` parameter are wired correctly in isolation. Flow: build a
+terrain against a real on-disk `VoxelStreamSQLite`, apply one `REMOVE` edit via
+`BlockEditApplicator.apply()` (046), force-save via the newly-used
+`VoxelTerrain.save_modified_blocks() -> VoxelSaveCompletionTracker` and poll
+`is_complete()` (saving is asynchronous per the engine's own doc), fully free the terrain
+and its stream (not via `track_node()`, which only frees after the test method returns —
+too late for a second stream to safely reopen the same database path within the same
+test), then rebuild a fresh terrain against the same database path. Two assertions:
+the edited voxel is still air (the delta survived), and an untouched ground voxel
+elsewhere still comes from the placeholder generator, not a stale/duplicated stream entry
+— the concrete proof that `save_generator_output = false` (048) actually behaves as
+documented, not just that the property reads back correctly.
+
+No new engine API beyond what 043/046 already established, except `save_modified_blocks()`
+and `VoxelSaveCompletionTracker` (`is_complete()`) — both confirmed against
+`doc/classes/VoxelTerrain.xml`/`VoxelSaveCompletionTracker.xml` fetched from the
+`godot_voxel` reference repo (CLAUDE.md §15 source, tag `v1.7`) this brick, alongside a
+re-check of `VoxelStreamSQLite.xml` confirming no documented `close()`/flush call exists —
+its connection lifetime is tied to the `RefCounted` resource's own lifetime, which is why
+the test frees the first terrain explicitly rather than relying on test-runner teardown.
+Full reasoning in `docs/voxel-tools.md` §14 (new section); `docs/persistence.md`'s header
+gained one pointer sentence, same "pointer, not a new contract" pattern prior bricks used.
+
+Scope is deliberately one edit (`REMOVE`), not a PLACE/REMOVE/multi-edit/concurrent-terrain
+matrix — the backlog's own wording is "basic... integration test", and this closes exactly
+the one open question `nextsteps.md`'s prior "Next 10 actions" item 1 named. No `.tscn`,
+no player/camera decision — same deferral 039–048 all carry forward (still open below).
+
+Tests: `tests/integration/test_voxel_load_save.gd` (1 test, +1 total). Full suite:
+`files=28 tests=292 assertions=10289 failed=0`.
 
 `048` added `world/persistence/voxel_stream_builder.gd` (`VoxelStreamBuilder`, static
 `build(database_path: String) -> VoxelStreamSQLite`) — the first code that constructs a
@@ -818,7 +852,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 27 files, 291 tests, 10 284 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 28 files, 292 tests, 10 289 assertions, 0 failed.
 
 ## What exists now
 
@@ -841,6 +875,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 27 files, 291 tests, 10 28
 | Network | `network/packets/edit_block_command.gd` | `EditBlockCommand`: PLACE/REMOVE intent (`kind`, `position`, `face_normal`, `block_id`, `tick`); `from_hit()` builds one from a `BlockRaycastHit`; `validate()` is structural only (044) |
 | Terrain | `world/terrain/block_edit_validator.gd` | `BlockEditValidator.validate(command, terrain, registry)`: layer-2 gameplay validation against `terrain.bounds`/actual voxel content — registered block, empty/occupied target, `destructible` (045, `docs/server-authority.md` §3) |
 | Terrain | `world/terrain/block_edit_applicator.gd` | `BlockEditApplicator.apply(command, terrain, registry)`: writes an already-validated command's effect via `VoxelTool.set_voxel()` — `network_index(block_id) + 1` for `PLACE`, `0` for `REMOVE` (046, `docs/voxel-tools.md` §12) |
+| Tests | `tests/integration/test_voxel_load_save.gd` | End-to-end proof: an edit survives a real save/reload round trip through `VoxelStreamSQLite`; an untouched voxel still comes from the placeholder generator (049, `docs/voxel-tools.md` §14) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -848,15 +883,15 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 27 files, 291 tests, 10 28
 
 ## Next 10 actions
 
-1. `049` basic voxel load/save integration test: exercise `VoxelStreamBuilder` (048) and
-   `VoxelTerrainBuilder`'s new `stream` parameter end-to-end — build a terrain with a
-   real on-disk `VoxelStreamSQLite`, edit a voxel via `BlockEditApplicator` (046), tear
-   the terrain down, rebuild a fresh one against the same database path, and confirm the
-   edit survived while ungenerated terrain still comes from the placeholder generator.
-   None of 039–048 added a `.tscn`, and no player/camera exists yet to raycast from or to
-   parent the 042 `VoxelViewer` under — deciding where these nodes actually live in a
-   scene is still open (039's nextsteps entry, carried forward again by
-   042/043/044/045/046/048).
+1. `050` voxel world bounds/authority policy: decide real `VoxelTerrain.bounds` (left at
+   the engine's effectively-unbounded default since 039) — `block_edit_validator.gd`
+   (045) already reads `terrain.bounds` directly for its `OUT_OF_BOUNDS` check, and
+   `voxel_stream_builder.gd` (048)'s `COORDINATE_FORMAT_STRING_CSD` choice was explicitly
+   deferred pending this decision (a fixed-width coordinate format may become viable once
+   bounds are known). None of 039–049 added a `.tscn`, and no player/camera exists yet to
+   raycast from or to parent the 042 `VoxelViewer` under — deciding where these nodes
+   actually live in a scene is still open (039's nextsteps entry, carried forward again by
+   042/043/044/045/046/048/049).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

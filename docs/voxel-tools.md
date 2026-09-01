@@ -97,3 +97,33 @@ Grouped for planning; the probe asserts only the required subset above.
 
 Worker-thread behavior, meshing throughput and streaming budgets are measured later
 (bricks 051–055), not asserted by this probe.
+
+## 6. `VoxelTerrain` baseline (brick 039)
+
+`world/terrain/voxel_terrain_builder.gd` (`VoxelTerrainBuilder.build(registry)`) is the
+first code that instantiates a `VoxelTerrain` node. Its scope is deliberately one node's
+worth of the four still-open `VoxelNode`/`VoxelTerrain` properties this phase splits
+across bricks 039–042:
+
+| Property | Owner | This brick's setting |
+|---|---|---|
+| `generator` | 039 | a placeholder (below) |
+| `stream` | 048 (persistence) | explicit `null` |
+| `generate_collisions` | 039 | `true` |
+| `mesher` | 040 (`BlockyLibraryBuilder`'s output) | left unset |
+| `material_override` | 041 | left unset |
+| `VoxelViewer` / `max_view_distance` | 042 | not touched |
+| `bounds` | undecided — no world-size decision exists yet | left at the engine default |
+
+**The generator is a temporary placeholder, not world generation.** Phase D
+(056–067, `docs/reference/matrix-world.md`) owns the real deterministic
+noise/height/climate generator; until it lands, `VoxelTerrainBuilder` fills a flat plane
+of one registered block (`block.stone`) with `VoxelGeneratorFlat` (`channel =
+VoxelBuffer.CHANNEL_TYPE`, `voxel_type = registry.network_index(id) + 1` — the same +1
+offset `blocky_library_builder.gd` (037) uses for air at index 0). Phase D replaces
+`terrain.generator` outright; it is not expected to reuse or extend this file.
+
+**`stream` stays `null` on purpose.** `VoxelNode.stream`'s own doc: "Primary source of
+persistent voxel data. If left unassigned, the whole volume will use the generator."
+That is exactly what a build with no save format yet (048) needs — every block is
+regenerated from the placeholder, nothing is expected to persist between runs.

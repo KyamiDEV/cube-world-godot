@@ -16,18 +16,54 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–038)
+- Phase `C — Voxel infrastructure` — in progress (031–039)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `039 — Configure VoxelTerrain baseline`
+- Next task `040 — Configure VoxelMesherBlocky baseline`
 
 ## Completed bricks
 
-`001`–`038`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`039`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
-grass/dirt/stone block set).
+grass/dirt/stone block set, 039 `VoxelTerrain` baseline).
+
+`039` added `world/terrain/voxel_terrain_builder.gd` (`VoxelTerrainBuilder`, static
+`build(registry: BlockRegistry) -> VoxelTerrain`) — the first code that instantiates a
+real `VoxelTerrain` node. Scope is deliberately one node's worth of the properties Phase
+C splits across 039–042: this brick owns `generate_collisions` (`true`) and `generator`;
+`mesher` is left unset for 040 (`BlockyLibraryBuilder`'s output), `material_override` for
+041, `VoxelViewer`/`max_view_distance` for 042. `stream` is explicitly set to `null` —
+persistence is 048, and `VoxelNode.stream`'s own doc says an unassigned stream makes the
+whole volume regenerate from the generator, which is exactly what a save-less baseline
+needs. `bounds` is left at the Voxel Tools engine default — no world-size decision exists
+yet to justify overriding it, and inventing one wasn't this brick's job.
+
+The `generator` is an explicit, temporary placeholder, not real world generation: a flat
+plane of one registered block (`block.stone`) via `VoxelGeneratorFlat` (`channel =
+VoxelBuffer.CHANNEL_TYPE`, `voxel_type = registry.network_index(id) + 1`, reusing the
+exact +1 air-offset convention `blocky_library_builder.gd` (037) established). Real
+generation is Phase D (056–067, deterministic noise/height/climate fields per
+`docs/reference/matrix-world.md`), which replaces `terrain.generator` outright rather
+than extending this file — recorded explicitly in both the file's own header comment and
+`docs/voxel-tools.md` §6 so a future reader doesn't mistake the placeholder for a design
+decision. Verified against the upstream `godot_voxel` doc classes (`VoxelNode.xml`,
+`VoxelTerrain.xml`, `VoxelGeneratorFlat.xml`, `VoxelBuffer.xml`) fetched this brick,
+since no local doc page previously recorded `VoxelTerrain`'s own property surface
+(037 only needed `VoxelBlockyLibrary`/`VoxelBlockyModel`).
+
+Same "one entry missing, not a crash" degrade pattern as 037: `build()` returns null (and
+logs via `Log.CH_VOXEL`) for an unlocked registry or a registry missing
+`PLACEHOLDER_BLOCK_ID`, rather than building a half-configured node. `docs/voxel-tools.md`
+§6 records the full property table and both explicit-null decisions (`stream`, deferred
+`bounds`). Tests in `tests/unit/test_voxel_terrain_builder.gd` (4 tests): unlocked-registry
+rejection, missing-placeholder-block rejection, `mesher`/`stream` left null while
+`generate_collisions` is true, and the generator's `channel`/`voxel_type`/`height` values
+including the network-index-plus-one offset. No scene (`.tscn`) added — the builder
+returns a plain `VoxelTerrain` node for a caller to add to a tree; wiring it into
+`client/main/main.tscn` or a dedicated world scene is left to whichever of 040–042 first
+needs something visible to test against.
 
 `038` added the first real, committed content: four placeholder textures under
 `assets/textures/blocks/` (`grass_top.png`, `grass_side.png`, `dirt.png`, `stone.png` —
@@ -442,7 +478,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 19 files, 240 tests, 10 115 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 244 tests, 10 135 assertions, 0 failed.
 
 ## What exists now
 
@@ -458,6 +494,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 19 files, 240 tests, 10 11
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on and a placeholder flat-stone `VoxelGeneratorFlat`; `mesher`/`material_override`/viewer left for 040–042, `stream` left null for 048 |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -465,10 +502,14 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 19 files, 240 tests, 10 11
 
 ## Next 10 actions
 
-1. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline, sourcing the block
-   library from `BlockSet.load_default()` (038, now DONE). Remember
+1. `040`–`042` `VoxelMesherBlocky` + material + viewer baseline, sourcing the block
+   library from `BlockSet.load_default()` (038) and attaching to the node
+   `VoxelTerrainBuilder.build()` (039, now DONE) already produces. Remember
    `blocky_library_builder.gd`'s `+1` voxel-value offset (library index = network_index
-   + 1, air = 0) wherever raw voxel values are read or written.
+   + 1, air = 0) wherever raw voxel values are read or written — `voxel_terrain_builder.gd`
+   (039)'s placeholder generator already applies it. `040` also needs to decide where the
+   node built by 039 actually lives in a scene (no `.tscn` was added by 039 — see its
+   nextsteps entry).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
@@ -529,6 +570,13 @@ opening the reference tree.
   `res://` import pipeline entirely (no `.import` file needed) — this is how
   `blocky_library_builder.gd` and its test both load/generate images at runtime. Different
   from `load(path)` / `ResourceLoader`, which require an imported `Texture2D`.
+- **`VoxelNode` (base of `VoxelTerrain`) owns `generator`/`stream`/`mesher`**; `VoxelTerrain`
+  itself adds `bounds`, `generate_collisions`, `collision_layer`/`collision_mask`,
+  `max_view_distance`, `mesh_block_size` (16 or 32 only). An unassigned `stream` makes the
+  whole volume regenerate from `generator` — confirmed against upstream
+  `VoxelNode.xml`/`VoxelTerrain.xml`, brick 039. `VoxelGeneratorFlat.channel` defaults to
+  `CHANNEL_SDF` (1), **not** `CHANNEL_TYPE` (0) — a blocky placeholder generator must set
+  `channel` explicitly or it silently produces SDF data a blocky mesher can't read.
 
 ## Known risks
 

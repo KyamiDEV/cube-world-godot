@@ -84,7 +84,7 @@
 | 052 | C | Benchmark mesh block size 16 | 010, 029 | Not needed by default | NO | DONE |
 | 053 | C | Benchmark mesh block size 32 | 052 | Not needed by default | NO | DONE |
 | 054 | C | Choose initial mesh block size from measured data | 053 | Not needed by default | NO | DONE |
-| 055 | C | Document baseline voxel performance budget | 054 | Not needed by default | NO | TODO |
+| 055 | C | Document baseline voxel performance budget | 054 | Not needed by default | NO | DONE |
 | 056 | D | Create world seed configuration | 015, 017 | Not needed by default | NO | TODO |
 | 057 | D | Create generation versioning | 056 | Not needed by default | NO | TODO |
 | 058 | D | Create world coordinate hashing | 057 | Not needed by default | NO | TODO |

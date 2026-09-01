@@ -638,3 +638,33 @@ gained one assertion (`DEFAULT_MESH_BLOCK_SIZE == 16` explicitly, so a silent ch
 `32` fails a test citing ADR 0002). No production code behavior changed — only doc
 comments and this decision record. Brick 055 writes these numbers into the formal voxel
 performance budget.
+
+## 20. Baseline voxel performance budget (brick 055)
+
+The §17/§18 measurements and ADR 0002's estimated per-edit re-mesh cost are now written
+into a standalone, durable document — **`docs/performance-budget.md`** — rather than
+staying spread across §17-19 and `nextsteps.md`. It records, for the voxel-meshing
+subsystem (`CLAUDE.md` §8 item 2):
+
+- the synthetic workload definition (default block set, flat-stone placeholder generator,
+  one `VoxelViewer` at `view_distance = 128`, cold start to streaming-settle);
+- the size-16 baseline (~377 ms / 52 frames wall-clock to settle, `block_count = 324`,
+  `voxel_used ~= 2.65 MB`, zero dropped loads/meshes) and the size-32 comparison;
+- provisional regression thresholds (settle ≤ 450 ms / ≤ 64 frames, any dropped
+  load/mesh is a regression, task queues must drain);
+- the still-unmeasured per-edit re-mesh cost (16³ = 4 096-cell mesh job per affected
+  chunk at the default size) flagged as a gap, with the edit-throughput benchmark ADR
+  0002 "Revisit if" calls for not yet built;
+- re-measure triggers (Phase D real generation, a view-distance change, any toolchain
+  change) that hand off to the Phase L profiling bricks (257-258).
+
+The document is structured in `CLAUDE.md` §8 order with placeholder rows for the not-yet
+-measured subsystems (generation, streaming, entities, AI, network, rendering, UI) so it
+grows in place. This is the last Phase C brick; it closes milestone M002's "measured mesh
+block size" exit criterion.
+
+Not reverse-engineered: `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031-055.
+
+Tests: none — docs-only brick, no production code changed. Regression check only: full
+suite unchanged.

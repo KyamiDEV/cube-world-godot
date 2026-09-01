@@ -7,15 +7,17 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: voxel infrastructure.** Bricks 001–053 of 266 are done — verified toolchain,
-> project skeleton, test harness, the core contracts (scale, time, RNG, IDs, saves,
-> protocol, authority), the reverse-engineering reference mapping (Phase B), and a working
-> voxel edit pipeline: a block schema/registry, a generated grass/dirt/stone block set, a
-> `VoxelBlockyLibrary` builder, a baseline `VoxelTerrain` + `VoxelMesherBlocky` +
-> `VoxelViewer`, block raycast/place/remove with layered structural + gameplay validation,
-> an undo/delta representation, SQLite-backed save/load proven by an integration test,
-> world bounds/authority policy, chunk profiling hooks, and the
-> `mesh_block_size` 16-vs-32 benchmarks. There is no playable world yet; the main scene prints a
+> **Status: voxel infrastructure complete (Phase C).** Bricks 001–055 of 266 are done —
+> verified toolchain, project skeleton, test harness, the core contracts (scale, time,
+> RNG, IDs, saves, protocol, authority), the reverse-engineering reference mapping
+> (Phase B), and a working voxel edit pipeline: a block schema/registry, a generated
+> grass/dirt/stone block set, a `VoxelBlockyLibrary` builder, a baseline `VoxelTerrain` +
+> `VoxelMesherBlocky` + `VoxelViewer`, block raycast/place/remove with layered structural
+> + gameplay validation, an undo/delta representation, SQLite-backed save/load proven by
+> an integration test, world bounds/authority policy, chunk profiling hooks, the
+> `mesh_block_size` 16-vs-32 benchmarks, and a baseline voxel performance budget
+> ([`docs/performance-budget.md`](docs/performance-budget.md)). Next up is Phase D —
+> procedural world generation. There is no playable world yet; the main scene prints a
 > boot report. Progress is tracked in [`backlog.md`](backlog.md) and
 > [`nextsteps.md`](nextsteps.md).
 

@@ -16,15 +16,16 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–054)
-- Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `055 — Document baseline voxel performance budget`
+- Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
+- Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
+  deterministic edits; load/save smoke test; measured mesh block size + budget)
+- Next task `056 — Create world seed configuration` (Phase D — World generation, first brick)
 
 ## Completed bricks
 
-`001`–`054`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`055`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
-index); Phase C in progress (031 block definition schema, 032 block registry, 033
+index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
@@ -33,7 +34,37 @@ block raycast interaction service, 044 block edit command model, 045 block edit
 validation layer, 046 block edit application layer, 047 edit undo/delta representation,
 048 initial voxel save stream wiring, 049 voxel load/save integration test, 050 voxel
 world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh block
-size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decision).
+size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decision, 055
+baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
+
+`055` is the last Phase C brick — docs only, no production code changed. It lifts the
+§17/§18 benchmark numbers and ADR 0002's estimated per-edit re-mesh cost out of
+`docs/voxel-tools.md` §17-19 + `nextsteps.md` and into a standalone durable document,
+**`docs/performance-budget.md`**. That file: (1) defines the synthetic meshing workload
+(default block set, flat-stone placeholder generator, one `VoxelViewer` at
+`view_distance = 128`, cold start to streaming-settle); (2) records the size-16 baseline
+(~377 ms / 52 frames to settle, `block_count = 324`, `voxel_used ~= 2.65 MB`, zero
+dropped loads/meshes, task queues drained) with the size-32 comparison beside it;
+(3) sets provisional regression thresholds (settle ≤ 450 ms / ≤ 64 frames; any dropped
+load/mesh is a regression; queues must drain; data-block footprint within a few % of
+324 / 2.65 MB); (4) flags the still-unmeasured per-edit re-mesh cost (16³ = 4 096-cell
+job per affected chunk at the default size) as a gap — the edit-throughput benchmark
+ADR 0002 "Revisit if" wants does not exist yet; (5) names re-measure triggers (Phase D
+real generation, `DEFAULT_VIEW_DISTANCE` change, any toolchain change) that hand off to
+Phase L bricks 257-258. The doc is laid out in `CLAUDE.md` §8 subsystem order with
+placeholder rows for the not-yet-measured subsystems (generation, streaming, entities,
+AI, network, rendering, UI) so it grows in place rather than being reorganised later.
+
+Changes: new `docs/performance-budget.md`; `docs/README.md` gained a "Performance"
+section pointing to it; `docs/voxel-tools.md` §20 (new) summarising the hand-off. No
+`.tscn` added, no player/camera — that Phase F scene-wiring question (raised in 039's
+nextsteps entry, carried by 042-054) carries forward into Phase D unchanged.
+
+`docs/reference/traceability.md` §4 already confirmed no reference matrix cites 031-055,
+so no reference read was needed.
+
+Tests: none added — docs-only brick. Regression check only: full suite
+`files=30 tests=304 assertions=10337 failed=0`; `check.ps1` OK (63 scripts).
 
 `054` chose the project default mesh block size from 052's (size 16) and 053's (size 32)
 measurements. **Decision: `VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE` stays `16`** — now a
@@ -1016,7 +1047,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** (63 scripts compiled) · `test.ps1` **OK** — 30 files, 304 tests, 10 337 assertions, 0 failed.
+Last run (brick 055): `check.ps1` **OK** (63 scripts compiled) · `test.ps1` **OK** — 30 files, 304 tests, 10 337 assertions, 0 failed.
 
 ## What exists now
 
@@ -1045,19 +1076,20 @@ Last run: `check.ps1` **OK** (63 scripts compiled) · `test.ps1` **OK** — 30 f
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
-| Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `adr/0001` | the contracts those files implement |
+| Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `adr/0001`, `adr/0002` | the contracts those files implement |
+| Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), the rest placeholder rows for Phase L bricks 257-263 |
 
 ## Next 10 actions
 
-1. `055` document baseline voxel performance budget (next task) — the last Phase C brick.
-   Inputs are all recorded: `docs/voxel-tools.md` §17 (size 16 numbers), §18 (size 32 +
-   comparison table), §19 + ADR 0002 (the size-16 decision and its reasoning). 055 writes
-   these into a formal budget document (settle frames/wall-clock at the chosen size, the
-   data-block memory figure, dropped-work = 0, and the per-edit re-mesh cost estimate ADR
-   0002 rests on flagged as not-yet-measured). None of 039–054 added a `.tscn`, and no
-   player/camera exists yet to raycast from or to parent the 042 `VoxelViewer` under —
-   deciding where these nodes actually live in a scene is still open (039's nextsteps
-   entry, carried forward again by 042–054).
+1. `056` create world seed configuration (next task) — first Phase D brick, deps 015
+   (`core/random/deterministic_rng.gd`) + 017 (`core/serialization/save_version.gd`).
+   Before starting, resolve `matrix-world.md` Q2 (see action 3 below) and confirm Phase D
+   generation fits inside `WorldBounds` (050, `world/terrain/world_bounds.gd`). Still open
+   and carried forward from Phase C: no `.tscn` exists, and no player/camera to raycast
+   from or to parent the 042 `VoxelViewer` under — where these nodes live in a scene is a
+   Phase F question (039's nextsteps entry, carried by 042–055). Re-run the
+   `docs/performance-budget.md` §3 benchmark against the real generator once Phase D lands
+   (its §5 says so; feeds bricks 257–258).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

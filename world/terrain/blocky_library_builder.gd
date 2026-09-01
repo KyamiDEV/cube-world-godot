@@ -26,6 +26,12 @@ extends RefCounted
 ## an untextured placeholder (`VoxelBlockyModelEmpty`) rather than failing the
 ## whole build, same "one entry missing, not a crash" pattern as
 ## `BlockRegistry.register_block()`.
+##
+## Baked ambient occlusion (brick 040, `matrix-world.md` Q1): `VoxelMesherBlocky`
+## always computes AO into cube-edge vertex colors; a model's material only needs
+## `vertex_color_use_as_albedo = true` to display it. That built-in behavior is the
+## equivalent of the reference's `ChunkBuffer_sampleVoxelColorAO` blend — no custom
+## shader was needed, so this file's per-block `StandardMaterial3D` just opts in.
 
 ## Fixed 3-tile-wide per-block atlas: top, the four side faces (shared), bottom.
 ## A block whose faces already share one texture path just repeats it three
@@ -81,6 +87,12 @@ static func _build_model(definition: BlockDefinition) -> VoxelBlockyModel:
 	material.albedo_texture = atlas
 	# Nearest filtering keeps block edges crisp instead of mip-smearing the atlas seams.
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	# VoxelMesherBlocky always bakes ambient occlusion into cube-edge vertex colors; a
+	# material only has to opt in to *using* that vertex color as albedo tint for it to
+	# show (godot_voxel doc/source/blocky_terrain.md, read at brick 040). This is the
+	# resolution of matrix-world.md Q1 (ChunkBuffer_sampleVoxelColorAO): the mesher's
+	# built-in baked AO is the equivalent, no custom shader needed.
+	material.vertex_color_use_as_albedo = true
 	model.set_material_override(0, material)
 
 	# `transparent` (033) is the reference-facing name; VoxelBlockyModel's own flag

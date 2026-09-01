@@ -16,18 +16,59 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–039)
+- Phase `C — Voxel infrastructure` — in progress (031–040)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `040 — Configure VoxelMesherBlocky baseline`
+- Next task `041 — Create terrain material/shader baseline`
 
 ## Completed bricks
 
-`001`–`039`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`040`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
-grass/dirt/stone block set, 039 `VoxelTerrain` baseline).
+grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
+baseline).
+
+`040` extended `world/terrain/voxel_terrain_builder.gd` (039) to also build and assign
+`terrain.mesher`: a plain `VoxelMesherBlocky` whose `library` comes from
+`BlockyLibraryBuilder.build(registry)` (037), the same `registry` argument the
+placeholder generator already reads — the generator and mesher can never disagree about
+which block ids exist. No new file — one property assignment plus a three-line
+`_build_mesher()` helper inside the existing builder, since wrapping one library in one
+mesher didn't justify a dedicated `VoxelMesherBuilder` class. `build()` now returns null
+if `_build_mesher()` does (only reachable via `BlockyLibraryBuilder.build()` returning
+null, which itself only happens for an unlocked registry — already rejected earlier in
+`build()`, so this is a defensive propagation, not a new failure mode).
+
+This brick also resolved `matrix-world.md` Q1 (open since brick 021, blocking 040–041
+per `docs/reference/traceability.md` §3): does the terrain material/shader need a custom
+equivalent of the reference's `ChunkBuffer_sampleVoxelColorAO` baked-color-AO blend, or
+is `VoxelMesherBlocky`'s own baked AO sufficient? Fetched
+`doc/source/blocky_terrain.md` from the `godot_voxel` reference repo (CLAUDE.md §15
+source) to check: `VoxelMesherBlocky` always bakes ambient occlusion into cube-edge
+vertex colors; a model's material only needs `vertex_color_use_as_albedo = true` to
+display it — no custom shader needed. Answer: **sufficient**. Applied by setting that
+one flag on `blocky_library_builder.gd` (037)'s existing per-block `StandardMaterial3D`
+(`_build_model()`), not by starting 041's terrain-level `material_override` scope early.
+Recorded in `docs/voxel-tools.md` §7 (a new section, not a new `world-terrain-material.md`
+file — the answer is a compact engine fact, not a design needing its own document);
+`matrix-world.md` Q1 and `traceability.md` §3's Q1 row both carry the
+`(RESOLVED — brick 040)` prefix per the brick-029 open-question lifecycle, row not
+deleted.
+
+Tests: `tests/unit/test_voxel_terrain_builder.gd` (6 tests, +2 net after removing the
+now-false "mesher is 040's responsibility" assertion) — mesher is a real
+`VoxelMesherBlocky`, and its library's model at `network_index(id) + 1` has
+`resource_name == id`, confirming the generator and mesher share one offset convention.
+Its `_block()` helper now writes real 2x2 `user://` PNGs (same pattern
+`test_blocky_library_builder.gd` already used) instead of referencing nonexistent
+`res://dummy_*.png` paths — those paths were harmless before 040 because nothing ever
+loaded them; building a real mesher now does, and surfaced this immediately as a test
+failure (`Error opening file`), not a silent gap.
+`tests/unit/test_blocky_library_builder.gd` (+1 test): a solid block's material has
+`vertex_color_use_as_albedo == true`. No docs page changed beyond `voxel-tools.md` §7
+and the two open-question rows above.
 
 `039` added `world/terrain/voxel_terrain_builder.gd` (`VoxelTerrainBuilder`, static
 `build(registry: BlockRegistry) -> VoxelTerrain`) — the first code that instantiates a
@@ -478,7 +519,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 244 tests, 10 135 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 246 tests, 10 140 assertions, 0 failed.
 
 ## What exists now
 
@@ -494,7 +535,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 244 tests, 10 13
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on and a placeholder flat-stone `VoxelGeneratorFlat`; `mesher`/`material_override`/viewer left for 040–042, `stream` left null for 048 |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override`/viewer left for 041–042, `stream` left null for 048 |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -502,14 +543,16 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 244 tests, 10 13
 
 ## Next 10 actions
 
-1. `040`–`042` `VoxelMesherBlocky` + material + viewer baseline, sourcing the block
-   library from `BlockSet.load_default()` (038) and attaching to the node
-   `VoxelTerrainBuilder.build()` (039, now DONE) already produces. Remember
-   `blocky_library_builder.gd`'s `+1` voxel-value offset (library index = network_index
-   + 1, air = 0) wherever raw voxel values are read or written — `voxel_terrain_builder.gd`
-   (039)'s placeholder generator already applies it. `040` also needs to decide where the
-   node built by 039 actually lives in a scene (no `.tscn` was added by 039 — see its
-   nextsteps entry).
+1. `041`–`042` terrain material/shader baseline + `VoxelViewer`/interest baseline,
+   attaching to the node `VoxelTerrainBuilder.build()` (039–040, now DONE) already
+   produces — `mesher` is set as of 040, so 041 only owns `terrain.material_override`
+   (a terrain-level override is likely *not* needed now that per-block materials (037)
+   already carry their own texture atlas + baked-AO flag, set at 040 — confirm that
+   reasoning explicitly rather than assuming it, since 041's own backlog title still
+   promises a "material/shader baseline"). Remember `blocky_library_builder.gd`'s `+1`
+   voxel-value offset (library index = network_index + 1, air = 0) wherever raw voxel
+   values are read or written. Neither 039 nor 040 added a `.tscn` — deciding where the
+   node actually lives in a scene is still open (039's nextsteps entry, carried forward).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
@@ -570,6 +613,11 @@ opening the reference tree.
   `res://` import pipeline entirely (no `.import` file needed) — this is how
   `blocky_library_builder.gd` and its test both load/generate images at runtime. Different
   from `load(path)` / `ResourceLoader`, which require an imported `Texture2D`.
+- **`VoxelMesherBlocky` always bakes ambient occlusion into cube-edge vertex colors**;
+  a model's material only needs `vertex_color_use_as_albedo = true` (Godot's own
+  `BaseMaterial3D` property) to display it — confirmed against `godot_voxel`'s
+  `doc/source/blocky_terrain.md`, brick 040. No mesher-level AO property exists to set;
+  it is unconditional. Resolves `matrix-world.md` Q1 — no custom AO shader is needed.
 - **`VoxelNode` (base of `VoxelTerrain`) owns `generator`/`stream`/`mesher`**; `VoxelTerrain`
   itself adds `bounds`, `generate_collisions`, `collision_layer`/`collision_mask`,
   `max_view_distance`, `mesh_block_size` (16 or 32 only). An unassigned `stream` makes the

@@ -1,5 +1,5 @@
 extends TestCase
-## Covers world/terrain/blocky_library_builder.gd (brick 037).
+## Covers world/terrain/blocky_library_builder.gd (bricks 037, 040).
 
 var _temp_paths: PackedStringArray = []
 
@@ -116,6 +116,18 @@ func test_atlas_packs_distinct_top_side_bottom_textures() -> void:
 	assert_eq(atlas.get_pixel(0, 0), top_color, "top tile")
 	assert_eq(atlas.get_pixel(2, 0), side_color, "side tile")
 	assert_eq(atlas.get_pixel(4, 0), bottom_color, "bottom tile")
+
+
+func test_solid_block_material_bakes_ambient_occlusion() -> void:
+	# matrix-world.md Q1 (resolved brick 040): VoxelMesherBlocky always computes AO into
+	# cube-edge vertex colors; the material only needs to opt in to display it.
+	var registry := BlockRegistry.new()
+	registry.register_block(_uniform_block("block.stone"))
+	registry.lock()
+	var model: VoxelBlockyModelCube = BlockyLibraryBuilder.build(registry).get_model(1)
+
+	var material: StandardMaterial3D = model.get_material_override(0)
+	assert_true(material.vertex_color_use_as_albedo)
 
 
 func test_missing_texture_degrades_that_block_to_empty_without_failing_the_build() -> void:

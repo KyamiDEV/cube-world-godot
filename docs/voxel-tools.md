@@ -110,7 +110,7 @@ across bricks 039–042:
 | `generator` | 039 | a placeholder (below) |
 | `stream` | 048 (persistence) | explicit `null` |
 | `generate_collisions` | 039 | `true` |
-| `mesher` | 040 (`BlockyLibraryBuilder`'s output) | left unset |
+| `mesher` | 040 | a `VoxelMesherBlocky` (below) |
 | `material_override` | 041 | left unset |
 | `VoxelViewer` / `max_view_distance` | 042 | not touched |
 | `bounds` | undecided — no world-size decision exists yet | left at the engine default |
@@ -127,3 +127,23 @@ offset `blocky_library_builder.gd` (037) uses for air at index 0). Phase D repla
 persistent voxel data. If left unassigned, the whole volume will use the generator."
 That is exactly what a build with no save format yet (048) needs — every block is
 regenerated from the placeholder, nothing is expected to persist between runs.
+
+## 7. `VoxelMesherBlocky` baseline (brick 040)
+
+`VoxelTerrainBuilder.build()` now also assigns `terrain.mesher`: a plain
+`VoxelMesherBlocky` whose `library` is `BlockyLibraryBuilder.build(registry)` (037), the
+same registry the placeholder generator reads. No new file was needed — the mesher is
+one property and one three-line helper (`_build_mesher`) inside the existing terrain
+builder, not a dedicated `VoxelMesherBuilder` class.
+
+**Resolves `matrix-world.md` Q1** ("does our terrain material/shader need an equivalent
+of `ChunkBuffer_sampleVoxelColorAO`, or is `VoxelMesherBlocky` baked-AO sufficient?").
+Fetched `doc/source/blocky_terrain.md` from the `godot_voxel` reference repo (CLAUDE.md
+§15 source) to check: `VoxelMesherBlocky` always bakes ambient occlusion into cube-edge
+vertex colors; a model's material only has to set `vertex_color_use_as_albedo = true` to
+display it — no custom shader is needed. `blocky_library_builder.gd` (037)'s per-block
+`StandardMaterial3D` now sets that flag. Answer: **sufficient** — no equivalent needed
+beyond that one material property. Recorded directly here rather than in a new
+`world-terrain-material.md` file (`matrix-world.md`'s own "Resolved by" placeholder) —
+the answer is a compact fact about the engine, not a design that needs its own document.
+`matrix-world.md` §4 and `docs/reference/traceability.md` §3 are updated to point here.

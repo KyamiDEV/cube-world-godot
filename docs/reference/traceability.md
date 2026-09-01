@@ -169,7 +169,7 @@ still gate anything.
 
 | Q | Matrix | Blocks | Status |
 |---|---|---|---|
-| Q1 | `matrix-world.md` | 040–041 | open |
+| Q1 | `matrix-world.md` | 040–041 | RESOLVED — brick 040, `docs/voxel-tools.md` §7 |
 | Q2 | `matrix-world.md` | 056, 096–101 | open |
 | Q3 | `matrix-world.md` | 023, 185 | open |
 | Q4 | `matrix-world.md` | — (no brick) | open |

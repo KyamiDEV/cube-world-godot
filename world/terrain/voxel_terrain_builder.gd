@@ -3,14 +3,18 @@ extends RefCounted
 ## Builds a baseline `VoxelTerrain` node from a locked `BlockRegistry` (backlog brick 039).
 ##
 ## Scope is deliberately narrow: this owns only what no later Phase C brick already
-## claims — collision policy and a placeholder generator, so the node produces real
-## voxels end-to-end and is testable now, without waiting on the rest of the stack.
-## `mesher` (040, `BlockyLibraryBuilder`'s output), terrain materials (041) and
+## claims — collision policy, the placeholder generator, and (as of brick 040) the
+## mesher, so the node produces real, textured voxels end-to-end and is testable now,
+## without waiting on the rest of the stack. Terrain-level `material_override` (041) and
 ## `VoxelViewer` interest streaming (042) are left untouched here; a caller composes
-## all four onto the same node once each exists. `stream` is explicitly left null —
+## both onto the same node once each exists. `stream` is explicitly left null —
 ## persistence is brick 048, and `VoxelNode.stream`'s own doc says an unassigned
 ## stream makes the whole volume generate on demand, which is exactly what a save-less
 ## baseline needs.
+##
+## `mesher` (040): a `VoxelMesherBlocky` wrapping the same registry's
+## `BlockyLibraryBuilder.build()` output (037). Built from the same `registry` argument
+## as the generator below, so the two can never disagree about which block ids exist.
 ##
 ## The generator is an explicit, temporary placeholder: a flat plane of one registered
 ## block ID, not real world generation (Phase D, bricks 056-067, deterministic
@@ -44,11 +48,29 @@ static func build(registry: BlockRegistry) -> VoxelTerrain:
 	if generator == null:
 		return null
 
+	var mesher := _build_mesher(registry)
+	if mesher == null:
+		return null
+
 	var terrain := VoxelTerrain.new()
 	terrain.generator = generator
+	terrain.mesher = mesher
 	terrain.stream = null
 	terrain.generate_collisions = true
 	return terrain
+
+
+## Returns null when `BlockyLibraryBuilder.build()` does (it already logs its own
+## reason — an unlocked registry here, since a per-block degrade never fails the whole
+## library).
+static func _build_mesher(registry: BlockRegistry) -> VoxelMesherBlocky:
+	var library := BlockyLibraryBuilder.build(registry)
+	if library == null:
+		return null
+
+	var mesher := VoxelMesherBlocky.new()
+	mesher.library = library
+	return mesher
 
 
 static func _build_placeholder_generator(registry: BlockRegistry) -> VoxelGeneratorFlat:

@@ -16,14 +16,30 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
+- Phase `C — Voxel infrastructure` — started (031)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `031 — Create voxel block definition schema` (Phase C starts)
+- Next task `032 — Create voxel/block registry`
 
 ## Completed bricks
 
-`001`–`030`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`031`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
-index).
+index); Phase C started (031 block definition schema).
+
+`031` added `world/terrain/block_definition.gd` (`BlockDefinition extends Resource`,
+`class_name` — referenced by the registry/schema bricks that follow): `id`,
+`display_name`, and a `validate()`/`is_valid()` pair mirroring `StableId.validate()`'s
+"empty string = ok, else reason" convention, per `docs/ids-and-registries.md` §5 ("each
+domain's definition type checks its own fields"). Deliberately minimal — material,
+collision, interaction/destruction and footstep/surface-tag fields are scoped to bricks
+033–036, not guessed here; no block-shape/mesh field either, left to 037's
+`VoxelBlockyLibrary` bootstrap. `docs/reference/traceability.md` §4 already confirmed no
+reference matrix cites 031–055, so no reference read was needed. Tests in
+`tests/unit/test_block_definition.gd` (6 tests): valid/invalid shape, malformed id
+(reason matches `StableId`'s own, not a reworded copy), wrong domain, missing
+`display_name`, and one end-to-end registration into a `DefinitionRegistry.new("block")`.
+No docs page added — this brick uses existing contracts (016, 011) rather than
+establishing a new one.
 
 `030` built `docs/reference/traceability.md`: a reverse index from backlog brick → matrix
 row/concept, read off the `Bricks` column of every §1/§2 row across all 8 matrices
@@ -212,7 +228,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 16 files, 201 tests, 9 997 assertions, 0 failed.
 
 ## What exists now
 
@@ -223,6 +239,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 | Time | `core/time/simulation_clock.gd` | 60 Hz fixed step, catch-up clamp, snapshot cadence |
 | RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation |
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
+| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `validate()` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -230,9 +247,10 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
-   Phase C is original Godot/Voxel-Tools engineering; `docs/reference/traceability.md` §4
-   confirms no matrix cites this range — no reference read needed before starting.
+1. `032`–`038` block registry (first live use of `DefinitionRegistry` outside its own
+   tests), block set. Phase C is original Godot/Voxel-Tools engineering;
+   `docs/reference/traceability.md` §4 confirms no matrix cites this range — no
+   reference read needed before starting.
 2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
 4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.

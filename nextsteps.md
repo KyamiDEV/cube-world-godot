@@ -17,11 +17,11 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `023 — Map CubeWorld AI-related classes`
+- Next task `024 — Map CubeWorld combat-related classes`
 
 ## Completed bricks
 
-`001`–`022`. Phase A complete; Phase B contracts complete (011–020); reference tree
+`001`–`023`. Phase A complete; Phase B contracts complete (011–020); reference tree
 reading started at `021`.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
@@ -47,6 +47,25 @@ they aren't silently dropped. Three open questions recorded (matrix §4): Q1 no 
 brick currently cites this matrix for creature/player locomotion (112/116/128/243); Q2
 `*/db/` (`cube::Database`) has no planned matrix at all; Q3 `Sprite`/`SpriteManager`
 are stub-only in both binaries, role undetermined.
+
+`023` mapped `*/ai/` (8 classes: `CombatBehavior`, `CompanionBehavior`,
+`LookAtPlayerBehavior`, `RandomInteractionBehavior`, `RandomWalkBehavior`,
+`SequentialBehavior`, `SpawnLocationBehavior`, `WalkPathBehavior`) into
+`docs/reference/matrix-ai.md`. Every leaf shares one tick+clone interface (no separate
+`Behavior` base class survived attribution — inferred and recorded in matrix §2, same
+"concept with no single class" treatment as 021/022). `CombatBehavior`'s tick is an AI
+decision shell but almost all of its named functions are ability timing/resolution math
+— that math is `Placed = NONE` here, reserved for `matrix-combat.md` (024), continuing
+the split pattern from `matrix-entity.md`. Nav/locomotion primitives
+(`NavGraph_*`, `World_getBlockFloat`, `Creature_resolveSeparation`) are called by three
+different leaves and owned by none — cross-referenced to `matrix-entity.md`'s Q1
+instead of duplicating it. Three open questions recorded (matrix §4): Q1
+`SequentialBehavior` executes like a first-success Selector despite its decompiled
+name — need to decide if bricks 177/178 need both a true Sequence and a Selector; Q2
+`SpawnLocationBehavior`'s location-switch condition reads an unconfirmed `world` field,
+possibly the day/night clock (brick 216); Q3 `RandomInteractionBehavior`'s tick body
+(773 lines) was not read in full, only GAP-summarized — revisit before brick 189/199 if
+the one-line role proves insufficient.
 
 ## Commands
 
@@ -75,16 +94,17 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `023` map `*/ai/` (`cube::Behavior` tree) → `docs/reference/matrix-ai.md`; also resolve Q3 from `matrix-world.md` (what world query surface `NavGraph` needs).
-2. `024` combat (pick up `CombatBehavior`/`Combat_*`/stat formulas deferred from both `matrix-world.md` and `matrix-entity.md`) · `025` items · `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+1. `024` map combat resolution (`CombatBehavior`/`Combat_*`/stat formulas deferred from `matrix-world.md`, `matrix-entity.md`, and now `matrix-ai.md`) → `docs/reference/matrix-combat.md`.
+2. `025` items · `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
 3. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
 4. `030` traceability index from notes to bricks.
 5. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
 6. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
 7. `052`–`055` mesh block size benchmarks; record the measured choice.
-8. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?).
-9. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick).
-10. Update this file after every brick.
+8. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
+9. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
+10. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
+11. Update this file after every brick.
 
 ## Working set
 

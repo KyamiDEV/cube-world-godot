@@ -1,7 +1,10 @@
 # Persistence and save compatibility
 
 Brick 017. Implementation: `core/serialization/save_version.gd`.
-Storage layout for voxel data lands with the voxel stream (bricks 048, 102–103).
+Storage layout for voxel data lands with the voxel stream (bricks 048, 102–103). The
+per-voxel delta unit §5 describes is `world/terrain/block_edit_delta.gd`
+(`BlockEditDelta`, brick 047) — `BlockEditApplicator.apply_capturing_delta()` (046/047)
+is the one call site that produces one, right where a voxel write actually happens.
 
 ## 1. Four versions, not one
 

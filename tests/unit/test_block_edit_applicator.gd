@@ -1,5 +1,6 @@
 extends TestCase
-## Covers world/terrain/block_edit_applicator.gd (brick 046).
+## Covers world/terrain/block_edit_applicator.gd (brick 046, plus 047's
+## `apply_capturing_delta()`).
 ##
 ## Every voxel-writing test needs a terrain that has actually meshed the area under the
 ## written position, same reasoning as `test_block_edit_validator.gd` (045) and
@@ -145,3 +146,83 @@ func test_rejects_placing_an_unregistered_block_and_leaves_the_voxel_untouched()
 
 	assert_false(applied)
 	assert_eq(tool.get_voxel(_AIR_POSITION), 0)
+
+
+# ---------------------------------------------------------------------------
+# apply_capturing_delta() (047)
+# ---------------------------------------------------------------------------
+
+func test_capturing_delta_reports_air_before_a_place() -> void:
+	var registry := _locked_registry_with_stone()
+	var terrain := await _ready_terrain(registry)
+
+	var delta := BlockEditApplicator.apply_capturing_delta(
+			_place(_AIR_POSITION, VoxelTerrainBuilder.PLACEHOLDER_BLOCK_ID), terrain, registry)
+
+	assert_not_null(delta)
+	assert_eq(delta.position, _AIR_POSITION)
+	assert_eq(delta.previous_block_id, "")
+	assert_eq(delta.new_block_id, VoxelTerrainBuilder.PLACEHOLDER_BLOCK_ID)
+
+
+func test_capturing_delta_reports_the_removed_block() -> void:
+	var registry := _locked_registry_with_stone()
+	var terrain := await _ready_terrain(registry)
+
+	var delta := BlockEditApplicator.apply_capturing_delta(
+			_remove(_GROUND_POSITION), terrain, registry)
+
+	assert_not_null(delta)
+	assert_eq(delta.position, _GROUND_POSITION)
+	assert_eq(delta.previous_block_id, VoxelTerrainBuilder.PLACEHOLDER_BLOCK_ID)
+	assert_eq(delta.new_block_id, "")
+
+
+func test_capturing_delta_returns_null_on_the_same_rejections_as_apply() -> void:
+	var terrain := _built_terrain(_locked_registry_with_stone())
+	var unlocked := BlockRegistry.new()
+	unlocked.register_block(_stone_block())
+
+	var delta := BlockEditApplicator.apply_capturing_delta(
+			_remove(_GROUND_POSITION), terrain, unlocked)
+
+	assert_null(delta)
+
+
+func test_capturing_delta_returns_null_and_leaves_the_voxel_untouched_for_an_unregistered_block() -> void:
+	var registry := _locked_registry_with_stone()
+	var terrain := await _ready_terrain(registry)
+	var tool := terrain.get_voxel_tool()
+
+	var delta := BlockEditApplicator.apply_capturing_delta(
+			_place(_AIR_POSITION, "block.emerald"), terrain, registry)
+
+	assert_null(delta)
+	assert_eq(tool.get_voxel(_AIR_POSITION), 0)
+
+
+func test_undoing_a_place_via_the_captured_delta_restores_air() -> void:
+	var registry := _locked_registry_with_stone()
+	var terrain := await _ready_terrain(registry)
+	var tool := terrain.get_voxel_tool()
+
+	var delta := BlockEditApplicator.apply_capturing_delta(
+			_place(_AIR_POSITION, VoxelTerrainBuilder.PLACEHOLDER_BLOCK_ID), terrain, registry)
+	var undone := BlockEditApplicator.apply(delta.inverse_command(_TICK + 1), terrain, registry)
+
+	assert_true(undone)
+	assert_eq(tool.get_voxel(_AIR_POSITION), 0)
+
+
+func test_undoing_a_remove_via_the_captured_delta_restores_the_block() -> void:
+	var registry := _locked_registry_with_stone()
+	var terrain := await _ready_terrain(registry)
+	var tool := terrain.get_voxel_tool()
+	var original_raw := tool.get_voxel(_GROUND_POSITION)
+
+	var delta := BlockEditApplicator.apply_capturing_delta(
+			_remove(_GROUND_POSITION), terrain, registry)
+	var undone := BlockEditApplicator.apply(delta.inverse_command(_TICK + 1), terrain, registry)
+
+	assert_true(undone)
+	assert_eq(tool.get_voxel(_GROUND_POSITION), original_raw)

@@ -14,6 +14,9 @@ extends RefCounted
 ## via `VoxelTool.set_voxel()` — the exact inverse of the `- 1` offset
 ## `block_raycast_service.gd` (043) and `block_edit_validator.gd` (045) apply when
 ## *reading* a voxel back into a block id (`blocky_library_builder.gd`, 037).
+##
+## `apply_capturing_delta()` (047) is the same write with the pre-edit content also
+## reported back as a `BlockEditDelta`, for persistence/undo callers that need it.
 
 ## Applies `command`'s effect to `terrain`'s voxel data. Returns false — and logs why via
 ## `Log.check` — only for a programmer/data error a correctly-ordered caller should never
@@ -42,3 +45,26 @@ static func apply(command: EditBlockCommand, terrain: VoxelTerrain,
 
 	tool.set_voxel(command.position, raw_value)
 	return true
+
+
+## Same effect as `apply()`, but also returns what changed as a `BlockEditDelta` (047) —
+## the unit `docs/persistence.md` §5's world-modification deltas and an undo are both
+## built from. The pre-edit content must be read before `set_voxel()` overwrites it,
+## which is the one thing `apply()` itself cannot report back; the actual write is
+## delegated to `apply()` so the two entry points can never disagree about what
+## happened. Returns null on the same rejections `apply()` itself logs — this adds no
+## checks of its own, so no `Log.check` calls here would ever fire.
+static func apply_capturing_delta(command: EditBlockCommand, terrain: VoxelTerrain,
+		registry: BlockRegistry) -> BlockEditDelta:
+	if not registry.is_locked():
+		return null
+	var tool := terrain.get_voxel_tool()
+	if tool == null:
+		return null
+
+	var previous_id := registry.id_from_network_index(tool.get_voxel(command.position) - 1)
+	if not apply(command, terrain, registry):
+		return null
+
+	var new_id := command.block_id if command.kind == EditBlockCommand.Kind.PLACE else ""
+	return BlockEditDelta.new(command.position, previous_id, new_id, command.tick)

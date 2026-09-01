@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–046)
+- Phase `C — Voxel infrastructure` — in progress (031–047)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `047 — Create edit undo/delta representation`
+- Next task `048 — Create initial voxel save stream wiring`
 
 ## Completed bricks
 
-`001`–`046`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`047`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -30,7 +30,51 @@ property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 0
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
 block raycast interaction service, 044 block edit command model, 045 block edit
-validation layer, 046 block edit application layer).
+validation layer, 046 block edit application layer, 047 edit undo/delta representation).
+
+`047` added `world/terrain/block_edit_delta.gd` (`BlockEditDelta`) — the per-voxel delta
+unit `docs/persistence.md` §5 names ("world modifications... stored as deltas") but had
+not yet given a concrete shape, and the unit an undo replays. Carries `position`,
+`previous_block_id`/`new_block_id` (`""` = air, the same convention 044/046 already use),
+and `tick`. Two behaviors beyond plain data: `is_noop()` (both sides name the same
+content), and `inverse_command(p_tick) -> EditBlockCommand` — restoring air means
+`REMOVE`, restoring a named block means `PLACE`, so an undo replays through the exact
+same `BlockEditApplicator.apply()` (046) that performed the original edit, no second
+voxel-writing code path. `face_normal` on an inverse command is `Vector3.ZERO` — nothing
+was struck, and no 043–045 check reads it today. `inverse_command()`'s own `p_tick` is
+always the undo's tick, never the delta's own — an undo is issued now, not backdated.
+
+`world/terrain/block_edit_applicator.gd` (046) gained one new static method,
+`apply_capturing_delta(command, terrain, registry) -> BlockEditDelta`: reads the target
+voxel's pre-edit content (the one thing `apply()` itself cannot report back, since
+`set_voxel()` overwrites it) via the same `id_from_network_index(raw - 1)` pattern
+045/043 already use, then delegates the actual write to `apply()` — so the two entry
+points can never disagree about what a `PLACE`/`REMOVE` does. Returns null on the same
+rejections `apply()` already logs (unlocked registry, no voxel tool, unregistered
+`block_id`); adds no `Log.check` calls of its own, since every failure path was already
+logged one layer down. `apply()` itself is unchanged — every 046 test still passes
+unmodified, and 047 only adds a second entry point beside it.
+
+Scope note: this brick builds the *representation* and its one-step inverse, not a
+multi-step undo stack/history service — no backlog brick asks for one, and CLAUDE.md §6
+("avoid silently expanding scope") argues against inventing one speculatively. A future
+undo-stack brick, if ever added, would hold a list of `BlockEditDelta` and pop+apply
+inverses; nothing here needs to change to support that.
+
+`docs/reference/traceability.md` §4 already confirmed no reference matrix cites
+031–055, so no reference read was needed, same as 031–046. `docs/persistence.md`'s
+header gained one pointer sentence to `block_edit_delta.gd` as §5's concrete delta unit
+— not a new contract, so no new section.
+
+Tests: `tests/unit/test_block_edit_delta.gd` (new, 5 tests) — `is_noop()` true/false,
+`inverse_command()` shape for both directions (kind, position, block_id, tick), and both
+inverse commands passing their own `validate()`. `tests/unit/test_block_edit_applicator.gd`
+(+7 tests, now also covers 047): `apply_capturing_delta()` reports air-before-a-place and
+the removed block on a remove, returns null on the same unlocked-registry and
+unregistered-block rejections `apply()` itself returns false for (voxel left untouched),
+and two full round-trip tests — capture a delta, apply its `inverse_command()`, confirm
+the voxel is back to exactly its pre-edit raw value. Full suite: `files=26 tests=287
+assertions=10265 failed=0`.
 
 `046` added `world/terrain/block_edit_applicator.gd` (`BlockEditApplicator`, static
 `apply(command: EditBlockCommand, terrain: VoxelTerrain, registry: BlockRegistry) ->

@@ -72,7 +72,7 @@
 | 040 | C | Configure VoxelMesherBlocky baseline | 039 | Not needed by default | NO | DONE |
 | 041 | C | Create terrain material/shader baseline | 040 | Not needed by default | NO | DONE |
 | 042 | C | Create voxel viewer/interest baseline | 041 | Not needed by default | NO | DONE |
-| 043 | C | Create basic block raycast interaction service | 042 | Not needed by default | NO | TODO |
+| 043 | C | Create basic block raycast interaction service | 042 | Not needed by default | NO | DONE |
 | 044 | C | Create block edit command model | 043 | Not needed by default | NO | TODO |
 | 045 | C | Create block edit validation layer | 044 | Not needed by default | NO | TODO |
 | 046 | C | Create block edit application layer | 045 | Not needed by default | NO | TODO |

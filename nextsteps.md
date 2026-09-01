@@ -16,19 +16,57 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–042)
+- Phase `C — Voxel infrastructure` — in progress (031–043)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `043 — Create basic block raycast interaction service`
+- Next task `044 — Create block edit command model`
 
 ## Completed bricks
 
-`001`–`042`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`043`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
-baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline).
+baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
+block raycast interaction service).
+
+`043` added `world/terrain/block_raycast_service.gd` (`BlockRaycastService`, static
+`cast(terrain, registry, origin, direction, max_distance) -> BlockRaycastHit`) — the
+first code calling `VoxelTool.raycast()`. `VoxelRaycastResult` (the engine's own return
+type) only carries a raw voxel position/normal/distance, with no concept of
+`BlockRegistry` or the `+1` air offset `blocky_library_builder.gd` (037) established;
+`cast()` reads the hit voxel's raw value via `tool.get_voxel()`, subtracts the offset,
+and resolves it through `registry.id_from_network_index()`, returning a small typed
+result, `world/terrain/block_raycast_hit.gd` (`BlockRaycastHit`: `block_id`,
+`hit_position`, `placement_position`, `normal`, `distance`). Returns null (logged) for an
+unlocked registry, a zero direction, a terrain with no voxel tool, a plain miss, or an
+unresolvable voxel value. Same "no player/camera yet" scope as 039–042: `cast()` takes
+an explicit ray rather than reading one from a camera. `collision_mask` is left at
+`VoxelTool.raycast()`'s own default (every bit set) — a non-solid block's model already
+has `collision_mask = 0` (037), so it's excluded from a hit regardless; no extra
+filtering decision was needed. `DEFAULT_MAX_DISTANCE` (10.0) is named explicitly even
+though it matches the engine default, same "explicit, not merely matching the default"
+reasoning 041/042 used — real player reach balance is Phase F/G and may replace it
+outright.
+
+This brick surfaced one thing worth recording that no upstream doc page states:
+`VoxelToolTerrain.raycast()` only finds a hit once the terrain has actually meshed the
+area under the ray — confirmed by direct experiment (a throwaway headless probe script,
+not committed), not by reading a doc page. Even against the placeholder
+`VoxelGeneratorFlat` (039) with no stream/persistence involved, this needs the
+`VoxelTerrain` added to the `SceneTree` with a `VoxelViewer` nearby and several real
+frames for Voxel Tools' worker threads to catch up; `try_set_block_data()` does not work
+synchronously outside the tree either (returned `false` even several frames after being
+added). Recorded in `docs/voxel-tools.md` §10 (new section). Tests in
+`tests/unit/test_block_raycast_service.gd` (4 tests, +252 total) poll
+`VoxelTerrain.is_area_meshed()` per frame up to a generous cap rather than waiting a
+fixed frame count, so the test doesn't flake on worker-timing variance: unlocked-registry
+rejection and zero-direction rejection (both fail before touching the terrain, no tree
+needed), a real hit on the placeholder ground (block id, hit/placement positions,
+distance all asserted against `VoxelTerrainBuilder.PLACEHOLDER_GROUND_HEIGHT`), and a
+miss (ray pointing into open air) returning null. No reference read — traceability.md §2
+confirmed 043 isn't cited by any matrix, same as 031–042.
 
 `042` added `world/terrain/voxel_viewer_builder.gd` (`VoxelViewerBuilder`, static
 `build() -> VoxelViewer`) — the last of the four `VoxelNode`/`VoxelTerrain` properties
@@ -576,7 +614,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 21 files, 248 tests, 10 154 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 22 files, 252 tests, 10 174 assertions, 0 failed.
 
 ## What exists now
 
@@ -594,6 +632,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 21 files, 248 tests, 10 15
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
 | Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` left null for 048 |
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
+| Terrain | `world/terrain/block_raycast_service.gd`, `block_raycast_hit.gd` | `BlockRaycastService.cast(terrain, registry, origin, direction, max_distance)`: wraps `VoxelTool.raycast()`, resolves the hit voxel value back to a `BlockDefinition` id through the registry (043, `docs/voxel-tools.md` §10) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -601,13 +640,18 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 21 files, 248 tests, 10 15
 
 ## Next 10 actions
 
-1. `043` basic block raycast interaction service, using `VoxelToolTerrain` against the
-   `VoxelTerrain` node `VoxelTerrainBuilder.build()` (039–042, now DONE) produces.
-   Remember `blocky_library_builder.gd`'s `+1` voxel-value offset (library index =
-   network_index + 1, air = 0) wherever raw voxel values are read or written. None of
-   039–042 added a `.tscn`, and no player/camera exists yet to raycast from or to parent
-   the 042 `VoxelViewer` under — deciding where these nodes actually live in a scene is
-   still open (039's nextsteps entry, carried forward again by 042).
+1. `044` block edit command model, consuming `BlockRaycastService.cast()` (043, now DONE)
+   to know which voxel a command targets. Remember `blocky_library_builder.gd`'s `+1`
+   voxel-value offset (library index = network_index + 1, air = 0) wherever raw voxel
+   values are read or written — `block_raycast_service.gd` already applies it once for
+   the hit-resolution direction; block edit *application* (046) will need the inverse
+   direction (id -> raw value) when writing. None of 039–043 added a `.tscn`, and no
+   player/camera exists yet to raycast from or to parent the 042 `VoxelViewer` under —
+   deciding where these nodes actually live in a scene is still open (039's nextsteps
+   entry, carried forward again by 042/043). Per CLAUDE.md §12, an edit is a
+   command/intent the server validates, not something the client applies directly —
+   044's command model should carry a target position/face and an edit intent (place/
+   remove + block id), not a raw voxel write.
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

@@ -207,3 +207,40 @@ in a scene" question (039's `nextsteps.md` entry, carried forward again here).
 `enabled_in_editor` and `requires_data_block_notifications` are left at their engine
 defaults (`false`) — no live-in-editor streaming workflow or block-notification consumer
 exists yet to justify overriding either.
+
+## 10. Block raycast interaction service (brick 043)
+
+`world/terrain/block_raycast_service.gd` (`BlockRaycastService.cast(terrain, registry,
+origin, direction, max_distance)`) is the first code to call `VoxelTool.raycast()`.
+Voxel Tools' own result, `VoxelRaycastResult`, only carries a raw hit/previous voxel
+position, a normal and a distance — no concept of `BlockRegistry` or the `+1` air offset
+`blocky_library_builder.gd` (037) established for voxel values. `cast()` bridges the two:
+it calls `terrain.get_voxel_tool().raycast(...)`, reads the hit voxel's raw value back
+with `tool.get_voxel(result.position)`, subtracts the `+1` offset, and resolves the
+result through `registry.id_from_network_index()` — returning a `BlockRaycastHit`
+(`block_raycast_hit.gd`) with the resolved `block_id` plus the hit/placement positions,
+normal and distance. Returns null (logged via `Log.check`) for an unlocked registry, a
+zero direction, a terrain with no voxel tool, a plain miss, or a hit voxel value the
+registry cannot resolve.
+
+**Empirically confirmed** (no upstream doc page states this): `VoxelToolTerrain.raycast()`
+only finds a hit once the terrain has actually meshed the area under the ray. Even against
+the placeholder `VoxelGeneratorFlat` (039) with no stream and no async persistence
+involved, this still needs the `VoxelTerrain` node added to the `SceneTree` with a
+`VoxelViewer` nearby, and a handful of real frames for Voxel Tools' worker threads to
+catch up — confirmed by direct experiment: `try_set_block_data()` does not work
+synchronously either (fails while the terrain is outside the tree, and still returned
+`false` several frames after being added), and `raycast()`/`get_voxel()` return
+stale/empty data until the area is loaded regardless. `tests/unit/test_block_raycast_service.gd`
+polls `VoxelTerrain.is_area_meshed()` per frame (up to a generous frame cap) rather than
+waiting a fixed frame count, so the test does not flake if worker timing varies between
+machines.
+
+Like 039–042, `cast()` takes an explicit ray (`origin`/`direction`) rather than reading
+one from a camera — no player/camera exists yet (Phase F, 106–130). `collision_mask` is
+left at `VoxelTool.raycast()`'s own default (every bit set): a non-solid block's model
+already gets `collision_mask = 0` from `blocky_library_builder.gd` (037), so it can never
+match any mask and is already excluded from a hit — no extra filtering was needed for a
+"basic" raycast. `DEFAULT_MAX_DISTANCE` (10.0 world/voxel units) matches
+`VoxelTool.raycast()`'s own default, named explicitly as a placeholder — real player
+reach balance is Phase F/G and may replace it outright.

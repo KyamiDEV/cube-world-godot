@@ -16,15 +16,39 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–032)
+- Phase `C — Voxel infrastructure` — in progress (031–033)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `033 — Create block material property schema`
+- Next task `034 — Create block collision property schema`
 
 ## Completed bricks
 
-`001`–`032`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`033`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
-index); Phase C in progress (031 block definition schema, 032 block registry).
+index); Phase C in progress (031 block definition schema, 032 block registry, 033
+material property schema).
+
+`033` extended `world/terrain/block_definition.gd` with the material fields 031 deferred:
+`texture_top` / `texture_side` / `texture_bottom` (plain `res://...` `String` paths, same
+"no editor hint" style as `id`/`display_name`) and `transparent: bool = false`. Three
+faces, not six or one — matches the top/side/bottom scheme every reference block needs
+(grass: green top vs dirt-textured sides) without guessing at a full six-sided model this
+early; a uniform block (stone) just repeats one path in all three fields. `transparent`
+carries `VoxelBlockyModel`'s own face-culling flag so the `VoxelBlockyLibrary` bootstrap
+(037) can set it directly instead of re-deriving it from texture content — recorded on
+the definition now because CLAUDE.md §10 calls out preserving exact culling behavior.
+`validate()` now rejects any of the three texture fields being empty, same
+empty-string-reason convention as `display_name`. No stable-ID domain was added for
+textures/materials (`StableId.DOMAINS` unchanged) — texture assignment is a resource
+path, not gameplay-content identity, so it doesn't need one. Actual `Texture2D`/
+`Material`/`VoxelBlockyLibrary` construction stays out of scope, deferred to 037 per
+031's original plan. `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031–055, so no reference read was needed, same as 031/032. Tests extended in
+`tests/unit/test_block_definition.gd` (11 tests, +5): three new missing-texture-field
+rejections, one `transparent` default check, and `_valid()` now sets all three texture
+fields; `tests/unit/test_block_registry.gd`'s `_grass()`/`_dirt()` helpers updated to stay
+valid under the new mandatory fields (no new registry tests needed — the registry only
+forwards to `BlockDefinition.validate()`, already covered). No docs page added — same
+"direct application of an existing contract" reasoning as 031/032, not a new one.
 
 `032` added `world/terrain/block_registry.gd` (`BlockRegistry extends RefCounted`,
 `class_name` — the first live use of `DefinitionRegistry` outside its own tests, per
@@ -249,7 +273,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 211 tests, 10 034 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 215 tests, 10 038 assertions, 0 failed.
 
 ## What exists now
 
@@ -260,7 +284,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 211 tests, 10 03
 | Time | `core/time/simulation_clock.gd` | 60 Hz fixed step, catch-up clamp, snapshot cadence |
 | RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation |
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
-| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `validate()` |
+| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `validate()` |
 | Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
@@ -269,10 +293,11 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 211 tests, 10 03
 
 ## Next 10 actions
 
-1. `033`–`038` block property schemas (material, collision, interaction/destruction,
-   footstep/surface tags), `VoxelBlockyLibrary` bootstrap, first grass/dirt/stone block
-   set. Phase C is original Godot/Voxel-Tools engineering; `docs/reference/traceability.md`
-   §4 confirms no matrix cites this range — no reference read needed before starting.
+1. `034`–`038` remaining block property schemas (collision, interaction/destruction,
+   footstep/surface tags — material done in 033), `VoxelBlockyLibrary` bootstrap, first
+   grass/dirt/stone block set. Phase C is original Godot/Voxel-Tools engineering;
+   `docs/reference/traceability.md` §4 confirms no matrix cites this range — no reference
+   read needed before starting.
 2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
 4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.

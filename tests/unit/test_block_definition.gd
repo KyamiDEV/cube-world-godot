@@ -6,6 +6,9 @@ func _valid() -> BlockDefinition:
 	var definition := BlockDefinition.new()
 	definition.id = "block.grass"
 	definition.display_name = "Grass"
+	definition.texture_top = "res://assets/textures/blocks/grass_top.png"
+	definition.texture_side = "res://assets/textures/blocks/grass_side.png"
+	definition.texture_bottom = "res://assets/textures/blocks/dirt.png"
 	return definition
 
 
@@ -40,6 +43,29 @@ func test_rejects_a_missing_display_name() -> void:
 	var definition := _valid()
 	definition.display_name = ""
 	assert_eq(definition.validate(), "display_name is empty")
+
+
+func test_rejects_a_missing_texture_top() -> void:
+	var definition := _valid()
+	definition.texture_top = ""
+	assert_eq(definition.validate(), "texture_top is empty")
+
+
+func test_rejects_a_missing_texture_side() -> void:
+	var definition := _valid()
+	definition.texture_side = ""
+	assert_eq(definition.validate(), "texture_side is empty")
+
+
+func test_rejects_a_missing_texture_bottom() -> void:
+	var definition := _valid()
+	definition.texture_bottom = ""
+	assert_eq(definition.validate(), "texture_bottom is empty")
+
+
+func test_transparent_defaults_to_false() -> void:
+	var definition := _valid()
+	assert_false(definition.transparent, "VoxelBlockyModel's own default is opaque")
 
 
 func test_registers_into_a_block_registry() -> void:

@@ -6,6 +6,9 @@ func _grass() -> BlockDefinition:
 	var definition := BlockDefinition.new()
 	definition.id = "block.grass"
 	definition.display_name = "Grass"
+	definition.texture_top = "res://assets/textures/blocks/grass_top.png"
+	definition.texture_side = "res://assets/textures/blocks/grass_side.png"
+	definition.texture_bottom = "res://assets/textures/blocks/dirt.png"
 	return definition
 
 
@@ -13,6 +16,9 @@ func _dirt() -> BlockDefinition:
 	var definition := BlockDefinition.new()
 	definition.id = "block.dirt"
 	definition.display_name = "Dirt"
+	definition.texture_top = "res://assets/textures/blocks/dirt.png"
+	definition.texture_side = "res://assets/textures/blocks/dirt.png"
+	definition.texture_bottom = "res://assets/textures/blocks/dirt.png"
 	return definition
 
 

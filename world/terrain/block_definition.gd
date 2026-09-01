@@ -9,8 +9,8 @@ extends Resource
 ## self-validation every domain's definition type is responsible for
 ## (`docs/ids-and-registries.md` §5).
 ##
-## Material, collision, interaction/destruction and footstep/surface-tag fields are
-## added by dedicated bricks (033–036) rather than guessed here.
+## Collision, interaction/destruction and footstep/surface-tag fields are added by
+## dedicated bricks (034–036) rather than guessed here.
 
 ## Stable content ID, domain "block" — e.g. "block.grass". Written into save files and
 ## network packets; see `docs/ids-and-registries.md`.
@@ -18,6 +18,23 @@ extends Resource
 
 ## Editor/tooling display only. Never a key (`docs/conventions.md` §5).
 @export var display_name: String = ""
+
+## Per-face texture paths (backlog brick 033) — top/side/bottom, not six, mirrors the
+## scheme every reference block needs (grass: green top, dirt-textured sides) without
+## guessing at a full six-sided model this early; a uniform block (stone) simply repeats
+## the same path in all three. Plain `res://...` resource path, same "String, no editor
+## hint" style as `id`/`display_name` — resolved into an actual `Texture2D`/`Material`
+## by the `VoxelBlockyLibrary` bootstrap (037), not here.
+@export var texture_top: String = ""
+@export var texture_side: String = ""
+@export var texture_bottom: String = ""
+
+## Carries `VoxelBlockyModel`'s own face-culling flag (`transparent`): true means
+## neighbor faces behind this block must still be meshed (glass, leaves) instead of
+## culled as hidden. Recorded on the definition, not derived from texture content, so
+## 037 can set the mesher model's flag directly. Defaults to opaque, matching
+## `VoxelBlockyModel`'s own default.
+@export var transparent: bool = false
 
 
 ## Returns an empty string when well-formed, otherwise a human-readable reason — same
@@ -31,6 +48,12 @@ func validate() -> String:
 		return "block definition id must be in the 'block' domain, got '%s'" % id
 	if display_name.is_empty():
 		return "display_name is empty"
+	if texture_top.is_empty():
+		return "texture_top is empty"
+	if texture_side.is_empty():
+		return "texture_side is empty"
+	if texture_bottom.is_empty():
+		return "texture_bottom is empty"
 	return ""
 
 

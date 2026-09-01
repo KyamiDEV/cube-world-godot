@@ -62,7 +62,7 @@
 | 030 | B | Create traceability index from reference notes to backlog | 029 | Not needed by default | NO | DONE |
 | 031 | C | Create voxel block definition schema | 016 | CLI/files only | NO | DONE |
 | 032 | C | Create voxel/block registry | 031 | Not needed by default | NO | DONE |
-| 033 | C | Create block material property schema | 032 | Not needed by default | NO | TODO |
+| 033 | C | Create block material property schema | 032 | Not needed by default | NO | DONE |
 | 034 | C | Create block collision property schema | 033 | Not needed by default | NO | TODO |
 | 035 | C | Create block interaction/destruction property schema | 034 | Not needed by default | NO | TODO |
 | 036 | C | Create block footstep/surface tags | 035 | Not needed by default | NO | TODO |

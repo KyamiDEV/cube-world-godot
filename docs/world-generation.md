@@ -197,3 +197,118 @@ Steps 2–4 are checked; steps 1 and 5 are the ones a human still has to mean.
   235–236). `WorldSeed.mismatch_reason()` and `status_of()` are the checks; the handshake
   that runs them is not written yet.
 - Where the header is stored (bricks 102–103).
+
+## 3. Coordinate spaces and positional hashing (brick 058)
+
+Implementations: `world/generation/generation_grid.gd` (`GenerationGrid`),
+`world/generation/generation_hash.gd` (`GenerationHash`).
+Tests: `tests/unit/test_generation_grid.gd`, `tests/unit/test_generation_hash.gd`.
+Reference evidence: `docs/reference/region-coordinate-hashing.md`.
+
+### 3.1 The spaces
+
+Generation asks questions at five grids, and they are not interchangeable.
+
+| Space | Type | Edge | Asked at |
+|---|---|---|---|
+| voxel | `Vector3i` | 1 voxel | per-cell content: stone, air, ore |
+| column | `Vector2i` (x, z) | 1 voxel | per-column fields: elevation, temperature, humidity, biome |
+| chunk | `Vector3i` | 16 voxels | the generator's work unit — one `VoxelBuffer` fill |
+| chunk column | `Vector2i` | 16 voxels | "does this column of chunks need anything generated at all?" |
+| region | `Vector2i` | 1024 voxels (512 m) | macro placement: structures, POIs, region-scale variation |
+
+Sizes:
+
+- **Chunk = 16 voxels** because that is Voxel Tools' *data* block size, fixed for
+  `VoxelTerrain`. A generator is handed one such block at a time, so any other generation
+  grid would straddle block boundaries on every fill. This is **not**
+  `DEFAULT_MESH_BLOCK_SIZE` (ADR 0002), which is a rendering choice and may become 32
+  without moving a generated voxel.
+- **Region = 1024 voxels** so the region grid is exactly 1024 × 1024 across `WorldBounds`'
+  horizontal extent (brick 050). The 1024 × 1024 *shape* is the one piece of the
+  original's grid worth keeping; the size in voxels is ours, scaled to our own, much
+  smaller world.
+
+Two rules the conversions enforce:
+
+1. **Floor division, never truncation.** `-1 / 16` is `0` in GDScript, which would put
+   voxel −1 and voxel 0 in the same chunk and make every grid asymmetric around the
+   origin. `GenerationGrid.floor_div()`/`floor_mod()` are the only correct forms, and are
+   public so a later, coarser grid uses the same ones.
+2. **Grids are half-open**: a cell owns `[origin, origin + size)`. `WorldBounds.aabb()` is
+   inclusive at its maximum face because `AABB.has_point()` is, so the single voxel plane
+   at `x == +524288` is inside the world bounds and outside the region grid.
+   `is_region_in_world()` is the authority for "is there a region here".
+
+Unlike the reference's `0..1023` grid counted from a corner, ours is signed and centred:
+region coordinates run `−512..511`. A player standing at spawn is not standing in a
+corner.
+
+### 3.2 One binding per world
+
+`GenerationHash.for_world(world_seed)` is how generation code obtains a hash, and the
+only supported way. It adds three things to the `WorldHash` primitive:
+
+| Adds | Why |
+|---|---|
+| binding to a `WorldSeed` | §1.1 — call sites take a `WorldSeed`, never an integer. Reading `config.value` at each call site would re-open the drift hole the type exists to close |
+| a version check, **once** | this is where a `WorldSeed` becomes numbers, so it is where "this build cannot reproduce that world's algorithm" is refused (§2.3). Never per call: hashing is the hottest path in the project |
+| a **space tag** per grid | chunk `(3, 0, 5)` and voxel `(3, 0, 5)` are different places carrying the same numbers. Untagged, a per-chunk pass and a per-voxel pass sharing a salt would agree cell for cell |
+
+The tag is `space * SPACE_SALT_STRIDE + salt`, applied to the salt. `Space.VOXEL` is `0`,
+so voxel-space hashing stays byte-identical to a bare `WorldHash` call — the tagging is
+free for the base case. Space values are baked into every world generated with them and
+follow the salt rule of `docs/rng.md` §4: append, never renumber, never reuse. Every
+`WorldHash.SALT_*` constant must stay below the stride, which the tests assert over the
+whole constant list rather than trusting the next person to check.
+
+`refuse_reason()` is the pure form of the check, for a load screen or the session
+handshake (bricks 235–236) to ask before anything is constructed.
+
+### 3.3 The generation version is not mixed into the hash
+
+A version **selects** which algorithm runs; it is not an **input** to that algorithm.
+
+Mixing it in would look tidy and cost two real things: every bump would reshuffle every
+unrelated pass, so a fix to the tree mask would move every mountain; and "version 2 is
+version 1 with different numbers" would become indistinguishable from a genuine
+algorithmic change, which is exactly the distinction §2.1 asks a human to make. The
+version is therefore checked at binding time and never touched again.
+
+### 3.4 What the original did, and what we do instead
+
+`docs/reference/region-coordinate-hashing.md` records the read; §9 there is the full
+divergence table. The short form: the original seeded the C library's **process-global**
+`rand()` with a **linear** combination of the region coordinates and the world seed
+(`srand(regX + 0x108a + regZ * 0x400 + seed * 3)`), then took its first decision from the
+low bit of an LCG. We hash instead of seeding a global, avalanche instead of adding, and
+read from the top bits — for reasons `docs/rng.md` §§1–3 already state, now with a
+concrete example behind them.
+
+### 3.5 A defect this brick found in the primitive
+
+Brick 058's first test run failed on `hash2(-7, -9) == hash2(7, 9)`, and the collision was
+real. `WorldHash` combined its per-axis products with XOR; negating an integer flips every
+bit above its lowest set bit, so two axis products with the same trailing-zero count
+contribute the *same* suffix mask, and XOR cancelled both. The result was a point symmetry
+through the origin across every coordinate pair whose trailing-zero counts matched —
+roughly a quarter of all columns, mirrored, plus the same effect for any subset of axes.
+
+The fix multiplies by an odd constant between axis folds, so each axis reaches the high
+bits before the next one arrives and no later term can cancel an earlier one.
+`tests/unit/test_world_hash.gd` covers it.
+
+This was free to fix here and would not have been later: after brick 060 the same change
+is a generation version bump (§2.1). It is the concrete argument for `docs/rng.md` §3 —
+the algorithm is a contract, and the time to get it right is before the first world
+exists.
+
+### 3.6 Out of scope for this brick
+
+- Any actual field, noise layer or placement rule. `GenerationHash` produces uniform
+  values at coordinates; turning those into terrain starts at brick 060.
+- New salts. Each pass adds the one it needs to `WorldHash` as it lands, per
+  `docs/rng.md` §4.
+- Using `is_region_in_world()` for anything. Region-scale placement is bricks 089–090.
+- A region *record* — what a region contains, and whether it is cached. This brick
+  defines the coordinate and its hash, nothing that lives at it.

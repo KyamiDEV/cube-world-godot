@@ -34,7 +34,7 @@ or another client can observe.
 | Shape | a stream with state | stateless function of position |
 | Reproducible because | the same seed replays the same sequence | the same coordinates always hash the same |
 | Order sensitivity | order **matters**: the Nth draw depends on the N−1 before it | none: sampling one cell never affects another |
-| Use for | server gameplay rolls: loot, crits, spawn variation, AI choices | world generation: elevation, biomes, caves, tree and prop masks, structure placement |
+| Use for | server gameplay rolls: loot, crits, spawn variation, AI choices | world generation: elevation, biomes, caves, tree and prop masks, structure placement — reached through `GenerationHash` (brick 058), never called bare from `world/generation/` |
 | Saved? | yes, the stream state is part of world state | no, it is derived from the seed |
 
 ### Why generation cannot use a stream
@@ -68,6 +68,12 @@ is a **generation version bump**, with the old version kept readable or the worl
 explicitly retired — the lifecycle lives in `world/generation/generation_version.gd`
 (brick 057, `docs/world-generation.md` §2), whose bump checklist §2.5 names this case.
 
+`WorldHash`'s combining step counts as part of that contract, and it changed once, in
+brick 058: XOR-combining the per-axis products made `hash2(-7, -9)` equal `hash2(7, 9)`,
+mirroring a quarter of the world through the origin. It was free to change then because
+no world existed yet; the same change made after brick 060 is a version bump.
+`docs/world-generation.md` §3.5 has the mechanism.
+
 ## 4. Salts and streams
 
 - **Salts** separate generation passes. Without them the tree pass and the cave pass
@@ -75,6 +81,13 @@ explicitly retired — the lifecycle lives in `world/generation/generation_versi
   named constants in `WorldHash` (`SALT_TREES`, `SALT_CAVES`, …). Add one per pass;
   **never reuse or renumber one**, because the numbers are baked into every world made
   with them.
+- **Space tags** separate coordinate *grids*, and generation code gets them for free by
+  calling `world/generation/generation_hash.gd` rather than `WorldHash` directly. Chunk
+  `(3, 0, 5)` and voxel `(3, 0, 5)` are different places carrying the same numbers; the
+  tag is what keeps a per-chunk pass from agreeing cell for cell with a per-voxel pass
+  that shares its salt (brick 058, `docs/world-generation.md` §3.2). Tag values follow
+  the same append-never-renumber rule as salts, and a salt must stay below
+  `GenerationHash.SPACE_SALT_STRIDE`.
 - **Forks** separate consumers of a sequential stream. `rng.derive(salt)` or
   `derive_named("loot")` gives a subsystem its own stream, so a change in how many
   values one system draws cannot shift another system's results. Sharing one stream

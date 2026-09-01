@@ -19,12 +19,12 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–057 done, 058–090 open)
-- Next task `058 — Create world coordinate hashing` (deps: 057 — DONE)
+- Phase `D — World generation` — **IN PROGRESS** (056–058 done, 059–090 open)
+- Next task `059 — Create deterministic generation test fixtures` (deps: 056 — DONE)
 
 ## Completed bricks
 
-`001`–`057`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`058`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -37,7 +37,92 @@ validation layer, 046 block edit application layer, 047 edit undo/delta represen
 world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh block
 size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decision, 055
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
-Phase D open: 056 world seed configuration, 057 generation versioning.
+Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
+coordinate hashing.
+
+`058` gave generation its coordinate spaces and the only supported way to hash them, in
+two files under `world/generation/`:
+
+**`generation_grid.gd` (`GenerationGrid`, static-only)** — the five grids generation asks
+questions at (voxel, column, chunk, chunk column, region) and the conversions between
+them. `CHUNK_SIZE_VOXELS = 16` because that is Voxel Tools' *data* block size (fixed for
+`VoxelTerrain`; a generator is handed one at a time, so any other grid would straddle a
+block boundary on every fill) — deliberately **not** `DEFAULT_MESH_BLOCK_SIZE`, which is
+a rendering choice ADR 0002 leaves free to become 32. `REGION_SIZE_VOXELS = 1024` (512 m)
+was chosen so the region grid is exactly 1024 × 1024 across `WorldBounds`' horizontal
+extent (050). Public `floor_div()`/`floor_mod()`, because `-1 / 16` is `0` in GDScript and
+truncation would put voxel −1 and voxel 0 in the same chunk — asymmetric across half the
+world, invisible until someone walks west. Grids are **half-open**, which surfaces one
+documented seam: `WorldBounds.aabb()` includes its maximum face (`AABB.has_point()` is
+inclusive), so the single voxel plane at `x == +524288` is inside the world and outside
+the region grid; `is_region_in_world()` is the authority.
+
+**`generation_hash.gd` (`GenerationHash`, an instance bound to one world)** — wraps
+`WorldHash` (015) and adds the three things the primitive cannot know: the `WorldSeed`
+binding (056's "call sites take a `WorldSeed`, never an integer" is unenforceable if each
+call site reaches for `config.value`), a version check that runs **once** in `for_world()`
+rather than per call (hashing is the hottest path in the project), and a **space tag**
+per grid — chunk `(3, 0, 5)` and voxel `(3, 0, 5)` are different places carrying the same
+numbers, and untagged, a per-chunk pass sharing a salt with a per-voxel pass would agree
+cell for cell. The tag is `space * SPACE_SALT_STRIDE + salt`; `Space.VOXEL` is `0`, so
+voxel-space hashing stays byte-identical to a bare `WorldHash` call.
+
+Three decisions worth keeping:
+
+1. **The generation version is not mixed into the hash.** A version *selects* an
+   algorithm; it is not an *input* to one. Mixing it in would make every bump reshuffle
+   every unrelated pass (a fix to the tree mask would move every mountain) and would make
+   "version 2 is version 1 with different numbers" indistinguishable from a genuine
+   algorithmic change — exactly the distinction §2.1's bump test asks a human to make.
+2. **`for_world()` is where a world is refused.** It is the point a `WorldSeed` becomes
+   numbers, so it is where "this build cannot reproduce that algorithm" has to stop:
+   generating a retired world *approximately* produces terrain that looks right and
+   stitches a second algorithm into ground a player already explored.
+   `refuse_reason()` is the pure form, for a load screen or the 235–236 handshake.
+3. **A salt must stay below the stride**, or two spaces share effective salts and the
+   tagging silently stops working. `test_generation_hash.gd` asserts it over
+   `WorldHash`'s whole constant map, so adding a salt cannot skip the check.
+
+**A real defect fell out of the first test run**: `WorldHash.hash2(-7, -9)` was *equal* to
+`hash2(7, 9)`. Negating an integer flips every bit above its lowest set bit, so `-n` is
+`n` XOR a suffix mask determined only by its trailing-zero count; two axis products whose
+trailing-zero counts match contribute the **same** mask, and XOR-combining them cancelled
+both. The world had a point symmetry through the origin across every coordinate pair with
+matching trailing-zero counts (~a quarter of all columns), and for any *subset* of axes
+too — `hash3(-7, 5, -9) == hash3(7, 5, 9)`. Fixed in `world_hash.gd` by multiplying by an
+odd constant between axis folds, so each axis reaches the high bits before the next
+arrives and no later term can cancel an earlier one. Free to fix now; after brick 060 the
+same change is a generation version bump (`docs/rng.md` §3 now says so). Regression
+assertions live in `test_world_hash.gd` (015's own file), not the new ones.
+
+**Reference read** (`traceability.md` §1: 058 falls in the `056–067` row,
+`matrix-world.md` §1, LOW, no gating question): targeted read of
+`World_generateRegionSite` (`server/world/World.cpp:4993–5030`) plus the identical line in
+the client (`cube/control/GameController.cpp:87676`), recorded as
+**`docs/reference/region-coordinate-hashing.md`**. Findings: region coordinates are
+**unsigned, `0..1023`** (a corner-counted 1024 × 1024 grid); a region's content is seeded
+by a **linear** combination fed to the C library's **process-global** `srand()`
+(`srand(regX + 0x108a + regZ * 0x400 + seed * 3)`), whose first decision is `rand() & 1`
+— the low bit of an LCG; the site cache is indexed `regX * 0x400 + regZ` while the seed
+pairs the axes the other way. §9 of the note is the divergence table (hash not global
+seed, avalanche not addition, top bits not low bit, signed grid centred on the origin,
+one axis order). The 1024 × 1024 *shape* is the one piece kept, which is where
+`REGION_SIZE_VOXELS` comes from.
+
+Explicitly *not* in scope: any field, noise layer or placement rule (060 onward); new
+salts (each pass adds its own as it lands); using `is_region_in_world()` for anything
+(089–090); a region *record* — this brick defines the coordinate and its hash, nothing
+that lives at it.
+
+Docs: `docs/world-generation.md` §3 (new, six subsections: the spaces, the binding, why
+the version stays out of the hash, what the original did, the primitive defect, out of
+scope); new `docs/reference/region-coordinate-hashing.md`; `docs/rng.md` §2/§3/§4 gained
+the space-tag rule, the `GenerationHash`-not-`WorldHash` routing rule, and the record of
+the one algorithm change; `docs/README.md` and `traceability.md` §2 list the new note.
+
+Tests: `tests/unit/test_generation_grid.gd` (new, 18 tests), `tests/unit/
+test_generation_hash.gd` (new, 20 tests), `test_world_hash.gd` (+1 regression test). Full
+suite: `files=34 tests=377 assertions=10698 failed=0`. `check.ps1` OK (71 scripts).
 
 `057` gave the generation version a lifecycle: `world/generation/generation_version.gd`
 (`GenerationVersion`, static-only, second file under `world/generation/`). The number
@@ -1195,7 +1280,7 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 | Logging | `autoload/log.gd` | levels, channels, `check()` vs `invariant()`, test capture |
 | Scale | `core/math/world_scale.gd` | metres ↔ units ↔ voxels; the only place `0.5`/`2.0` may appear |
 | Time | `core/time/simulation_clock.gd` | 60 Hz fixed step, catch-up clamp, snapshot cadence |
-| RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation |
+| RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation; `world_hash.gd`'s axis folds multiply between axes (058) — XOR alone mirrored a quarter of the world through the origin |
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
 | Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `is_solid`, `destructible`, `hardness`, `drop_item_id`, `footstep_tag`, `validate()` |
 | Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
@@ -1215,30 +1300,38 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Generation | `world/generation/world_seed.gd` | `WorldSeed`: world identity as `(value, text, generation_version)` — `from_text()`/`from_value()`/`arbitrary()`/`from_header()`, `validate()` (text must re-hash to value), `display_text()`, `mismatch_reason()`/`matches()` (the client/server parity check), `rng_for(key)`, `to_header(extra)` (writes the world's own generation version over the build's constant) (056, `docs/world-generation.md` §1) |
 | Generation | `world/generation/generation_version.gd` | `GenerationVersion`: the version *lifecycle* — `CURRENT`/`SUPPORTED`/`SUMMARIES`, `status()`/`status_of()` (`CURRENT_VERSION`/`LEGACY`/`RETIRED`/`FUTURE`/`INVALID`), `explain()`, `classify_header()`/`can_load_header()`/`explain_header()` (always passing the explicit supported list — never let `SaveVersion` fall back to its range), and `self_check()`, which fails the suite on a half-finished bump (057, `docs/world-generation.md` §2) |
+| Generation | `world/generation/generation_grid.gd` | `GenerationGrid`: the five coordinate spaces generation asks questions at (voxel, column, chunk, chunk column, region) and the floor-correct conversions between them; `CHUNK_SIZE_VOXELS = 16` (Voxel Tools' data-block size, *not* `DEFAULT_MESH_BLOCK_SIZE`), `REGION_SIZE_VOXELS = 1024` (a 1024 × 1024 signed grid across `WorldBounds`), public `floor_div()`/`floor_mod()`, `is_region_in_world()` (058, `docs/world-generation.md` §3.1) |
+| Generation | `world/generation/generation_hash.gd` | `GenerationHash.for_world(world_seed)`: positional hashing bound to one world — refuses a seed this build cannot reproduce (once, not per call), tags every coordinate space so two grids carrying the same numbers are different places, and exposes `hash_*`/`value01_*`/`chance_*`/`rng_*` per space. The generation version is deliberately *not* mixed into the hash (058, `docs/world-generation.md` §3.2-3.3) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
 | Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `world-generation.md`, `adr/0001`, `adr/0002` | the contracts those files implement |
 | Reference | `docs/reference/world-generation-authority.md` | who may generate world content: the reference's client-side generation was a bandwidth design, not a trust model — "the client may generate, the client never decides"; resolves `matrix-world.md` Q2 (056) |
+| Reference | `docs/reference/region-coordinate-hashing.md` | how the original turned coordinates into content: a **linear** seed fed to the process-global `srand()`, first decision from the low bit of an LCG, region grid `0..1023` counted from a corner; §9 is the divergence table 058 implements (058) |
 | Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), the rest placeholder rows for Phase L bricks 257-263 |
 
 ## Next 10 actions
 
-1. `058` create world coordinate hashing (next task) — dep 057 (DONE). Scope it against
-   what already exists, the same way 057 was scoped against 056: `core/random/world_hash.gd`
-   (015) **already** provides the positional primitives — `hash3`/`hash2`,
-   `value01_3`/`value01_2`, `rng_at`/`rng_at_column`, `hash_voxel`/`rng_at_voxel`,
-   `chance_at`, `seed_from_text`, and the `SALT_*` allocation. So 058 is not a second hash
-   function; the gap it can honestly fill is the **coordinate space** generation actually
-   works in — voxel ↔ chunk/block ↔ region/zone conversions (against `WorldBounds`, 050,
-   and the 16³ data-block granularity `docs/voxel-tools.md` records), plus binding a
-   `WorldSeed` to them so a call site hashes a *chunk* or a *region* without re-deriving
-   the arithmetic or re-passing `seed.value` (`CLAUDE.md` §1's one-shared-utility rule).
-   Confirm that reading before designing, and if the brick really is already satisfied by
-   `WorldHash`, say so explicitly rather than inventing a parallel API.
+1. `059` create deterministic generation test fixtures (next task) — dep 056 (DONE).
+   Scope it against what already exists, the same way 057 and 058 were: the *primitives*
+   are covered (015's `test_world_hash.gd`, 058's `test_generation_grid.gd` /
+   `test_generation_hash.gd`), so 059 is not more unit tests for them. The gap is a shared
+   **fixture** every later generation brick (060–090) tests against: a fixed set of named
+   seeds and sample coordinates, plus the assertion helpers that make "this field is a
+   pure function of `(seed, coordinates)`" and "this field's output did not change" cheap
+   to state once per pass rather than re-written per brick. Two design questions worth
+   settling in the brick: (a) whether a field's output is pinned by **golden values**
+   (which catch a silent algorithm change — the failure mode `docs/rng.md` §3 and
+   `GenerationVersion` exist for — but must be regenerated on every deliberate bump) or
+   only by **invariants** (range, purity, order-independence, no axis symmetry); (b) where
+   fixtures live (`tests/fixtures/` does not exist yet). Note 058's defect as the
+   motivating case: an axis symmetry survived 015's whole test file and was only caught
+   because a *new* test happened to compare a negated coordinate pair — a fixture that
+   sweeps sign/parity combinations for every field would have caught it by construction.
    Still open and carried forward from Phase C: no `.tscn` exists, and no player/camera to
    raycast from or to parent the 042 `VoxelViewer` under — a Phase F question (039's
-   nextsteps entry, carried by 042–057). Phase D generation must fit inside `WorldBounds`
-   (050, `world/terrain/world_bounds.gd`), and the `docs/performance-budget.md` §3
+   nextsteps entry, carried by 042–058). Phase D generation must fit inside `WorldBounds`
+   (050, `world/terrain/world_bounds.gd`) and use `GenerationGrid`/`GenerationHash` (058)
+   rather than calling `WorldHash` bare, and the `docs/performance-budget.md` §3
    benchmark is re-run against the real generator once Phase D lands (its §5 says so;
    feeds bricks 257–258).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`

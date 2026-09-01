@@ -39,6 +39,22 @@ func test_axis_permutations_do_not_collide() -> void:
 	assert_ne(WorldHash.hash3(SEED, 5, 0, 0), WorldHash.hash3(SEED, 0, 5, 0))
 
 
+func test_negated_coordinates_are_a_different_place() -> void:
+	# Regression, found by brick 058. Negating an integer flips every bit above its
+	# lowest set bit, so two axis products with the same trailing-zero count contribute
+	# the same suffix mask — and XOR-combining them cancelled both. The symmetric point
+	# through the origin generated identically, for every column whose coordinates shared
+	# a trailing-zero count: roughly a quarter of the world, mirrored.
+	assert_ne(WorldHash.hash2(SEED, -7, -9), WorldHash.hash2(SEED, 7, 9))
+	assert_ne(WorldHash.hash2(SEED, -1, -1), WorldHash.hash2(SEED, 1, 1))
+	assert_ne(WorldHash.hash2(SEED, -6, -10), WorldHash.hash2(SEED, 6, 10))
+	assert_ne(WorldHash.hash3(SEED, -7, -5, -9), WorldHash.hash3(SEED, 7, 5, 9))
+	# A subset of axes is enough: the untouched axis contributes the same term to both
+	# sides and drops straight out of the difference.
+	assert_ne(WorldHash.hash3(SEED, -7, 5, -9), WorldHash.hash3(SEED, 7, 5, 9))
+	assert_ne(WorldHash.hash3(SEED, -6, -10, 0), WorldHash.hash3(SEED, 6, 10, 0))
+
+
 func test_different_seeds_give_different_worlds() -> void:
 	assert_ne(WorldHash.hash3(1, 10, 10, 10), WorldHash.hash3(2, 10, 10, 10))
 

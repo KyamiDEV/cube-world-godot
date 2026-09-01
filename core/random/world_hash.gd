@@ -25,6 +25,21 @@ const _AXIS_X := 6364136223846793005     # Knuth's LCG multiplier
 const _AXIS_Y := -4265267296055464877    # 0xC4CEB9FE1A85EC53
 const _AXIS_Z := 1442695040888963407     # Knuth's LCG increment, odd
 
+## Applied after each axis is folded in, and the reason folding is not XOR alone.
+##
+## Negating an integer flips every bit above its lowest set bit, so `-n` is `n` XOR a
+## suffix mask determined only by `n`'s trailing zero count. Two axis products whose
+## trailing zero counts match therefore contribute the *same* mask, and XOR-combining
+## them cancels both: `hash2(-7, -9)` came out exactly equal to `hash2(7, 9)`, giving the
+## world a point symmetry through the origin across a quarter of all columns. Multiplying
+## by an odd constant between folds propagates each axis into the high bits before the
+## next one arrives, so no later term can cancel an earlier one.
+##
+## Found by brick 058's tests and fixed there, while no generated world existed yet;
+## after brick 060 the same change would be a generation version bump
+## (`docs/world-generation.md` §2.1).
+const _COMBINE := -7046029254386353131   # 0x9E3779B97F4A7C15, golden-ratio odd constant
+
 ## Salts keep independent generation passes from correlating: the tree pass and the ore
 ## pass must not agree about which cells are "high". Add one per pass; never reuse a
 ## salt for a different purpose, and never renumber an existing one — the values are
@@ -42,11 +57,10 @@ const SALT_LOOT := 9
 
 ## 64-bit hash of a 3D voxel or chunk coordinate under a world seed and pass salt.
 static func hash3(seed_value: int, x: int, y: int, z: int, salt: int = 0) -> int:
-	var value := seed_value
-	value = value * 31 + salt
-	value ^= x * _AXIS_X
-	value ^= y * _AXIS_Y
-	value ^= z * _AXIS_Z
+	var value := seed_value * 31 + salt
+	value = (value ^ (x * _AXIS_X)) * _COMBINE
+	value = (value ^ (y * _AXIS_Y)) * _COMBINE
+	value = (value ^ (z * _AXIS_Z)) * _COMBINE
 	return DeterministicRng.mix64(value)
 
 
@@ -54,11 +68,10 @@ static func hash3(seed_value: int, x: int, y: int, z: int, salt: int = 0) -> int
 ## It is not `hash3(..., 0, ...)`: keeping it distinct means a 2D field and a 3D field
 ## at y = 0 do not produce identical patterns.
 static func hash2(seed_value: int, x: int, z: int, salt: int = 0) -> int:
-	var value := seed_value
-	value = value * 31 + salt
-	value ^= x * _AXIS_X
-	value ^= z * _AXIS_Z
-	value ^= _AXIS_Y  # distinguishes 2D from 3D-at-y-0
+	var value := seed_value * 31 + salt
+	value = (value ^ (x * _AXIS_X)) * _COMBINE
+	value = (value ^ (z * _AXIS_Z)) * _COMBINE
+	value = (value ^ _AXIS_Y) * _COMBINE  # distinguishes 2D from 3D-at-y-0
 	return DeterministicRng.mix64(value)
 
 

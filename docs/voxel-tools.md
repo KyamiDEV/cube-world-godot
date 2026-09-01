@@ -276,3 +276,30 @@ are not, per `docs/server-authority.md` §4 ("rejection is normal") and
 Stateless: no `CommandGate`-style rejection-counting was added, since there is no
 per-peer state to key it on here; a server loop can count at its own call site later
 without changing this file.
+
+## 12. Block edit application layer (brick 046)
+
+`world/terrain/block_edit_applicator.gd` (`BlockEditApplicator.apply(command, terrain,
+registry) -> bool`) is the last stage of the edit pipeline: it assumes
+`command.validate()` (044) and `BlockEditValidator.validate()` (045) already both
+returned `ACCEPT`, the same "layer already checked it" trust 045 places in 044. It
+performs no gameplay re-check (occupied/air/destructible) — that would duplicate 045
+for no benefit, since nothing about voxel content changes between validating a command
+and applying it within the same call.
+
+Writes via `VoxelTool.set_voxel(position, raw_value)`: `registry.network_index(block_id)
++ 1` for `PLACE`, `0` (air) for `REMOVE` — the exact inverse of the `- 1` offset
+`block_raycast_service.gd` (043) and `block_edit_validator.gd` (045) apply when reading a
+voxel back into a block id. `set_voxel()` needed no confirmed-by-doc caveat the way
+043's `raycast()` did — it is a direct single-voxel write, not a shape/SDF paint
+operation, so no `do_point`/commit step applies.
+
+Keeps the same defensive `Log.check` shape 043/045 already use, rather than blindly
+trusting the caller: registry locked, terrain produces a `VoxelTool`, and — for `PLACE`
+only — `block_id` is actually registered. That last check exists because
+`DefinitionRegistry.network_index()` returns `-1` for an unknown id, which this file's
+own `+1` offset would silently turn into `0` (air) instead of failing loudly — a
+caller that skips 045 would otherwise get silent data corruption (writing air instead of
+the intended block) rather than a clear rejection. All three are programmer/data errors,
+never a normal gameplay outcome, so they are logged — no `CommandGate`-style
+rejection-counting was needed here either, same reasoning as 045.

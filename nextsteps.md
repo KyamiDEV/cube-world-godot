@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–045)
+- Phase `C — Voxel infrastructure` — in progress (031–046)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `046 — Create block edit application layer`
+- Next task `047 — Create edit undo/delta representation`
 
 ## Completed bricks
 
-`001`–`045`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`046`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -30,7 +30,36 @@ property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 0
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
 block raycast interaction service, 044 block edit command model, 045 block edit
-validation layer).
+validation layer, 046 block edit application layer).
+
+`046` added `world/terrain/block_edit_applicator.gd` (`BlockEditApplicator`, static
+`apply(command: EditBlockCommand, terrain: VoxelTerrain, registry: BlockRegistry) ->
+bool`) — the last stage of the edit pipeline, applying an already-validated command
+(044 structural + 045 gameplay, both assumed `ACCEPT`) to real voxel data via
+`VoxelTool.set_voxel()`. Writes `registry.network_index(block_id) + 1` for `PLACE`, `0`
+for `REMOVE` — the exact inverse of the `- 1` offset 043/045 apply when reading a voxel
+back into a block id. Performs no gameplay re-check (occupied/air/destructible) — that
+would duplicate 045 for no benefit — but keeps the same defensive `Log.check` shape
+043/045 use: registry locked, terrain produces a `VoxelTool`, and (`PLACE` only)
+`block_id` is actually registered. That last check matters because
+`DefinitionRegistry.network_index()` returns `-1` for an unknown id, which the `+1`
+offset would otherwise silently turn into `0` (air) — a caller that skipped 045 would
+get silent data corruption instead of a clear rejection. All three are programmer/data
+errors, not normal gameplay outcomes, so all three are logged; no rejection-counting
+was added, same reasoning as 045 (stateless, no per-peer state to key on here).
+
+`set_voxel()` needed no doc-verification caveat the way 043's `raycast()` did (§10) — it
+is a direct single-voxel write, not a shape/SDF paint operation, so there is no
+`do_point`/commit step to account for. `docs/voxel-tools.md` §12 (new section) records
+the full reasoning; `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031–055, so no reference read was needed, same as 031–045.
+
+Tests: `tests/unit/test_block_edit_applicator.gd` (4 tests, +4 total) — same
+built-vs-meshed terrain split 043/045 use: `INVALID_REGISTRY` against a built-but-unmeshed
+terrain, and three voxel-content checks against a fully meshed terrain (`PLACE` writes
+`network_index + 1`, `REMOVE` writes `0`, an unregistered `block_id` is rejected and
+leaves the target voxel untouched). No `INVALID_TERRAIN` test — 043/045's own test files
+never construct that case either, same precedent.
 
 `045` added `world/terrain/block_edit_validator.gd` (`BlockEditValidator`, static
 `validate(command: EditBlockCommand, terrain: VoxelTerrain, registry: BlockRegistry) ->
@@ -704,7 +733,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 24 files, 272 tests, 10 217 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 25 files, 276 tests, 10 231 assertions, 0 failed.
 
 ## What exists now
 
@@ -725,6 +754,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 24 files, 272 tests, 10 21
 | Terrain | `world/terrain/block_raycast_service.gd`, `block_raycast_hit.gd` | `BlockRaycastService.cast(terrain, registry, origin, direction, max_distance)`: wraps `VoxelTool.raycast()`, resolves the hit voxel value back to a `BlockDefinition` id through the registry (043, `docs/voxel-tools.md` §10) |
 | Network | `network/packets/edit_block_command.gd` | `EditBlockCommand`: PLACE/REMOVE intent (`kind`, `position`, `face_normal`, `block_id`, `tick`); `from_hit()` builds one from a `BlockRaycastHit`; `validate()` is structural only (044) |
 | Terrain | `world/terrain/block_edit_validator.gd` | `BlockEditValidator.validate(command, terrain, registry)`: layer-2 gameplay validation against `terrain.bounds`/actual voxel content — registered block, empty/occupied target, `destructible` (045, `docs/server-authority.md` §3) |
+| Terrain | `world/terrain/block_edit_applicator.gd` | `BlockEditApplicator.apply(command, terrain, registry)`: writes an already-validated command's effect via `VoxelTool.set_voxel()` — `network_index(block_id) + 1` for `PLACE`, `0` for `REMOVE` (046, `docs/voxel-tools.md` §12) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -732,16 +762,16 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 24 files, 272 tests, 10 21
 
 ## Next 10 actions
 
-1. `046` block edit application layer: apply an already-validated `EditBlockCommand` to
-   real voxel data — writes `registry.network_index(block_id) + 1` (037's offset,
-   inverse of the `- 1` `block_raycast_service.gd`/`block_edit_validator.gd` apply on
-   read) for `PLACE`, `0` for `REMOVE`, via `VoxelTool.set_voxel()`. Callers run
-   `command.validate()` (044, structural) then `BlockEditValidator.validate()` (045,
-   gameplay) first — this layer trusts both already passed, same "layer already checked
-   it" assumption 045 itself makes about 044. None of 039–045 added a `.tscn`, and no
-   player/camera exists yet to raycast from or to parent the 042 `VoxelViewer` under —
-   deciding where these nodes actually live in a scene is still open (039's nextsteps
-   entry, carried forward again by 042/043/044/045).
+1. `047` edit undo/delta representation: a small type capturing what one applied edit
+   changed (previous raw voxel value alongside `EditBlockCommand`'s own `position`/
+   `kind`/`block_id`) so a later system can invert it. `BlockEditApplicator.apply()` (046)
+   does not return the previous value itself — a caller building a delta reads
+   `tool.get_voxel(command.position)` before calling `apply()`, using the same
+   `terrain.get_voxel_tool()` handle, rather than `apply()` growing an extra
+   responsibility beyond "write this command's effect". None of 039–046 added a `.tscn`,
+   and no player/camera exists yet to raycast from or to parent the 042 `VoxelViewer`
+   under — deciding where these nodes actually live in a scene is still open (039's
+   nextsteps entry, carried forward again by 042/043/044/045/046).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

@@ -459,3 +459,45 @@ test_voxel_terrain_builder.gd`'s existing `test_builds_a_configured_voxel_terrai
 one assertion (`terrain.bounds == WorldBounds.aabb()`), same shape as every prior
 039-042/048 property addition to that same test. Full suite: `files=29 tests=297
 assertions=10306 failed=0`.
+
+## 16. Chunk metrics/profiling hooks (brick 051)
+
+`world/terrain/voxel_terrain_metrics.gd` (`VoxelTerrainMetrics`) gives bricks 052-055
+(mesh block size 16/32 benchmarks, choosing a size, documenting the performance budget) a
+single shared place to read Voxel Tools' own debug counters, instead of each benchmark
+brick inventing its own dictionary-key string literals — the same "one shared utility"
+rule `CLAUDE.md` §1 gives `core/math/world_scale.gd`. No new measurement: both dictionaries
+are the engine's own counters, read as-is via `terrain_snapshot(terrain: VoxelTerrain) ->
+Dictionary` (wraps `VoxelTerrain.get_statistics()`), `engine_snapshot() -> Dictionary`
+(wraps the `VoxelEngine` singleton's `get_stats()`), and `log_terrain_snapshot(terrain,
+channel = Log.CH_VOXEL)` (one structured `Log.debug` line per sample — the actual "hook" a
+benchmark or manual profiling session calls, instead of formatting the dictionary itself).
+`terrain_snapshot()` returns `{}` and logs (not crashes) for a null `terrain`, the same
+defensive-return shape every other `world/terrain/*.gd` static helper already uses.
+
+**Doc/code discrepancy found and resolved this brick.** `doc/classes/VoxelTerrain.xml`
+(`godot_voxel` reference repo, tag `v1.7`) documents `get_statistics()` as returning 9 keys,
+including `time_process_update_responses` and `remaining_main_thread_blocks`. Reading the
+actual C++ source instead — `terrain/fixed_lod/voxel_terrain.cpp`'s
+`VoxelTerrain::_b_get_statistics()` — shows its body only ever sets 7 keys; those two are
+documented but never written. Confirmed empirically too: this brick's own headless test
+(`tests/unit/test_voxel_terrain_metrics.gd`) never observes them on a real, meshed
+`VoxelTerrain`, and asserts the dictionary's size is exactly 7 to catch a future engine
+change either way. `VoxelTerrainMetrics.KEY_*` constants list only the 7 real keys.
+`VoxelEngine.get_stats()` has no such discrepancy — `engine/voxel_engine_gd.cpp`'s
+`to_dict()` binding matches `doc/classes/VoxelEngine.xml` exactly (`thread_pools`, `tasks`,
+`memory_pools`, confirmed against source too, not just the doc, given the terrain-side
+mismatch just found). `VoxelEngine` itself is called directly by class name with no
+`.new()`/`Engine.get_singleton()` lookup, per its own `brief_description`: "Singleton
+holding common settings and handling voxel processing tasks in background threads" — the
+same access pattern as `OS`/`Input`.
+
+Not reverse-engineered: `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031-055.
+
+Tests: `tests/unit/test_voxel_terrain_metrics.gd` (new, 5 tests) — `terrain_snapshot(null)`
+returns `{}`; a real, meshed terrain's snapshot has exactly the 7 real keys (not the 9
+documented ones); `engine_snapshot()` has the 3 documented top-level keys;
+`log_terrain_snapshot(null, ...)` emits no statistics line; `log_terrain_snapshot()` on a
+real terrain emits exactly one `Log.debug` line carrying the statistics as its context
+dict. Full suite: `files=30 tests=302 assertions=10328 failed=0`.

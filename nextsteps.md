@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–050)
+- Phase `C — Voxel infrastructure` — in progress (031–051)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `051 — Create voxel chunk metrics/profiling hooks`
+- Next task `052 — Benchmark mesh block size 16`
 
 ## Completed bricks
 
-`001`–`050`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`051`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -32,7 +32,33 @@ baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest basel
 block raycast interaction service, 044 block edit command model, 045 block edit
 validation layer, 046 block edit application layer, 047 edit undo/delta representation,
 048 initial voxel save stream wiring, 049 voxel load/save integration test, 050 voxel
-world bounds/authority policy).
+world bounds/authority policy, 051 voxel chunk metrics/profiling hooks).
+
+`051` added `world/terrain/voxel_terrain_metrics.gd` (`VoxelTerrainMetrics`) — named,
+typed access to Voxel Tools' own debug-statistics dictionaries, so bricks 052-055 (mesh
+block size 16/32 benchmarks, choosing a size, documenting the performance budget) read
+them through shared constants, not scattered string literals (`CLAUDE.md` §1's "one
+shared utility" rule). Three static entry points: `terrain_snapshot(terrain) ->
+Dictionary` (wraps `VoxelTerrain.get_statistics()`, `{}` + logged reason for a null
+terrain), `engine_snapshot() -> Dictionary` (wraps the `VoxelEngine` singleton's
+`get_stats()`), `log_terrain_snapshot(terrain, channel = Log.CH_VOXEL)` (one structured
+`Log.debug` line per sample — the actual profiling hook a benchmark calls).
+
+Found and resolved a doc/code discrepancy along the way: `doc/classes/VoxelTerrain.xml`
+(`godot_voxel` reference repo, tag `v1.7`) documents 9 keys for `get_statistics()`, but
+the actual C++ source (`terrain/fixed_lod/voxel_terrain.cpp`'s `_b_get_statistics()`)
+only ever sets 7 — `time_process_update_responses` and `remaining_main_thread_blocks` are
+documented but never written. Confirmed both by reading the source and empirically (a
+real, meshed terrain's snapshot in this build never has either key). `KEY_*` constants
+list only the 7 real keys; the test asserts the dictionary size is exactly 7 to catch a
+future engine change. `VoxelEngine.get_stats()` has no such mismatch (checked against its
+own binding source too). Full reasoning in `docs/voxel-tools.md` §16 (new section).
+
+Not reverse-engineered: `docs/reference/traceability.md` §4 already confirmed no
+reference matrix cites 031-055.
+
+Tests: `tests/unit/test_voxel_terrain_metrics.gd` (new, 5 tests). Full suite:
+`files=30 tests=302 assertions=10328 failed=0`.
 
 `050` added `world/terrain/world_bounds.gd` (`WorldBounds`, static `aabb() -> AABB` and
 `contains(voxel_position: Vector3i) -> bool`) — the first real value for `VoxelTerrain.
@@ -1009,6 +1035,15 @@ opening the reference tree.
   `+-2048` vertical). `bounds` itself only clips generator output, not edits — confirmed
   against the same doc page; 045's own check remains the actual edit-authority
   enforcement (`docs/voxel-tools.md` §15).
+- **`doc/classes/VoxelTerrain.xml`'s `get_statistics()` entry over-documents its return
+  value** — it lists 9 keys, but the actual C++ source
+  (`terrain/fixed_lod/voxel_terrain.cpp`'s `_b_get_statistics()`, `godot_voxel` reference
+  repo, tag `v1.7`) only ever sets 7; `time_process_update_responses` and
+  `remaining_main_thread_blocks` are documented but never written, confirmed both by
+  reading the source and empirically (brick 051, `docs/voxel-tools.md` §16). When a doc
+  page and the actual behavior disagree, prefer reading the source directly over trusting
+  the XML doc — this project's `VoxelTerrainMetrics.KEY_*` constants
+  (`world/terrain/voxel_terrain_metrics.gd`) already reflect only the real 7.
 
 ## Known risks
 

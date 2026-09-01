@@ -66,7 +66,7 @@
 | 034 | C | Create block collision property schema | 033 | Not needed by default | NO | DONE |
 | 035 | C | Create block interaction/destruction property schema | 034 | Not needed by default | NO | DONE |
 | 036 | C | Create block footstep/surface tags | 035 | Not needed by default | NO | DONE |
-| 037 | C | Create VoxelBlockyLibrary bootstrap | 031 | Not needed by default | NO | TODO |
+| 037 | C | Create VoxelBlockyLibrary bootstrap | 031 | Not needed by default | NO | DONE |
 | 038 | C | Create first grass/dirt/stone block set | 037 | Not needed by default | NO | TODO |
 | 039 | C | Configure VoxelTerrain baseline | 009, 038 | Not needed by default | NO | TODO |
 | 040 | C | Configure VoxelMesherBlocky baseline | 039 | Not needed by default | NO | TODO |

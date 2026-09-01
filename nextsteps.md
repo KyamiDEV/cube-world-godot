@@ -16,17 +16,67 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–036)
+- Phase `C — Voxel infrastructure` — in progress (031–037)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `037 — Create VoxelBlockyLibrary bootstrap`
+- Next task `038 — Create first grass/dirt/stone block set`
 
 ## Completed bricks
 
-`001`–`036`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`037`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
-property schema, 036 footstep/surface tag).
+property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap).
+
+`037` added `world/terrain/blocky_library_builder.gd` (`BlockyLibraryBuilder`, static
+`build(registry: BlockRegistry) -> VoxelBlockyLibrary`) — the first brick that actually
+constructs Voxel Tools engine resources from `BlockDefinition` data, closing the
+"deferred to 037" note left on `texture_top`/`texture_side`/`texture_bottom` (033) and
+`is_solid`'s collision-layer mapping (034). Two decisions this brick had to make, both
+now recorded:
+
+1. **`VoxelBlockyLibrary` + `VoxelBlockyModelCube`, not `VoxelBlockyType`/
+   `VoxelBlockyTypeLibrary`** — recorded in `docs/voxel-tools.md` §5, which had flagged
+   this as a required deliberate choice since brick 003. `BlockDefinition` has no
+   attribute/state axis (no rotation, no connected-state), so the plain library is the
+   correct minimal fit; revisit only if a future block kind needs per-voxel state.
+2. **Voxel value 0 = air, offset by one from `BlockRegistry.network_index()`.**
+   `network_index()` is a general registry concept (032, used for packets/saves too) and
+   was not redefined to reserve 0 for air. Instead `build()` inserts an explicit
+   `VoxelBlockyModelEmpty` at library index 0, then appends one model per
+   `registry.ids()` entry (sorted == locked network-index order) — `add_model()` assigns
+   indices by call order, so the result is always `library index == network_index(id) +
+   1`. Any future code writing raw voxel values (block edit application, 044–046) must
+   apply that `+1`. Documented in the file's own header comment, not just here.
+
+Texture resolution (deferred by 033) turned out to need a real sub-decision:
+`VoxelBlockyModelCube.set_tile(side, position)` addresses one shared atlas per model —
+confirmed by fetching `doc/source/blocky_terrain.md` from the `godot_voxel` reference
+repo (CLAUDE.md §15 source) — so three independent per-face image paths cannot be
+wired in directly. `_build_atlas()` packs each block's own top/side/bottom images into
+one small 3-tile-wide runtime atlas (`Image.blit_rect`, no dedup for a block whose
+faces repeat one path — not worth the complexity yet, `CLAUDE.md` §8) and assigns it as
+a `StandardMaterial3D` on the model (nearest-filter, for the blocky look). A missing or
+unreadable face texture, or three face textures that don't share one size, degrades
+that one block to a placeholder `VoxelBlockyModelEmpty` and logs why — `build()` keeps
+going rather than failing the whole library, same "one entry missing, not a crash"
+pattern `BlockRegistry.register_block()` already uses. `collision_aabbs` also needed an
+explicit decision: Voxel Tools does not default a cube model to a full collision box —
+an empty list means no collision — so `is_solid` now maps to one explicit unit-cube
+`AABB`, confirmed against the same reference doc page.
+
+No real texture assets exist yet (038 creates the first grass/dirt/stone set), so
+`tests/unit/test_blocky_library_builder.gd` (8 tests) generates its own tiny PNGs under
+`user://` at test time (`Image.create` + `fill` + `save_png`, cleaned up in
+`after_each`) rather than depending on `res://assets/textures/blocks/*`. Covers:
+unlocked-registry rejection, air-only library for an empty registry, index-plus-one
+alignment against two registered blocks, solid/opaque vs non-solid/transparent
+collision+culling, atlas packing (pixel-exact via 8-bit `Color8` values, since a PNG
+round trip quantizes float color), missing-texture degrade, and mismatched-face-size
+degrade. `docs/voxel-tools.md` §5 updated with the decision (see above); no ADR — the
+README's own "routine implementation choice inside a single file" exclusion applies
+once the library-vs-type choice itself is recorded, and this file's own header comment
+carries the +1 offset and atlas reasoning for the next reader.
 
 `036` extended `world/terrain/block_definition.gd` with the last block-property field
 this phase deferred: `footstep_tag: String = ""` — a plain lowercase surface-material
@@ -339,7 +389,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 227 tests, 10 052 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 18 files, 235 tests, 10 084 assertions, 0 failed.
 
 ## What exists now
 
@@ -352,6 +402,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 227 tests, 10 05
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
 | Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `is_solid`, `destructible`, `hardness`, `drop_item_id`, `footstep_tag`, `validate()` |
 | Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
+| Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -359,11 +410,14 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 227 tests, 10 05
 
 ## Next 10 actions
 
-1. `037`–`038` `VoxelBlockyLibrary` bootstrap, first grass/dirt/stone block set — Phase
-   C's block-property schema (031–036) is now complete. Original Godot/Voxel-Tools
+1. `038` first grass/dirt/stone block set — real texture assets (CLAUDE.md §10 batch
+   `bpy` pipeline, or hand-authored placeholders) plus `BlockDefinition` data feeding
+   `BlockRegistry`/`BlockyLibraryBuilder` (037, now DONE). Original Godot/Voxel-Tools
    engineering; `docs/reference/traceability.md` §4 confirms no matrix cites this range —
    no reference read needed before starting.
-2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
+2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline. Remember
+   `blocky_library_builder.gd`'s `+1` voxel-value offset (library index = network_index
+   + 1, air = 0) wherever raw voxel values are read or written.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
 4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
 5. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
@@ -412,6 +466,14 @@ opening the reference tree.
   context (structures/villages, bricks 089–093).
 - `VoxelTerrainMultiplayerSynchronizer` exists but replicates terrain blocks only; it is
   not a gameplay authority mechanism (evaluate at brick 050 / Phase K).
+- **Voxel value = `BlockRegistry.network_index(id) + 1`; voxel `0` is air.**
+  `blocky_library_builder.gd` (037) inserts air at library index 0 and appends blocks in
+  `registry.ids()` order — `network_index()` itself is unchanged (still 0-based, used by
+  packets/saves too). Terrain/edit code (039+, 044–046) must apply the `+1`.
+- **`Image.load(path)` reads a raw PNG/etc straight off disk**, bypassing Godot's
+  `res://` import pipeline entirely (no `.import` file needed) — this is how
+  `blocky_library_builder.gd` and its test both load/generate images at runtime. Different
+  from `load(path)` / `ResourceLoader`, which require an imported `Texture2D`.
 
 ## Known risks
 

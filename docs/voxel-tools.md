@@ -85,7 +85,13 @@ Grouped for planning; the probe asserts only the required subset above.
 - **Modifiers are SDF-only**, so they are irrelevant to a `VoxelMesherBlocky` world.
   Blocky edits go through `VoxelToolTerrain`.
 - `VoxelBlockyType` / `VoxelBlockyTypeLibrary` offer an attribute/state-based model layer above
-  raw `VoxelBlockyLibrary`. Bricks 031–038 must pick one deliberately and record the choice.
+  raw `VoxelBlockyLibrary`. **Decided (brick 037):** plain `VoxelBlockyLibrary` +
+  `VoxelBlockyModelCube`, built by `world/terrain/blocky_library_builder.gd`. `BlockDefinition`
+  (031–036) has no attribute/state axis — no rotation, no connected-state, no on/off — so nothing
+  needs the `Type` system's variant machinery yet, and CLAUDE.md §1 itself only names "blocky
+  voxel library/models" generically. Revisit if a later block kind genuinely needs per-voxel
+  state (e.g. rotation-aware stairs, connected fences) — that would need a new ADR, since it
+  changes how `BlockDefinition` maps to a library model.
 
 ## 5. Not verified here
 

@@ -12,6 +12,11 @@ save-directory layout it plugs into is still open, deferred to bricks 102–103.
 `tests/integration/test_voxel_load_save.gd` (brick 049, `docs/voxel-tools.md` §14)
 confirms end-to-end that an edit survives a real save/reload round trip through that
 stream, while an untouched voxel still comes from the generator, not a stale save.
+The header's `seed` and `generation_version` fields have an owning type as of brick 056:
+`world/generation/world_seed.gd` (`WorldSeed`, `docs/world-generation.md` §1) builds a
+header through `make_header()` and reads one back, adding the optional `seed_text` key
+and applying §3's rule that a loaded world keeps **its own** generation version rather
+than the running build's.
 
 ## 1. Four versions, not one
 

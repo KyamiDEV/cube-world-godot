@@ -19,11 +19,12 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Next task `056 — Create world seed configuration` (Phase D — World generation, first brick)
+- Phase `D — World generation` — **IN PROGRESS** (056 done, 057–090 open)
+- Next task `057 — Create generation versioning` (deps: 056 — DONE)
 
 ## Completed bricks
 
-`001`–`055`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`056`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -36,6 +37,76 @@ validation layer, 046 block edit application layer, 047 edit undo/delta represen
 world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh block
 size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decision, 055
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
+Phase D open: 056 world seed configuration.
+
+`056` is the first Phase D brick, and the first one this project started with an open
+reference question actually gating it (`traceability.md` §1's rule). Two pieces, in
+order:
+
+**(a) Resolved `matrix-world.md` Q2** — "the client re-runs world generation
+(`WorldInfo`); was that singleplayer convenience, or a trust model?" — via a new
+reference note, **`docs/reference/world-generation-authority.md`** (the file the Q2 row
+itself promised, "to be created before brick 056"). Targeted read only: the sites in
+`server/world/World.cpp`, `cube/world/WorldInfo.cpp` and `cube/control/GameController.cpp`
+that read the world-seed slot, plus the two `GAP_ANALYSIS.md` rows for the send loop and
+receive dispatch. **Answer: neither reading in the question.** Both binaries hold one
+integer world seed in the same world-struct slot and mix it with region coordinates
+using the *same* constants — the client's copy of the region-site/feature generators is
+the server's — so terrain is never transmitted, it is **recomputed on both sides**; the
+attributed server→client traffic is entity/zone state only. Client-side generation was a
+**bandwidth design**, and the original simply never asked whether the client's copy could
+be wrong.
+
+The rule adopted in response, which keeps `CLAUDE.md` §1 intact without pretending the
+client is inert: **the client may generate, the client never decides.** Every
+gameplay-visible conclusion drawn from generated terrain (movement collision, edit
+validity, spawn placement, structure contents) is resolved server-side against the
+server's own generation. The consequence that lands *in this brick*: `(seed, generation
+version)` agreement stops being an internal detail and becomes a checked precondition,
+because a client generating from a different seed produces a world that looks right and
+is wrong. Enforcement at handshake time is 235–236; 056 provides the check.
+
+**(b) Implemented the seed configuration** — `world/generation/world_seed.gd`
+(`WorldSeed`, the first file under `world/generation/`). Carries `value` (the integer
+`WorldHash` hashes), `text` (what a player typed, trimmed, `""` if nothing was) and
+`generation_version` (pinned from `SaveVersion.GENERATION_VERSION` at creation). Four
+constructors — `from_text()`, `from_value()`, `arbitrary()`, `from_header()` — plus
+`validate()`, `display_text()`, `mismatch_reason()`/`matches()`, `rng_for(key)`,
+`to_header(extra)`, `to_context()`.
+
+Four decisions worth keeping: (1) generation call sites take a `WorldSeed`, never an
+`int`, because `docs/rng.md` §6's "a seed alone does not identify a world" is
+unenforceable if the pair can be split; (2) `text` is provenance, **not** identity — two
+players who reached the same seed by different routes are in the same world, so
+`mismatch_reason()` compares only `value` + `generation_version`; (3) `validate()`
+enforces a **round-trip rule** — whenever `text` is set, re-hashing it must give `value`,
+because a drifted pair means the seed a player is shown and quotes in a bug report would
+create a *different* world than the one they are looking at; (4) `to_header()` writes the
+*world's* generation version over the build's constant (`SaveVersion.make_header()` still
+owns the container/data versions), and `from_header()` reads it back — that is
+`docs/persistence.md` §3's "a world keeps generating with the version it was created
+with", made mechanical rather than remembered.
+
+`arbitrary()` is the one deliberately unreproducible call in the generation stack, and
+harmlessly so: it picks *which* world to create, once, and is never consulted again. It
+still avoids engine-global randomness (`docs/rng.md` §1 forbids it under `world/`, and
+`test_rng_discipline.gd` enforces that) — wall clock, uptime counter and process id
+through `DeterministicRng.hash_string()`. `from_text("")` is seed **0**, a real world;
+translating a blank UI field into "pick one for me" is the UI's job, not this type's.
+
+Explicitly *not* in scope: the generation-version **lifecycle** (what a bump means, which
+versions a build still implements) is 057 — this brick only records which version
+applies; save-directory layout is 102–103; actual generation starts at 060.
+
+Docs: new `docs/world-generation.md` (§1, the seed contract, laid out to grow one section
+per Phase D brick) and new `docs/reference/world-generation-authority.md`;
+`matrix-world.md` Q2 + `traceability.md` §2/§3 rows carry `(RESOLVED — brick 056)` per
+the brick-029 lifecycle (rows kept, not deleted); `docs/rng.md` §6 and
+`docs/persistence.md`'s header gained pointer sentences; `docs/README.md` gained both new
+files.
+
+Tests: `tests/unit/test_world_seed.gd` (new, 20 tests). Full suite: `files=31 tests=324
+assertions=10393 failed=0`. `check.ps1` OK (65 scripts).
 
 `055` is the last Phase C brick — docs only, no production code changed. It lifts the
 §17/§18 benchmark numbers and ADR 0002's estimated per-edit re-mesh cost out of
@@ -1047,7 +1118,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 055): `check.ps1` **OK** (63 scripts compiled) · `test.ps1` **OK** — 30 files, 304 tests, 10 337 assertions, 0 failed.
+Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **OK** — 31 files, 324 tests, 10 393 assertions, 0 failed.
 
 ## What exists now
 
@@ -1074,27 +1145,32 @@ Last run (brick 055): `check.ps1` **OK** (63 scripts compiled) · `test.ps1` **O
 | Terrain | `world/terrain/block_edit_applicator.gd` | `BlockEditApplicator.apply(command, terrain, registry)`: writes an already-validated command's effect via `VoxelTool.set_voxel()` — `network_index(block_id) + 1` for `PLACE`, `0` for `REMOVE` (046, `docs/voxel-tools.md` §12) |
 | Tests | `tests/integration/test_voxel_load_save.gd` | End-to-end proof: an edit survives a real save/reload round trip through `VoxelStreamSQLite`; an untouched voxel still comes from the placeholder generator (049, `docs/voxel-tools.md` §14) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
+| Generation | `world/generation/world_seed.gd` | `WorldSeed`: world identity as `(value, text, generation_version)` — `from_text()`/`from_value()`/`arbitrary()`/`from_header()`, `validate()` (text must re-hash to value), `display_text()`, `mismatch_reason()`/`matches()` (the client/server parity check), `rng_for(key)`, `to_header(extra)` (writes the world's own generation version over the build's constant) (056, `docs/world-generation.md` §1) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
-| Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `adr/0001`, `adr/0002` | the contracts those files implement |
+| Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `world-generation.md`, `adr/0001`, `adr/0002` | the contracts those files implement |
+| Reference | `docs/reference/world-generation-authority.md` | who may generate world content: the reference's client-side generation was a bandwidth design, not a trust model — "the client may generate, the client never decides"; resolves `matrix-world.md` Q2 (056) |
 | Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), the rest placeholder rows for Phase L bricks 257-263 |
 
 ## Next 10 actions
 
-1. `056` create world seed configuration (next task) — first Phase D brick, deps 015
-   (`core/random/deterministic_rng.gd`) + 017 (`core/serialization/save_version.gd`).
-   Before starting, resolve `matrix-world.md` Q2 (see action 3 below) and confirm Phase D
-   generation fits inside `WorldBounds` (050, `world/terrain/world_bounds.gd`). Still open
-   and carried forward from Phase C: no `.tscn` exists, and no player/camera to raycast
-   from or to parent the 042 `VoxelViewer` under — where these nodes live in a scene is a
-   Phase F question (039's nextsteps entry, carried by 042–055). Re-run the
-   `docs/performance-budget.md` §3 benchmark against the real generator once Phase D lands
-   (its §5 says so; feeds bricks 257–258).
+1. `057` create generation versioning (next task) — dep 056 (DONE). Scope it against what
+   056 deliberately left out: `WorldSeed.generation_version` already *records* a version
+   and `SaveVersion` already holds `GENERATION_VERSION`/`MIN_SUPPORTED_GENERATION_VERSION`
+   plus `classify()`'s `GENERATOR_UNAVAILABLE` verdict, so 057 owns the **lifecycle** —
+   what a bump means, which versions a build declares it can still reproduce, and how a
+   world on a retired version is refused (`docs/persistence.md` §3). Write it into
+   `docs/world-generation.md` §2. Still open and carried forward from Phase C: no `.tscn`
+   exists, and no player/camera to raycast from or to parent the 042 `VoxelViewer` under —
+   a Phase F question (039's nextsteps entry, carried by 042–056). Phase D generation must
+   fit inside `WorldBounds` (050, `world/terrain/world_bounds.gd`), and the
+   `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
+   Phase D lands (its §5 says so; feeds bricks 257–258).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
    Not blocking for editor/headless dev and testing; see Known risks below.
-3. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved. Phase D generation must also fit inside `WorldBounds` (050, `world/terrain/world_bounds.gd`).
+3. Before `096`–`101` (streaming) and `235`/`236`/`248` (session + edit replication): apply `docs/reference/world-generation-authority.md`'s rule — client streaming may drive **local** generation for presentation, but the server keeps its own logical interest and its own generation, and the handshake must refuse a session on `WorldSeed.mismatch_reason()`. (`matrix-world.md` Q2 itself is now **resolved** by brick 056 — client-side generation was a bandwidth design, not a trust model; `matrix-ai.md`'s near-identical AI-tick bodies in both binaries are consistent with the same symmetric-build pattern.)
 4. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
 5. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). (`matrix-items.md` Q1 / `matrix-ui.md` Q2 — `GameController` scoping — is now **resolved**, see brick 028 above: no new matrix or brick.)
 6. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).

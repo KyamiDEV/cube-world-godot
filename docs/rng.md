@@ -101,6 +101,9 @@ world explicitly retired.
   anything else goes through the project's stable string hash.
 - The seed, the generation version and the world format version are all persisted with
   the world (bricks 056–057, 103). A seed alone does not identify a world; the pair
-  `(seed, generation version)` does.
+  `(seed, generation version)` does — which is why generation call sites take a
+  `WorldSeed` (`world/generation/world_seed.gd`, brick 056, `docs/world-generation.md`
+  §1) rather than an integer, and why that pair is also compared across a session
+  (`docs/reference/world-generation-authority.md`).
 - Server-side gameplay streams are seeded from the world seed and a stable key, so a
   reloaded world resumes the same rolls rather than restarting from an arbitrary state.

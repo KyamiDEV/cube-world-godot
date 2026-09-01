@@ -57,7 +57,7 @@
 | 025 | B | Map CubeWorld inventory/item/equipment concepts | 024 | Not needed by default | NO | DONE |
 | 026 | B | Map CubeWorld quest/NPC concepts | 025 | Not needed by default | NO | DONE |
 | 027 | B | Map CubeWorld UI concepts | 026 | Not needed by default | NO | DONE |
-| 028 | B | Map CubeWorld client/server split | 027 | Not needed by default | NO | TODO |
+| 028 | B | Map CubeWorld client/server split | 027 | Not needed by default | NO | DONE |
 | 029 | B | Create confidence/uncertainty recording convention | 028 | Not needed by default | NO | TODO |
 | 030 | B | Create traceability index from reference notes to backlog | 029 | Not needed by default | NO | TODO |
 | 031 | C | Create voxel block definition schema | 016 | CLI/files only | NO | TODO |

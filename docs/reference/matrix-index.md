@@ -17,7 +17,7 @@ how much of it is guesswork. Bricks 021–028 fill them in, one group at a time.
 | 025 | `matrix-items.md` | inventory, items, equipment | `cube/ui/`, `*/entity/`, `*/db/` | DONE |
 | 026 | `matrix-quests.md` | quests, NPCs, QuestText | `*/entity/`, `*/game_misc/` | DONE |
 | 027 | `matrix-ui.md` | Widget classes | `cube/ui/` | DONE |
-| 028 | `matrix-client-server.md` | what each binary owns, and the protocol boundary | `server/net/`, both trees | TODO |
+| 028 | `matrix-client-server.md` | what each binary owns, and the protocol boundary | `server/net/`, both trees | DONE |
 
 ## Ground rules
 

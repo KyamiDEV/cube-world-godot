@@ -17,11 +17,11 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `024 — Map CubeWorld combat-related classes`
+- Next task `025 — Map CubeWorld inventory/item/equipment concepts`
 
 ## Completed bricks
 
-`001`–`023`. Phase A complete; Phase B contracts complete (011–020); reference tree
+`001`–`024`. Phase A complete; Phase B contracts complete (011–020); reference tree
 reading started at `021`.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
@@ -67,6 +67,26 @@ possibly the day/night clock (brick 216); Q3 `RandomInteractionBehavior`'s tick 
 (773 lines) was not read in full, only GAP-summarized — revisit before brick 189/199 if
 the one-line role proves insufficient.
 
+`024` mapped combat resolution/damage/hit-detection into `docs/reference/matrix-combat.md`.
+No reference class is named `Combat`/`Damage`/`Hit` — everything is 14 "concepts with no
+single class" rows (ability timing table, attack-speed/haste, base-damage formula,
+max-health formula, armor mitigation, resist diminishing-returns, ability power/mana
+cost, resource regen, equipment stat-bonus plumbing, threat/target selection, hostility
+gate, aggro-alert propagation, attack-opcode/animation classification, buff/status-effect
+list), gathered from server `game_misc`/`CombatBehavior` GAP rows, `cube_types.h`'s
+VERIFIED `cube_Creature_offsets`/`cube_BuffNode_offsets` enums, and client `Interface`
+(`stat::calc*`) rows read only for corroboration. Three open questions recorded (matrix
+§4): Q1 server `World.cpp`'s `readCombatActionFromStream`/`readHitFromStream` deserialize
+fixed-size records from a SQLite-loaded blob (adjacent to `SpeechDb_loadBlobToVector`),
+not obviously a live network read despite the name — unresolved whether this is
+quest-script trigger data or prefigures the combat-event wire format (blocks 136, 137,
+249); Q2 the damage/armor/mana formulas share an unexplained `2^a*2^b[/2^c]` shape across
+independent functions in both binaries — shape is corroborated, meaning of the exponents
+is not, and per the clean-room policy we may not need to recover it (blocks 141–144); Q3
+the two attack-*selection* decision trees (`Combat_selectNextAttackAnim`,
+`Combat_selectSpiritAttackId`) were read only via their one-line GAP summary, not their
+bodies (blocks 138, 139, 192).
+
 ## Commands
 
 ```powershell
@@ -94,8 +114,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `024` map combat resolution (`CombatBehavior`/`Combat_*`/stat formulas deferred from `matrix-world.md`, `matrix-entity.md`, and now `matrix-ai.md`) → `docs/reference/matrix-combat.md`.
-2. `025` items · `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+1. `025` map inventory/item/equipment concepts → `docs/reference/matrix-items.md`.
+2. `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
 3. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
 4. `030` traceability index from notes to bricks.
 5. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
@@ -104,7 +124,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 8. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
 9. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
 10. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
-11. Update this file after every brick.
+11. Before `136`/`137`/`249`: resolve Q1 from `matrix-combat.md` (is `readCombatActionFromStream`/`readHitFromStream` quest-script trigger data or a combat-event wire-format precursor?). Before `141`–`144`: Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread).
+12. Update this file after every brick.
 
 ## Working set
 

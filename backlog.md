@@ -53,7 +53,7 @@
 | 021 | B | Map CubeWorld world-related classes into conceptual subsystems | 020 | CLI/files only | NO | DONE |
 | 022 | B | Map CubeWorld entity/creature-related classes | 021 | Not needed by default | NO | DONE |
 | 023 | B | Map CubeWorld AI-related classes | 022 | Not needed by default | NO | DONE |
-| 024 | B | Map CubeWorld combat-related classes | 023 | Not needed by default | NO | TODO |
+| 024 | B | Map CubeWorld combat-related classes | 023 | Not needed by default | NO | DONE |
 | 025 | B | Map CubeWorld inventory/item/equipment concepts | 024 | Not needed by default | NO | TODO |
 | 026 | B | Map CubeWorld quest/NPC concepts | 025 | Not needed by default | NO | TODO |
 | 027 | B | Map CubeWorld UI concepts | 026 | Not needed by default | NO | TODO |

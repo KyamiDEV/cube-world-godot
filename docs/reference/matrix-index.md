@@ -13,7 +13,7 @@ how much of it is guesswork. Bricks 021–028 fill them in, one group at a time.
 | 021 | `matrix-world.md` | World, Zone, Region, Dungeon, House, Spawn, Field, Chunk, LandscapeTile, WorldMap | `*/world/` | DONE |
 | 022 | `matrix-entity.md` | Creature, Sprite, SpriteManager, Speech | `*/entity/` | DONE |
 | 023 | `matrix-ai.md` | the `cube::Behavior` tree | `*/ai/` | DONE |
-| 024 | `matrix-combat.md` | combat resolution, damage, hit detection | `*/entity/`, `*/game_misc/` | TODO |
+| 024 | `matrix-combat.md` | combat resolution, damage, hit detection | `*/entity/`, `*/game_misc/` | DONE |
 | 025 | `matrix-items.md` | inventory, items, equipment | `cube/ui/`, `*/entity/`, `*/db/` | TODO |
 | 026 | `matrix-quests.md` | quests, NPCs, QuestText | `*/entity/`, `*/game_misc/` | TODO |
 | 027 | `matrix-ui.md` | Widget classes | `cube/ui/` | TODO |

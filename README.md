@@ -7,14 +7,16 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: voxel infrastructure.** Bricks 001–041 of 266 are done — verified toolchain,
+> **Status: voxel infrastructure.** Bricks 001–052 of 266 are done — verified toolchain,
 > project skeleton, test harness, the core contracts (scale, time, RNG, IDs, saves,
-> protocol, authority), the reverse-engineering reference mapping (Phase B), and the
-> first real voxel content: a block schema/registry, a generated grass/dirt/stone block
-> set, a `VoxelBlockyLibrary` builder, and a baseline `VoxelTerrain` node with a
-> `VoxelMesherBlocky` attached and its terrain-level material explicitly left unset (the
-> per-block atlas materials are sufficient). There is no playable world yet; the main
-> scene prints a boot report. Progress is tracked in [`backlog.md`](backlog.md) and
+> protocol, authority), the reverse-engineering reference mapping (Phase B), and a working
+> voxel edit pipeline: a block schema/registry, a generated grass/dirt/stone block set, a
+> `VoxelBlockyLibrary` builder, a baseline `VoxelTerrain` + `VoxelMesherBlocky` +
+> `VoxelViewer`, block raycast/place/remove with layered structural + gameplay validation,
+> an undo/delta representation, SQLite-backed save/load proven by an integration test,
+> world bounds/authority policy, chunk profiling hooks, and the first
+> `mesh_block_size` benchmark. There is no playable world yet; the main scene prints a
+> boot report. Progress is tracked in [`backlog.md`](backlog.md) and
 > [`nextsteps.md`](nextsteps.md).
 
 ## Technical baseline
@@ -55,7 +57,7 @@ tools\scripts\godot.ps1 -e   # open the editor
 `check.ps1` is the pre-commit gate. `test.ps1` takes `-File`, `-Filter`, `-Verbose_` and
 `-NoImport`.
 
-Current state: **20 test files, 244 tests, ~10 135 assertions, 0 failures.**
+Current state: **30 test files, 304 tests, ~10 336 assertions, 0 failures.**
 
 ## What is implemented
 
@@ -67,12 +69,15 @@ Current state: **20 test files, 244 tests, ~10 135 assertions, 0 failures.**
 | Randomness | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for order-independent generation |
 | Identity | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, content catalogues, aliases, network indices |
 | Saves | `core/serialization/save_version.gd` | four independent version numbers, load verdicts, migration steps |
-| Protocol | `network/protocol/` | message kinds, direction rules, handshake compatibility |
+| Protocol | `network/protocol/`, `network/packets/edit_block_command.gd` | message kinds, direction rules, handshake compatibility, PLACE/REMOVE edit intent |
 | Authority | `network/authority/command_gate.gd` | ownership, tick window, replay and rate-limit checks |
-| Blocks | `world/terrain/block_definition.gd`, `block_registry.gd` | block-kind schema (textures, collision, destructibility, footstep tag) and its validated, network-indexed catalogue |
-| Blocks | `world/terrain/blocky_library_builder.gd`, `data/blocks/*.tres` | builds a real `VoxelBlockyLibrary` from the registry; first committed content — `block.grass`/`block.dirt`/`block.stone` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | baseline `VoxelTerrain` node: collision on, a placeholder flat-ground generator, a `VoxelMesherBlocky`, terrain-level `material_override` explicitly `null`; viewer wiring follows in the next brick |
-| Tooling | `tools/` | engine verification, whole-tree compile check, test runner |
+| Blocks | `world/terrain/block_definition.gd`, `block_registry.gd` | block-kind schema (textures, collision, destructibility, hardness, drops, footstep tag) and its validated, network-indexed catalogue |
+| Blocks | `world/terrain/blocky_library_builder.gd`, `block_set.gd`, `data/blocks/*.tres` | builds a real `VoxelBlockyLibrary` from the registry; first committed content — `block.grass`/`block.dirt`/`block.stone` |
+| Terrain | `world/terrain/voxel_terrain_builder.gd`, `voxel_viewer_builder.gd` | baseline `VoxelTerrain` (collision, placeholder flat-ground generator, `VoxelMesherBlocky`, configurable `mesh_block_size`, world bounds) plus a `VoxelViewer` for streaming interest |
+| Editing | `world/terrain/block_raycast_service.gd`, `block_edit_validator.gd`, `block_edit_applicator.gd`, `block_edit_delta.gd` | raycast → structural + gameplay validation → apply → undoable delta, the full server-authoritative edit pipeline |
+| Persistence | `world/persistence/voxel_stream_builder.gd`, `world/terrain/world_bounds.gd` | `VoxelStreamSQLite` deltas-only save/load, proven end-to-end by an integration test; authoritative world extent |
+| Profiling | `world/terrain/voxel_terrain_metrics.gd`, `tools/benchmarks/` | typed access to Voxel Tools' own debug counters; a `mesh_block_size` (16 vs 32) benchmark harness |
+| Tooling | `tools/` | engine verification, whole-tree compile check, test runner, content generators, benchmarks |
 
 ## Design decisions worth knowing
 

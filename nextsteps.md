@@ -17,11 +17,11 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `027 — Map CubeWorld UI concepts`
+- Next task `028 — Map CubeWorld client/server split`
 
 ## Completed bricks
 
-`001`–`026`. Phase A complete; Phase B contracts complete (011–020); reference tree
+`001`–`027`. Phase A complete; Phase B contracts complete (011–020); reference tree
 reading started at `021`.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
@@ -126,6 +126,27 @@ already covers the `interactNpc` trade-UI branch found here, so no new question 
 needed for it. `matrix-items.md` Q1 (`GameController` scoping) gained corroborating
 evidence rather than a duplicate question.
 
+`027` mapped `cube/ui/` (24 files, 22 `cube::` classes) into `docs/reference/matrix-ui.md`.
+Every widget but one is stub-only (1–2 attributed functions — ctor plus a render/input
+vfunc); the exception, `AdaptionWidget` (28 attributed functions), is the shared layout/
+scroll/bounds/animation engine every other widget inherits from, same "one real class,
+rest are thin leaves" shape as `matrix-ai.md`'s behavior tree. Two files in the directory
+(`Button`, `ScrollSlider`) declare only `plasma::` methods — misfiled engine-layer
+widgets, moved to §3 out-of-scope, same pattern as the combat functions cross-referenced
+out of `matrix-world.md`. `cube::WorldPreviewWidget` (deferred from `matrix-world.md`,
+021) was placed here; `cube::InventoryWidget` (already placed in `matrix-items.md`, 025)
+was cross-referenced, not re-placed. Notable: `GameController` GAP rows for mouse
+routing, hover/focus, widget-tree file deserialization (`.CUB` format), and the
+character-select/world-select screen builders (`buildCharacterList`/`buildWorldList`)
+confirm — a third and fourth time, after `matrix-items.md` and `matrix-quests.md` — that
+the actual client UI framework lives on `GameController`, not on any `Widget` subclass;
+folded into `matrix-items.md` Q1 as corroborating evidence rather than a new question.
+Two open questions recorded (matrix §4): Q1 several reference UI screens (character
+creation, main menu/title screen, merchant/trade dialog) have no corresponding backlog
+brick yet; Q2 `GameController`'s widget-framework slice keeps growing across three
+matrices with no owning matrix or brick — same underlying question as
+`matrix-items.md` Q1, now with UI-framework evidence added.
+
 ## Commands
 
 ```powershell
@@ -153,7 +174,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+1. `028` client/server split (last of the mapping bricks, 021–028).
 2. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
 3. `030` traceability index from notes to bricks.
 4. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
@@ -161,11 +182,12 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 6. `052`–`055` mesh block size benchmarks; record the measured choice.
 7. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
 8. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
-9. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). Before `224`/`225`: Q1 (`GameController` — a 620-function client class — has no owning matrix; needs a scoping decision, possibly folded into 028).
+9. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). Before `224`–`231`: Q1 from `matrix-items.md` (`GameController` — a 620-function client class — has no owning matrix; needs a scoping decision, possibly folded into 028) — `matrix-quests.md` and `matrix-ui.md` (`matrix-ui.md` Q2) both add corroborating evidence rather than new questions.
 10. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
 11. Before `136`/`137`/`249`/`251`: resolve Q1 from `matrix-combat.md`, re-opened with new evidence by `matrix-quests.md` Q2 (is `readCombatActionFromStream`/`readHitFromStream`/`check_quest_id_match`'s `event type 0x19` one shared opcode-tagged event-record format, or separate combat/quest trigger tables?). Before `141`–`144`: Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread).
 12. Before `206`–`209`: resolve Q1 from `matrix-quests.md` (the unrecovered 11-counter quest-progress score behind `computeQuestScore` — likely resolvable by design decision alone, since a discrete objective-list model is judged an acceptable behavioral equivalent).
-13. Update this file after every brick.
+13. Before phase J/K UI bricks (224–231) start: resolve Q1 from `matrix-ui.md` (character creation, main menu/title screen, and merchant/trade dialog have no owning backlog brick yet — a scoping pass may need to insert new bricks).
+14. Update this file after every brick.
 
 ## Working set
 

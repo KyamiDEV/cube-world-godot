@@ -1,5 +1,5 @@
 extends TestCase
-## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042).
+## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042, 048).
 
 var _temp_paths: PackedStringArray = []
 
@@ -66,12 +66,23 @@ func test_builds_a_configured_voxel_terrain() -> void:
 	assert_true(terrain is VoxelTerrain)
 	assert_not_null(terrain.mesher, "040: a VoxelMesherBlocky, not left null anymore")
 	assert_true(terrain.mesher is VoxelMesherBlocky)
-	assert_null(terrain.stream, "no save format yet (048) — the generator covers the whole volume")
+	assert_null(terrain.stream, "048: stream defaults to null when the caller passes none")
 	assert_null(terrain.material_override,
 			"041: a terrain-wide override would replace every per-block atlas material")
 	assert_true(terrain.generate_collisions)
 	assert_eq(terrain.max_view_distance, VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE,
 			"042: never silently clamps a baseline VoxelViewer below what it requests")
+
+
+func test_builds_with_a_stream_when_one_is_passed() -> void:
+	var registry := _registry_with_stone()
+	var db_path := "user://test_voxel_terrain_builder_stream.sqlite"
+	_temp_paths.append(db_path)
+	var stream := VoxelStreamBuilder.build(db_path)
+
+	var terrain := track_node(VoxelTerrainBuilder.build(registry, stream))
+
+	assert_eq(terrain.stream, stream, "048: a passed-in stream is wired through unchanged")
 
 
 func test_mesher_library_matches_the_registry() -> void:

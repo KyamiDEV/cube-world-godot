@@ -108,7 +108,7 @@ across bricks 039–042:
 | Property | Owner | This brick's setting |
 |---|---|---|
 | `generator` | 039 | a placeholder (below) |
-| `stream` | 048 (persistence) | explicit `null` |
+| `stream` | 048 (persistence) | optional builder parameter, `null` default (§13) |
 | `generate_collisions` | 039 | `true` |
 | `mesher` | 040 | a `VoxelMesherBlocky` (below) |
 | `material_override` | 041 | explicit `null` (§8) |
@@ -123,10 +123,11 @@ VoxelBuffer.CHANNEL_TYPE`, `voxel_type = registry.network_index(id) + 1` — the
 offset `blocky_library_builder.gd` (037) uses for air at index 0). Phase D replaces
 `terrain.generator` outright; it is not expected to reuse or extend this file.
 
-**`stream` stays `null` on purpose.** `VoxelNode.stream`'s own doc: "Primary source of
-persistent voxel data. If left unassigned, the whole volume will use the generator."
-That is exactly what a build with no save format yet (048) needs — every block is
-regenerated from the placeholder, nothing is expected to persist between runs.
+**`stream` stayed `null` through 039-047, and still defaults to `null`.** `VoxelNode.
+stream`'s own doc: "Primary source of persistent voxel data. If left unassigned, the
+whole volume will use the generator." `build()` now takes `stream` as an optional
+parameter (048, §13) so a caller with a real database can wire one in without every
+existing test/call site changing.
 
 ## 7. `VoxelMesherBlocky` baseline (brick 040)
 
@@ -303,3 +304,59 @@ caller that skips 045 would otherwise get silent data corruption (writing air in
 the intended block) rather than a clear rejection. All three are programmer/data errors,
 never a normal gameplay outcome, so they are logged — no `CommandGate`-style
 rejection-counting was needed here either, same reasoning as 045.
+
+## 13. Initial voxel save stream wiring (brick 048)
+
+`world/persistence/voxel_stream_builder.gd` (`VoxelStreamBuilder.build(database_path:
+String) -> VoxelStreamSQLite`) is the first code that constructs a `VoxelStream`.
+`CLAUDE.md` §1 already named `VoxelStreamSQLite` as the target; `docs/voxel-tools.md`
+§4 confirmed it is present in this build. Scope is deliberately just the stream object,
+not *where* its database lives — `docs/persistence.md`'s own header note already
+reserves that storage-layout question for bricks 102-103 ("World streaming &
+persistence"). `voxel_terrain_builder.gd`'s `build()` (039) gained a matching optional
+`stream: VoxelStream = null` parameter so a caller can wire one in; every existing call
+site keeps building a save-less terrain unchanged.
+
+Three properties were set deliberately, each confirmed against
+`doc/classes/VoxelStreamSQLite.xml` / `VoxelStream.xml` fetched this brick from the
+`godot_voxel` reference repo (CLAUDE.md §15 source, tag `v1.7` — note: the GitHub tag is
+`v1.7`, not `v1.7.0`; `docs/environment.md`'s own version string is unaffected, this is
+only the git tag name):
+
+1. **`save_generator_output = false`** (matches the engine default, named explicitly
+   anyway — same "explicit is a real decision" reasoning 041/042 used). `VoxelStream`'s
+   own doc: when `true`, "if a block cannot be found in the stream and it gets
+   generated, then the generated block will immediately be saved into the stream" — the
+   opposite of what `docs/persistence.md` §5 requires ("World modifications: stored as
+   **deltas**... only what a player changed differs from the generator's output"). `true`
+   would duplicate gigabytes of terrain the generator can already reproduce from
+   `(seed, coords, generation version)`.
+2. **`set_key_cache_enabled(true)`**. `VoxelStreamSQLite`'s own doc: key caching "speed[s]
+   up loading queries in terrains that only save sparse edited blocks" — exactly the
+   shape `save_generator_output = false` produces. Its doc also requires this be called
+   before the stream is used to load, so `build()` calls it immediately after
+   construction, before the stream is ever handed to a terrain.
+3. **`preferred_coordinate_format = COORDINATE_FORMAT_STRING_CSD`** (value `2`, the
+   engine's own default, named explicitly). Of the four formats, this is the only one
+   with no fixed voxel-coordinate range — the three integer-packed formats cap the
+   coordinate range (16/19/25 bits per axis). World bounds are not decided yet (`bounds`
+   is brick 050's job, §6 above); choosing a fixed-width format now would risk silently
+   capping the world before that decision is made. Only affects a *new* database — the
+   property's own doc says the choice is ignored when opening an existing one, so this
+   can be revisited later without a migration if bounds turn out to fit a smaller format.
+
+`database_path` is taken as a plain caller-supplied `String`, not defaulted or derived
+from any save-directory convention — no such convention exists yet (`nextsteps.md`'s
+"Known risks"/"Next actions" carry no save-directory decision either). `build()` returns
+null (logged, `Log.CH_PERSIST` — the channel `autoload/log.gd` already reserves for
+persistence, distinct from `Log.CH_VOXEL`) only for an empty path; every other field is
+Voxel Tools' own responsibility (e.g. a non-existent parent directory) and is not
+re-validated here.
+
+Tests: `tests/unit/test_voxel_stream_builder.gd` (3 tests) — empty-path rejection, a
+built stream's three properties match the decisions above, and two independent `build()`
+calls produce independent stream objects (not a shared singleton). `tests/unit/
+test_voxel_terrain_builder.gd` gained one test — a stream passed to `build()` is wired
+onto `terrain.stream` unchanged — alongside its existing null-by-default assertion,
+whose comment was updated from "no save format yet" (no longer true) to "defaults to
+null when the caller passes none".

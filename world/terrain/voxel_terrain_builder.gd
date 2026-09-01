@@ -5,10 +5,15 @@ extends RefCounted
 ## Scope is deliberately narrow: this owns only what no later Phase C brick already
 ## claims — collision policy, the placeholder generator, and (as of brick 040) the
 ## mesher, so the node produces real, textured voxels end-to-end and is testable now,
-## without waiting on the rest of the stack. `stream` is explicitly left null —
-## persistence is brick 048, and `VoxelNode.stream`'s own doc says an unassigned stream
-## makes the whole volume generate on demand, which is exactly what a save-less baseline
-## needs.
+## without waiting on the rest of the stack.
+##
+## `stream` (048): an optional parameter, defaulting to `null` — every existing caller
+## that doesn't pass one keeps the exact save-less behavior 039 established
+## (`VoxelNode.stream`'s own doc: an unassigned stream makes the whole volume generate on
+## demand). A caller that wants persistence builds one with `VoxelStreamBuilder.build()`
+## (`world/persistence/voxel_stream_builder.gd`) and passes it through — this file makes
+## no decision about *where* that stream's database lives; that's storage-layout policy,
+## deferred to bricks 102-103 per `docs/persistence.md`.
 ##
 ## `max_view_distance` (042): `VoxelViewer` is a separate `Node3D`, not a `VoxelTerrain`
 ## property, so it is built by `voxel_viewer_builder.gd` instead of here — this file only
@@ -60,8 +65,9 @@ const DEFAULT_VIEW_DISTANCE := 128
 
 ## Returns null (and logs why) when `registry` is not locked, or does not contain
 ## `PLACEHOLDER_BLOCK_ID` — both are programmer/data errors, not runtime conditions a
-## caller should silently paper over.
-static func build(registry: BlockRegistry) -> VoxelTerrain:
+## caller should silently paper over. `stream` (048) is assigned as given, `null` by
+## default.
+static func build(registry: BlockRegistry, stream: VoxelStream = null) -> VoxelTerrain:
 	if not Log.check(registry.is_locked(), Log.CH_VOXEL,
 			"block registry must be locked before building a VoxelTerrain"):
 		return null
@@ -77,7 +83,7 @@ static func build(registry: BlockRegistry) -> VoxelTerrain:
 	var terrain := VoxelTerrain.new()
 	terrain.generator = generator
 	terrain.mesher = mesher
-	terrain.stream = null
+	terrain.stream = stream
 	terrain.material_override = null
 	terrain.generate_collisions = true
 	terrain.max_view_distance = DEFAULT_VIEW_DISTANCE

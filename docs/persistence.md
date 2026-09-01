@@ -5,6 +5,10 @@ Storage layout for voxel data lands with the voxel stream (bricks 048, 102–103
 per-voxel delta unit §5 describes is `world/terrain/block_edit_delta.gd`
 (`BlockEditDelta`, brick 047) — `BlockEditApplicator.apply_capturing_delta()` (046/047)
 is the one call site that produces one, right where a voxel write actually happens.
+The stream object itself — `world/persistence/voxel_stream_builder.gd`
+(`VoxelStreamBuilder`, brick 048, `docs/voxel-tools.md` §13) — is wired for exactly this
+"deltas, not full snapshots" shape (`save_generator_output = false`); the on-disk
+save-directory layout it plugs into is still open, deferred to bricks 102–103.
 
 ## 1. Four versions, not one
 

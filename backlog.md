@@ -77,7 +77,7 @@
 | 045 | C | Create block edit validation layer | 044 | Not needed by default | NO | DONE |
 | 046 | C | Create block edit application layer | 045 | Not needed by default | NO | DONE |
 | 047 | C | Create edit undo/delta representation | 046 | Not needed by default | NO | DONE |
-| 048 | C | Create initial voxel save stream wiring | 047 | Not needed by default | NO | TODO |
+| 048 | C | Create initial voxel save stream wiring | 047 | Not needed by default | NO | DONE |
 | 049 | C | Create basic voxel load/save integration test | 048 | Not needed by default | NO | TODO |
 | 050 | C | Create voxel world bounds/authority policy | 049 | Not needed by default | NO | TODO |
 | 051 | C | Create voxel chunk metrics/profiling hooks | 050 | Not needed by default | NO | TODO |

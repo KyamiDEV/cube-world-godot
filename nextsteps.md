@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–047)
+- Phase `C — Voxel infrastructure` — in progress (031–048)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `048 — Create initial voxel save stream wiring`
+- Next task `049 — Create basic voxel load/save integration test`
 
 ## Completed bricks
 
-`001`–`047`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`048`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -30,7 +30,48 @@ property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 0
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
 block raycast interaction service, 044 block edit command model, 045 block edit
-validation layer, 046 block edit application layer, 047 edit undo/delta representation).
+validation layer, 046 block edit application layer, 047 edit undo/delta representation,
+048 initial voxel save stream wiring).
+
+`048` added `world/persistence/voxel_stream_builder.gd` (`VoxelStreamBuilder`, static
+`build(database_path: String) -> VoxelStreamSQLite`) — the first code that constructs a
+`VoxelStream`, closing the "`stream` left null" note 039–047 all carried. Scope is
+deliberately just the stream object itself, not where its database lives on disk —
+`docs/persistence.md`'s own header already reserved that storage-layout question for
+bricks 102–103, so this brick doesn't invent a save-directory convention.
+`voxel_terrain_builder.gd`'s `build()` (039) gained a matching optional `stream:
+VoxelStream = null` parameter; every existing call site (all in tests — no scene wires a
+terrain yet) keeps building a save-less terrain unchanged.
+
+Three deliberate property decisions, each confirmed against `doc/classes/
+VoxelStreamSQLite.xml`/`VoxelStream.xml` fetched from the `godot_voxel` reference repo
+(CLAUDE.md §15 source — note the GitHub tag is `v1.7`, not `v1.7.0`; unrelated to
+`docs/environment.md`'s own verified version string): `save_generator_output = false`
+(matches the engine default, named explicitly per 041/042's "explicit is a decision"
+precedent) — `docs/persistence.md` §5 requires deltas only, and `true` would instead
+save every generated block, duplicating terrain the generator can already reproduce;
+`set_key_cache_enabled(true)`, called immediately at construction per the property's own
+"must be called before load" doc note — key caching speeds up exactly the sparse
+edited-block save shape `save_generator_output = false` produces;
+`preferred_coordinate_format = COORDINATE_FORMAT_STRING_CSD` (value 2, the engine
+default, named explicitly) — the one format with no fixed coordinate-range cap, correct
+until world bounds are decided (brick 050), and only affects a new database so it can be
+revisited later without a migration.
+
+`build()` rejects only an empty `database_path` (`Log.check`, `Log.CH_PERSIST` — the
+channel `autoload/log.gd` already reserves for persistence, distinct from
+`Log.CH_VOXEL`); every other failure mode (bad parent directory, etc.) is Voxel Tools'
+own responsibility and isn't re-validated here. Full reasoning in `docs/voxel-tools.md`
+§13 (new section); `docs/persistence.md`'s header gained one pointer sentence, same
+"pointer, not a new contract" pattern 047 used for `block_edit_delta.gd`.
+
+Tests: `tests/unit/test_voxel_stream_builder.gd` (new, 3 tests) — empty-path rejection,
+a built stream's three properties match the decisions above, two independent `build()`
+calls produce independent stream objects. `tests/unit/test_voxel_terrain_builder.gd`
+(+1 test, now also covers 048): a passed-in stream is wired onto `terrain.stream`
+unchanged; its existing null-by-default assertion's comment was updated ("no save format
+yet" was no longer accurate — the format now exists, the default is just still `null`).
+Full suite: `files=27 tests=291 assertions=10284 failed=0`.
 
 `047` added `world/terrain/block_edit_delta.gd` (`BlockEditDelta`) — the per-voxel delta
 unit `docs/persistence.md` §5 names ("world modifications... stored as deltas") but had
@@ -777,7 +818,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 25 files, 276 tests, 10 231 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 27 files, 291 tests, 10 284 assertions, 0 failed.
 
 ## What exists now
 
@@ -793,7 +834,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 25 files, 276 tests, 10 23
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` left null for 048 |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build(registry, stream = null)`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` is an optional parameter, `null` unless the caller passes one (048) |
+| Persistence | `world/persistence/voxel_stream_builder.gd` | `VoxelStreamBuilder.build(database_path)`: a configured `VoxelStreamSQLite` — deltas-only (`save_generator_output = false`), key cache enabled, unbounded coordinate format pending brick 050's bounds decision (048, `docs/voxel-tools.md` §13) |
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
 | Terrain | `world/terrain/block_raycast_service.gd`, `block_raycast_hit.gd` | `BlockRaycastService.cast(terrain, registry, origin, direction, max_distance)`: wraps `VoxelTool.raycast()`, resolves the hit voxel value back to a `BlockDefinition` id through the registry (043, `docs/voxel-tools.md` §10) |
 | Network | `network/packets/edit_block_command.gd` | `EditBlockCommand`: PLACE/REMOVE intent (`kind`, `position`, `face_normal`, `block_id`, `tick`); `from_hit()` builds one from a `BlockRaycastHit`; `validate()` is structural only (044) |
@@ -806,16 +848,15 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 25 files, 276 tests, 10 23
 
 ## Next 10 actions
 
-1. `047` edit undo/delta representation: a small type capturing what one applied edit
-   changed (previous raw voxel value alongside `EditBlockCommand`'s own `position`/
-   `kind`/`block_id`) so a later system can invert it. `BlockEditApplicator.apply()` (046)
-   does not return the previous value itself — a caller building a delta reads
-   `tool.get_voxel(command.position)` before calling `apply()`, using the same
-   `terrain.get_voxel_tool()` handle, rather than `apply()` growing an extra
-   responsibility beyond "write this command's effect". None of 039–046 added a `.tscn`,
-   and no player/camera exists yet to raycast from or to parent the 042 `VoxelViewer`
-   under — deciding where these nodes actually live in a scene is still open (039's
-   nextsteps entry, carried forward again by 042/043/044/045/046).
+1. `049` basic voxel load/save integration test: exercise `VoxelStreamBuilder` (048) and
+   `VoxelTerrainBuilder`'s new `stream` parameter end-to-end — build a terrain with a
+   real on-disk `VoxelStreamSQLite`, edit a voxel via `BlockEditApplicator` (046), tear
+   the terrain down, rebuild a fresh one against the same database path, and confirm the
+   edit survived while ungenerated terrain still comes from the placeholder generator.
+   None of 039–048 added a `.tscn`, and no player/camera exists yet to raycast from or to
+   parent the 042 `VoxelViewer` under — deciding where these nodes actually live in a
+   scene is still open (039's nextsteps entry, carried forward again by
+   042/043/044/045/046/048).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
@@ -893,6 +934,10 @@ opening the reference tree.
   `VoxelNode.xml`/`VoxelTerrain.xml`, brick 039. `VoxelGeneratorFlat.channel` defaults to
   `CHANNEL_SDF` (1), **not** `CHANNEL_TYPE` (0) — a blocky placeholder generator must set
   `channel` explicitly or it silently produces SDF data a blocky mesher can't read.
+- **The `godot_voxel` reference repo's git tag is `v1.7`, not `v1.7.0`** (confirmed via
+  its `tags` API, brick 048) — `raw.githubusercontent.com/.../v1.7.0/...` 404s.
+  `docs/environment.md`'s verified `1.7.0` *version string* is unaffected; only the tag
+  name used to fetch `doc/classes/*.xml` differs.
 - **`VoxelTerrain.bounds` is `AABB`, in voxel coordinates**, default effectively
   unbounded (`AABB(-536870900, ..., 1073741800, ...)`) — confirmed against upstream
   `VoxelTerrain.xml` (v1.7 tag), brick 045. `block_edit_validator.gd` (045) reads it

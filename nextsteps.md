@@ -16,15 +16,36 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — started (031)
+- Phase `C — Voxel infrastructure` — in progress (031–032)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `032 — Create voxel/block registry`
+- Next task `033 — Create block material property schema`
 
 ## Completed bricks
 
-`001`–`031`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`032`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
-index); Phase C started (031 block definition schema).
+index); Phase C in progress (031 block definition schema, 032 block registry).
+
+`032` added `world/terrain/block_registry.gd` (`BlockRegistry extends RefCounted`,
+`class_name` — the first live use of `DefinitionRegistry` outside its own tests, per
+`docs/ids-and-registries.md` §5: "it does not validate the definition, only the id;
+each domain's definition type checks its own fields"). Thin typed wrapper, not a
+reimplementation: pins the domain to `"block"`, calls `BlockDefinition.validate()`
+before handing anything to the wrapped `DefinitionRegistry.register()`, and returns
+`BlockDefinition` instead of `Variant` at every read (`get_block`, `require_block`).
+Every other method (`add_alias`, `lock`, `is_locked`, `clear`, `has_block`, `resolve`,
+`ids`, `ids_under`, `size`, `network_index`, `id_from_network_index`, `content_hash`)
+delegates straight through — the wrapper adds no state of its own beyond the one
+`DefinitionRegistry` instance. `docs/reference/traceability.md` §4 already confirms no
+reference matrix cites 031–055, so no reference read was needed, same as 031. Tests in
+`tests/unit/test_block_registry.gd` (10 tests): valid registration, rejection of a
+definition that fails its own `validate()` despite a well-formed id (missing
+`display_name`), wrong-domain rejection, duplicate-id rejection, lock/network-index
+ordering, post-lock registration refusal, alias resolution, sorted `ids()`/`ids_under()`,
+order-independent `content_hash()`, and `clear()` round-trip. No docs page added or
+changed — this brick is a direct application of the existing `docs/ids-and-registries.md`
+contract, not a new one; `block_definition.gd`'s own doc comment already named this
+brick as the intended consumer.
 
 `031` added `world/terrain/block_definition.gd` (`BlockDefinition extends Resource`,
 `class_name` — referenced by the registry/schema bricks that follow): `id`,
@@ -228,7 +249,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 16 files, 201 tests, 9 997 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 211 tests, 10 034 assertions, 0 failed.
 
 ## What exists now
 
@@ -240,6 +261,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 16 files, 201 tests, 9 997
 | RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation |
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
 | Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `validate()` |
+| Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -247,10 +269,10 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 16 files, 201 tests, 9 997
 
 ## Next 10 actions
 
-1. `032`–`038` block registry (first live use of `DefinitionRegistry` outside its own
-   tests), block set. Phase C is original Godot/Voxel-Tools engineering;
-   `docs/reference/traceability.md` §4 confirms no matrix cites this range — no
-   reference read needed before starting.
+1. `033`–`038` block property schemas (material, collision, interaction/destruction,
+   footstep/surface tags), `VoxelBlockyLibrary` bootstrap, first grass/dirt/stone block
+   set. Phase C is original Godot/Voxel-Tools engineering; `docs/reference/traceability.md`
+   §4 confirms no matrix cites this range — no reference read needed before starting.
 2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
 4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.

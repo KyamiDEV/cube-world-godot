@@ -11,8 +11,9 @@
 - Voxel scale: `1 voxel = 0.5 m` — implemented in `core/math/world_scale.gd`
 - Reference repo: `reference/CubeWorld-Reversal` (local, gitignored, `.gdignore`d). Read so
   far: the class-mapping pass of 021–028, plus targeted full reads for 058
-  (`region-coordinate-hashing.md`), 060 (`terrain-value-noise.md`) and 061
-  (`terrain-base-height-field.md`). `docs/reference/traceability.md` is the index.
+  (`region-coordinate-hashing.md`), 060 (`terrain-value-noise.md`), 061
+  (`terrain-base-height-field.md`) and 064 (`terrain-climate-blend.md`).
+  `docs/reference/traceability.md` is the index.
 - Git: `main`, one commit per brick
 - Godot AI MCP: failed to connect this session (`CONNECTION_CLOSED`); not needed so far
 
@@ -22,25 +23,25 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–063 done, 064–090 open)
-- Next task `064 — Create temperature field` (dep: 062 — DONE). **The world now has
-  generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the
-  pinned constants in `Continentalness`, `ElevationField`, `ErosionPass` or `TerracePass`
-  is a generation version bump (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a
-  free fix. Both free fixes were taken (058, 059). 064 **owes an answer to
-  `terrain-base-height-field.md` `U2`**: whether climate reuses `ErosionPass`' ruggedness
-  weight field or gets its own — resolve it in the note rather than assume
-  (`docs/world-generation.md` §6.7). It is also the first field since 060 to need a **new
-  salt**, and `WorldHash.SALT_TEMPERATURE = 2` already exists (appended long before it was
-  used), so nothing is appended — check the salt is unused elsewhere and take it.
-  `065 — humidity field` (dep 061) is unblocked in parallel and will want the same shape;
-  `066 — biome classifier` (dep 061) consumes both plus, probably,
-  `ErosionPass.ruggedness_noise_at()`, which 062 left public and unsquared for exactly
-  that.
+- Phase `D — World generation` — **IN PROGRESS** (056–064 done, 065–090 open)
+- Next task `065 — Create humidity field` (dep: 061 — DONE). It is 064's mirror: the second
+  climate axis, its own file, its own salt (`WorldHash.SALT_HUMIDITY = 3`, already in the
+  list and still unused). 064 settled everything 065 would otherwise have to decide — the
+  scale ladder (`docs/world-generation.md` §9.2), the `spread()` redistribution and *why*
+  a raw noise layer is unusable as a climate axis (§9.4–9.5), and the fact that climate is
+  independent of elevation (§9.3, from the reference read). If 065 lands with identical
+  constants, **do not factor the two into a shared base class** — §9.7 says why, and 066 is
+  the brick that gets to make that call. **The world still has generated content**: a change
+  to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned constants in
+  `Continentalness`, `ElevationField`, `ErosionPass`, `TerracePass` or `TemperatureField` is
+  a generation version bump (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free
+  fix. Both free fixes were taken (058, 059). `066 — biome classifier` (dep 061) consumes
+  both climate axes plus, probably, `ErosionPass.ruggedness_noise_at()`, which 062 left
+  public and unsquared for exactly that.
 
 ## Completed bricks
 
-`001`–`063`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`064`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -55,7 +56,86 @@ size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decisio
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
-layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass.
+layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
+064 temperature field.
+
+`064` is the first **climate** field and the first brick since 061 to open the reference
+tree: `world/generation/temperature_field.gd` (`TemperatureField`), one new file, **no**
+change to any existing file, and no new salt — `WorldHash.SALT_TEMPERATURE = 2` has been in
+the list since brick 015 with no user, and 064 is its user.
+
+The whole field is one line, and the line that matters is the second half of it:
+
+```text
+at(column) = fade( noise01(column) ),   cell 16384 voxels, 2 octaves, gain 0.5
+```
+
+Six decisions worth keeping:
+
+1. **The reference read is the brick's centre, and it contradicted a standing claim.**
+   `terrain-base-height-field.md` `U2` (opened by 061) asked whether climate rides on
+   elevation's squared weight fields. Full read of `World_temperatureBlend`
+   (`server/world/World.cpp:4167–4365`) and `World_humidityBlend` (`4376–4491`), written up
+   as **`docs/reference/terrain-climate-blend.md`**: the answer is **no**. The original
+   takes *no* noise sample for a climate value at all — it blends stored per-region values
+   over a nearest-site window. `U2` is closed and that note's `MEDIUM` claim 7 is
+   **contradicted**, struck through in place rather than deleted (`confidence.md` §4).
+   The only thing climate and elevation share is the ±768-unit noise that jitters the
+   region sites, which moves where a boundary falls and never what the value is.
+2. **So temperature is its own axis, and the test measures that rather than asserting it.**
+   Its own salt, its own layer, and `|r| < 0.05` against both `ErosionPass.at()` and
+   `Continentalness.at()` over the standard 2304-column sweep — measured `+0.007` and
+   `−0.006`. If a later edit ever derived climate from a height, it fails there before it
+   shows up as every mountain being cold.
+3. **No lapse rate, and that is 085's brick, not an omission.** Written into §9.3 and into
+   the class comment: cold peaks are the snowline reading *this field and a height*. Baking
+   the altitude term in here would make every high place cold in every world and take the
+   decision away from the brick that owns it. Same reasoning for the unit: the original
+   reads its climate off a bare `[0, 1]` scale (`> 0.8`, `< 0.2`), and a degree scale here
+   would be a number nothing in this project could check.
+4. **Climate is the coarsest field in the world, and the octave count is what says so.**
+   Cell 16384 = twice `Continentalness.CELL_SIZE_VOXELS`; two octaves, so the *finest*
+   climate cell is 8192 — exactly the coarsest cell of both `Continentalness` and
+   `ErosionPass`' ruggedness. §6.4's "meet, don't overlap" rule one level up. The test
+   asserts the inequality against those two constants, not the octave count. The ordering
+   is the original's: its climate window is `0x4000` units across against relief tiers of
+   ~5000 and weight fields of ~10000.
+5. **`spread()` is the quintic used as a redistribution, and it is the measured half of the
+   brick.** Summed octaves cluster: the raw layer puts **69.8%** of the sweep in the middle
+   four deciles and reaches neither end (`0.016 .. 0.983`) — a climate field on which no
+   threshold 066 could pick selects a desert, because those columns do not exist. One
+   `ValueNoise.fade()` fixes it: `fade'(0.5) = 1.875` pulls the middle apart, `fade'(0) =
+   fade'(1) = 0` pushes the tails to the ends, and it is monotone with fixed points at both,
+   so ordering and the stated range survive untouched. sd `0.181 → 0.280` against
+   `1/sqrt(12) = 0.289` for uniform, and the sweep now spans `0.0000 .. 0.9999`. One
+   application, **not two**, and no linear stretch first: both were measured and both
+   overshoot into a bimodal map with a fifth pinned at each end (`fade(fade(x))`: 20.6% /
+   27.0%). Three octaves instead of two also visibly peaks the histogram. Reusing the
+   project's one blending polynomial keeps §5.3's promise — nothing new to keep in step with
+   `FADE_MAX_SLOPE`.
+6. **The test pins the property, not the histogram**: no decile of the range holds less than
+   5% or more than 16% of the world. That is what 066 actually needs — a threshold anywhere
+   in the range selecting a real share of the map — and it survives retuning that a pinned
+   histogram would not.
+
+Measured: `max_step_per_voxel()` = `0.000286` and `minimum_climate_span_voxels()` = **3495
+voxels = 1.75 km**, the derived floor on how far apart the coldest and hottest column can
+be. On a 400 km east–west line at `z = 613`, the **worst** kilometre anywhere moves the
+temperature by `0.301` — inside the derived `0.572`/km — while the line as a whole spans
+`0.011 .. 0.999`. Gentle everywhere and both ends present: that pair is the brick.
+
+**Not a generation version bump** (§9.6): a new field that changes no constant, no hash and
+no existing layer, appends no salt, and leaves every pinned signature below it
+(`0babd0a337dd7cab`, `cc4f0f5ecb8fa581`, `2af464f70e43590a`) untouched and still asserted.
+
+Docs: `docs/world-generation.md` §9 (new, seven subsections); new
+`docs/reference/terrain-climate-blend.md`; `terrain-base-height-field.md` claim 7 struck
+through and `U2` marked `(RESOLVED — brick 064)`; `docs/README.md` and `traceability.md`
+§2 list the new note.
+
+Tests: `tests/unit/test_temperature_field.gd` (new, 23 tests, 706 assertions) pinning a
+golden `signature()` (`fb91406f3e801b7f`). Full suite: `files=41 tests=521
+assertions=83195 failed=0`. `check.ps1` OK (85 scripts).
 
 `063` is the brick that turns the height field into a **block world**:
 `world/generation/terrace_pass.gd` (`TerracePass`), one new file, **no** change to any
@@ -1700,7 +1780,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 063): `check.ps1` **OK** (83 scripts compiled) · `test.ps1` **OK** — 40 files, 498 tests, 82 482 assertions, 0 failed.
+Last run (brick 064): `check.ps1` **OK** (85 scripts compiled) · `test.ps1` **OK** — 41 files, 521 tests, 83 195 assertions, 0 failed.
 
 ## What exists now
 
@@ -1736,6 +1816,7 @@ Last run (brick 063): `check.ps1` **OK** (83 scripts compiled) · `test.ps1` **O
 | Generation | `world/generation/elevation_field.gd` | `ElevationField.for_world(hash)`: signed ground height in voxels from the datum `y = 0` — `base_for(shore) + relief_amplitude_for(shore) * relief01(column)`, range `[-96, +192]`. Relief is **additive-upward**, so the base is a genuine floor. Shore band `[0.42, 0.58]` through `ValueNoise.fade()`; relief layer cell 1024 (exactly where `Continentalness` stops), 6 octaves, `SALT_ELEVATION`. `base_at`/`relief_amplitude_at`/`relief_at` are the terms 062 and 063 recompose (061, `docs/world-generation.md` §6) |
 | Generation | `world/generation/erosion_pass.gd` | `ErosionPass.for_world(hash)`: the shaping pass over `ElevationField` — `base <= at <= unshaped_at`, always. Two `[0, 1]` flattening factors on relief and none on the base: a **squared** ruggedness weight (cell 8192, 3 octaves, `SALT_RUGGEDNESS`, floored at 0.1) deciding *where* ground may be rugged, and `valley_shaped(r) = lerp(r, r², 0.5)` deciding *what shape* survives. Inherits 061's range; step bound rises to 2.627 because the valley bias steepens ridges while lowering everything (062, `docs/world-generation.md` §7) |
 | Generation | `world/generation/terrace_pass.gd` | `TerracePass.for_world(hash)`: the block world — `at(column) = floor(erosion.at(column) / 8) * 8`, so every height is an exact terrace plane 8 voxels = 4 m apart, anchored to the datum. No salt, no noise layer, no change to anything below it. Keeps the family invariant in terraced form (`terraced(base_at) <= at <= erosion.at`, never more than one terrace lost) because `floor` is monotone; inherits 062's range because both ends are multiples of 8. **`max_step_per_voxel()` does not carry over** — the output is discontinuous on purpose, and `max_riser_voxels()` replaces it: `ceil(2.627 / 8) * 8` = one terrace, so every riser is a single 4 m face. `surface_y()` is the integer plane a generator fills up to; `continuous_at`/`removed_at`/`fraction_at`/`terrace_index_at` are the terms 075/084/085 read (063, `docs/world-generation.md` §8) |
+| Generation | `world/generation/temperature_field.gd` | `TemperatureField.for_world(hash)`: the first climate axis — `at(column) = fade(noise01(column))` in `[0, 1]`, `0` coldest and `1` hottest, no unit. Cell 16384 voxels (8192 m), 2 octaves so the finest climate cell is exactly `Continentalness`' coarsest, gain 0.5, `SALT_TEMPERATURE`. `spread()` is the quintic used as a **redistribution**, not a blend: without it the raw layer piles 70% of the world into four middle deciles and reaches neither end, so no biome threshold would select anything. Reads **no** elevation — no lapse rate, that is 085 (064, `docs/world-generation.md` §9) |
 | Tests | `tests/fixtures/generation_fixtures.gd` | `GenerationFixtures`: the shared determinism floor every Phase D pass is tested against — four pinned named worlds, five coordinate sample lists (chosen for negatives, cell boundaries, `WorldBounds` corners), `determinism_reason()`/`seed_sensitivity_reason()` (factory-taking, so a visit-order-dependent pass cannot hide), `range_reason()`/`variation_reason()`, `signature()` for golden pinning, `self_check()` (059, `docs/world-generation.md` §4) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -1743,39 +1824,45 @@ Last run (brick 063): `check.ps1` **OK** (83 scripts compiled) · `test.ps1` **O
 | Reference | `docs/reference/world-generation-authority.md` | who may generate world content: the reference's client-side generation was a bandwidth design, not a trust model — "the client may generate, the client never decides"; resolves `matrix-world.md` Q2 (056) |
 | Reference | `docs/reference/terrain-value-noise.md` | the original's `valueNoise2D`: lattice value noise, **no seed parameter** (per-world variation was a coordinate offset, so every world is a translation of every other), a linear corner key that repeats along a diagonal, cosine interpolation through libm, and a lattice taken by truncation — mirroring the field about the origin. §9 is the divergence table 060 implements (060) |
 | Reference | `docs/reference/region-coordinate-hashing.md` | how the original turned coordinates into content: a **linear** seed fed to the process-global `srand()`, first decision from the low bit of an LCG, region grid `0..1023` counted from a corner; §9 is the divergence table 058 implements (058) |
+| Reference | `docs/reference/terrain-climate-blend.md` | how the original produced climate: `World_temperatureBlend`/`World_humidityBlend` blend **stored per-region values** over a nearest-site window and sample no noise for the value at all — so climate shares nothing with the height field but the site-jitter noise. Closes `terrain-base-height-field.md` `U2` and contradicts its claim 7; §8 is the divergence table 064 implements (064) |
 | Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), the rest placeholder rows for Phase L bricks 257-263 |
 
 ## Next 10 actions
 
-1. `064` create the temperature field (next task) — dep 062 (DONE). It is the first
-   **climate** field, and it owes a decision before it owes code: `U2` in
-   `terrain-base-height-field.md` asks whether climate reuses `ErosionPass`' ruggedness
-   weight field or gets its own, and `docs/world-generation.md` §6.7 says 064 resolves it
-   rather than assumes it. Record the answer in the note's `§7 Uncertainties` table, not
-   only in the new code. Second decision the brick owes: whether temperature reads
-   *elevation* at all (a lapse rate — colder with height) or is a pure horizontal field
-   that 072/085 combine with height themselves; the second keeps 064 a one-input pass and
-   is the smaller commitment, but say which and why. `WorldHash.SALT_TEMPERATURE = 2`
-   already exists and is unused — take it, do not append a new one. The version window
-   stays closed: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned
-   constants in `Continentalness`/`ElevationField`/`ErosionPass`/`TerracePass` is a
-   **generation version bump** (`docs/rng.md` §3, `docs/world-generation.md` §2.1), so
-   057's `GenerationVersion` checklist (§2.5) applies. Reuse rather than re-invent, as
-   060–063 all did: pinned constants (never arguments), a stated closed range asserted with
-   `range_reason()`, a derived slope bound (temperature is continuous again, so
-   `max_step_per_voxel()` is back in scope — 063's `max_riser_voxels()` was specific to a
-   quantised pass), and testing through `GenerationFixtures` + one pinned `signature()`,
-   not hand-written coordinate checks. Note 063's finding when picking the fixture
-   `variation_reason()` threshold: `GenerationFixtures.columns()` is 15 *nearby* columns,
-   so a field whose cell size is large will legitimately answer very few distinct values
-   there and the sweep has to carry the variation check (§8.4). `065` (humidity, dep 061)
-   is unblocked in parallel and wants the same shape; `066` (biome classifier, dep 061)
-   consumes both plus, probably, `ErosionPass.ruggedness_noise_at()`, which 062 left public
-   and unsquared for exactly that. `traceability.md` §2's `060–067` rows cite
-   `terrain-value-noise.md` and `matrix-world.md` §1/§2 — read those before designing, per
-   §1's rule. Still open and carried forward from Phase C: no `.tscn` exists, and no
-   player/camera to raycast from or to parent the 042 `VoxelViewer` under — a Phase F
-   question (039's nextsteps entry, carried by 042–063). The
+1. `065` create the humidity field (next task) — dep 061 (DONE). It is 064's mirror, and
+   064 deliberately left it nothing to re-decide: read `docs/world-generation.md` §9 first,
+   then write `world/generation/humidity_field.gd` against the same shape —
+   `at(column) = spread(noise01(column))`, pinned constants (never arguments), a stated
+   closed `[0, 1]` range asserted through `range_reason()`, a derived
+   `max_step_per_voxel()`, and testing through `GenerationFixtures` plus one pinned
+   `signature()`. `WorldHash.SALT_HUMIDITY = 3` already exists and is unused — take it, do
+   not append. Three things 065 genuinely owns and should say out loud: **(a)** whether its
+   constants really are 064's (re-run the decile measurement on its own layer rather than
+   assuming the distribution transfers — the method is §9.5, and the throwaway probe is a
+   `tests/unit/test_zz*.gd` file run with `test.ps1 -File zz`, deleted before commit);
+   **(b)** whether humidity should read `Continentalness` — real coasts are wetter than
+   continental interiors, the reference offers **no** support for it (`terrain-climate-blend.md`
+   claim 1: humidity is the same region blend as temperature, with no continentalness term),
+   and taking it would make humidity the first climate axis coupled to another field, so the
+   default is *no* and the decision belongs in the note; **(c)** whether the two fields get
+   factored into a shared base — §9.7 says **not by 065**: two files that happen to agree is
+   cheaper to retune than one class with two configurations, and 066 is the brick that sees
+   both users. `terrain-climate-blend.md` `U1` (which region field humidity actually blends)
+   is **open and does not gate 065** — the value accumulator did not survive decompilation,
+   and it cannot matter to a field that uses a noise layer instead of region storage; record
+   that it was checked rather than silently ignoring it. Then `066` (biome classifier, dep
+   061) consumes both axes plus, probably, `ErosionPass.ruggedness_noise_at()`, which 062
+   left public and unsquared for exactly that; note 063's finding when picking a fixture
+   `variation_reason()` threshold (§8.4), and note that a *classifier* returns an id rather
+   than a float, so `range_reason()` does not apply to it and `signature()`'s type-strict
+   digest does. The version window stays closed: a change to `WorldHash`, `GenerationHash`,
+   `ValueNoise`, or the pinned constants in `Continentalness`/`ElevationField`/`ErosionPass`/
+   `TerracePass`/`TemperatureField` is a **generation version bump** (`docs/rng.md` §3,
+   `docs/world-generation.md` §2.1), so 057's `GenerationVersion` checklist (§2.5) applies.
+   `traceability.md` §2's `064–067` row now cites `terrain-climate-blend.md` — read §3 and
+   §8 of it before designing, per §1's rule. Still open and carried forward from Phase C: no
+   `.tscn` exists, and no player/camera to raycast from or to parent the 042 `VoxelViewer`
+   under — a Phase F question (039's nextsteps entry, carried by 042–064). The
    `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
    Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
    stays empty until something is expensive enough to measure.

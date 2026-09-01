@@ -1031,3 +1031,171 @@ change to `TERRACE_HEIGHT_VOXELS` is a bump like any other pinned constant.
   the surface is, never what it is.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`. `surface_y()` is the integer
   plane a generator will fill up to, and the generator is a later brick.
+
+## 9. The temperature field (brick 064)
+
+Implementation: `world/generation/temperature_field.gd` (`TemperatureField`).
+Tests: `tests/unit/test_temperature_field.gd`.
+Reference: `docs/reference/terrain-climate-blend.md`.
+
+§5–§8 answer *where the ground is*. This is the first field that answers *what kind of
+place this is* — one number per column, `0.0` the coldest place in the world and `1.0` the
+hottest, with no unit in between. It classifies nothing on its own: which value is a desert
+and which is a snowfield is brick 066's job, and brick 067's catalog. Brick 065 mirrors it
+for humidity, and 066 reads both plus `ErosionPass.ruggedness_noise_at()`.
+
+### 9.1 The whole field
+
+```text
+at(column) = fade( noise01(column) )
+```
+
+| Constant | Value | Why |
+|---|---|---|
+| `CELL_SIZE_VOXELS` | `16384` = 8192 m | `Continentalness.CELL_SIZE_VOXELS * 2` — see §9.2 |
+| `OCTAVES` | `2` | so the finest cell is 8192 voxels, exactly the coarsest cell of every field under it — §9.2 |
+| `GAIN` | `0.5` | the conventional half; the field stays dominated by its coarsest layer |
+| salt | `WorldHash.SALT_TEMPERATURE` = `2` | already in `docs/rng.md` §4's list, appended long before it was used and used by nothing else. Nothing is appended by this brick |
+| curve | `ValueNoise.fade()` | as a **redistribution**, not a blend — §9.4 |
+
+Range `[0, 1]`, closed at both ends: `fade()` fixes `0` and `1`, and the layer's own range
+is closed, so both are reachable rather than approached.
+
+### 9.2 Climate is the coarsest field in the world
+
+Every Phase D field so far has been sized against the one below it, and this one is sized
+against all of them at once:
+
+| Field | Coarsest cell | Finest cell |
+|---|---:|---:|
+| `TemperatureField` | 16384 | **8192** |
+| `Continentalness` (§5.5) | **8192** | 1024 |
+| `ErosionPass` ruggedness (§7.3) | **8192** | 2048 |
+| `ElevationField` relief (§6.4) | **1024** | 32 |
+
+The finest climate octave is exactly the coarsest cell of the two fields under it, which is
+§6.4's "meet, don't overlap" rule applied one level up: climate carries every scale coarser
+than a continent and no scale finer. A third octave would put climate detail at 4096 voxels
+— a two-kilometre cold patch *inside* a landmass, which reads as noise rather than as
+climate and which brick 074's blending would then have to smooth back out.
+
+The ordering is the original's, not a preference. Its climate is blended over a window of
+region sites `0x4000` units across, while its coarsest relief tier has a period of about
+5000 units and the weight fields that *place* that relief about 10000
+(`terrain-climate-blend.md` §3 claim 1, `terrain-base-height-field.md` §3 claims 1 and 3):
+climate sits roughly one and a half times above the coarsest thing beneath it. Ours sits
+exactly twice above it, because powers of two are a determinism requirement here (§5.2).
+
+### 9.3 Climate does not read elevation, and that is a finding
+
+Brick 061 left `terrain-base-height-field.md` `U2` open: does climate ride on the same
+squared weight fields that place the relief tiers? Brick 064 read the two functions that
+produce it — `World_temperatureBlend` and `World_humidityBlend` — and the answer is **no**.
+The original blends stored per-region climate values over a nearest-site window and samples
+no noise for the value at all. The one thing climate and elevation share is the ±768-unit
+noise that jitters the region sites, which moves where a boundary falls and never what the
+value is.
+
+That closes `U2` and **contradicts** claim 7 of `terrain-base-height-field.md`, which had
+guessed the opposite; the claim is struck through there rather than deleted
+(`confidence.md` §4). Three consequences land in this section:
+
+1. **Temperature is its own axis**, with its own salt and its own layer, and the test
+   measures the consequence rather than trusting the design: `|r| < 0.05` against both
+   `ErosionPass.at()` and `Continentalness.at()` over the standard 2304-column sweep
+   (measured `+0.007` and `−0.006`).
+2. **No lapse rate.** Cold mountain tops are brick 085's snowline reading this field *and*
+   a height, not a term baked in here. Baking it in would make every high place cold in
+   every world, which is a decision 085 should be free to make differently.
+3. **No unit.** The original reads its climate straight off a `[0, 1]` scale against bare
+   literals (`> 0.8`, `< 0.2`), and a degree scale here would be a number this project
+   could not check against anything.
+
+We also do **not** take two things the reference does: its weight function collapses to a
+near-hard Voronoi edge between region sites (`terrain-climate-blend.md` §3 claim 3), and
+its temperature has a post-pass that warms cold ground near a structure (claim 6). The
+first is brick 074's decision to make, not a property to bake into the field; the second
+belongs with structures, at 089–090.
+
+### 9.4 The curve is a redistribution, not a blend
+
+A sum of noise octaves is a sum of near-independent terms, so its values cluster around the
+middle of its range. Measured over the standard sweep, the raw layer puts **69.8%** of its
+columns in the middle four deciles and reaches neither end (`0.016 .. 0.983`). A climate
+field shaped like that has no deserts and no snowfields whatever thresholds brick 066
+picks, because the columns those thresholds would select do not exist.
+
+`spread()` is `ValueNoise.fade()`, and the shape that makes it a good *blend* is exactly
+what makes it a good *spread*:
+
+- `fade'(0.5) = 1.875` pulls the crowded middle apart;
+- `fade'(0) = fade'(1) = 0` pushes the sparse tails out to the ends;
+- it is monotone with fixed points at `0` and `1`, so the ordering of any two columns and
+  the stated range both survive it untouched.
+
+Reusing the project's one blending polynomial rather than writing a curve here also keeps
+§5.3's promise: one polynomial, one `FADE_MAX_SLOPE` to keep it in step with, no `pow()`
+and no `cos()` anywhere near a generated world.
+
+The step bound follows directly: `max_step_per_voxel() = FADE_MAX_SLOPE ·
+noise.max_slope01_per_voxel()` = `0.000286`, and `minimum_climate_span_voxels()` — its
+reciprocal, **3495 voxels = 1.75 km** — is the number a design conversation actually wants.
+It is a lower bound on how far apart the coldest and the hottest column can be, and it is
+what makes "you walk into a climate" checkable rather than intended.
+
+### 9.5 What the field measures
+
+Over the same 2304-column sweep §6.6, §7.5 and §8.5 use, in tenths of the range:
+
+| | 0–.1 | .1–.2 | .2–.3 | .3–.4 | .4–.5 | .5–.6 | .6–.7 | .7–.8 | .8–.9 | .9–1 | sd |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| raw layer | 0.3 | 3.7 | 8.1 | 16.3 | 19.0 | 17.9 | 16.6 | 13.0 | 4.3 | 0.8 | 0.181 |
+| `at()` | 7.3 | 7.9 | 11.0 | 10.6 | 10.6 | 9.4 | 10.3 | 11.0 | 11.2 | 10.8 | **0.280** |
+
+A uniform field has a standard deviation of `1/sqrt(12)` = `0.289`, so one application of
+the curve takes the field from visibly peaked to almost flat, and the sweep now spans
+`0.0000 .. 0.9999`. The test pins the property rather than the histogram: **no decile holds
+less than 5% or more than 16% of the world**, which is what brick 066 needs in order for a
+threshold anywhere in the range to select a real share of it.
+
+One application, not two, and no linear stretch first. Both were measured, and both
+overshoot: `fade(fade(x))` puts 20.6% of the world in the bottom decile and 27.0% in the
+top, i.e. a **bimodal** climate with a fifth of the map pinned at each extreme and the
+temperate middle emptied out. Three octaves instead of two also measurably peaks the
+histogram (4.9% in the bottom decile against 7.3%), because a narrower raw distribution
+gives the curve less to work with.
+
+Walking, on a 400 km east–west line at `z = 613` sampled every 50 voxels: the **worst**
+kilometre anywhere on it moves the temperature by `0.301` — a real gradient, comfortably
+inside the derived bound of `0.572` per kilometre — while the line as a whole spans
+`0.011 .. 0.999`. Gentle everywhere, and still a world with both ends in it: that pair is
+the brick.
+
+### 9.6 This is not a generation version bump
+
+§8.7's argument, unchanged. `TemperatureField` adds a new field: it changes no constant, no
+hash and no existing layer, it appends no salt (`SALT_TEMPERATURE` has been in
+`docs/rng.md` §4's list since brick 015 and had no user), and every pinned signature below
+it — `Continentalness`, `ElevationField` `0babd0a337dd7cab`, `ErosionPass`
+`cc4f0f5ecb8fa581`, `TerracePass` `2af464f70e43590a` — is untouched and still asserted. No
+world has ever had a voxel written from any of this. `GENERATION_VERSION` stays where it
+is.
+
+### 9.7 Out of scope for this brick
+
+- **Humidity.** Brick 065. It will want the same shape and probably the same constants, but
+  it gets its own file and its own salt (`SALT_HUMIDITY`), because a second axis that
+  inherited this one's parameters would be a second axis that could not be retuned on its
+  own. If 065 lands identical, factoring the two is 066's call, not a guess made here.
+- **Biome classification and the catalog.** Bricks 066–067. This field says how warm a
+  column is and nothing about what grows there — the same separation §5.5 keeps between
+  continentalness and the coastline.
+- **Biome transition blending.** Brick 074. The field is continuous and `C²`; whether a
+  biome boundary is a blend or a hard line is that brick's decision, and §9.3 says why the
+  reference's hard edge was deliberately not imported.
+- **A lapse rate, and the snowline.** Brick 085, reading this field and a height. See §9.3.
+- **Latitude.** There is none, in the reference or here: climate is a noise field over a
+  flat world, not a band structure. If a world with poles is ever wanted it is a term added
+  to this field with its own brick and its own version bump.
+- **The structure warming pass** (`terrain-climate-blend.md` §3 claim 6). Bricks 089–090.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`.

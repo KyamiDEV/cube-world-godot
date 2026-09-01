@@ -5,8 +5,8 @@
 | Subsystem | `world` |
 | Reference source | `server/world/World.cpp`, `server/GAP_ANALYSIS.md` |
 | Read on | `2026-09-02` |
-| Overall confidence | `MEDIUM` (the noise ladder and its amplitude modulation, claims 1–5, are `HIGH`; the region blend and the post-passes, claims 6–9, are `MEDIUM`/`LOW`) |
-| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `080`, `089`–`090` |
+| Overall confidence | `MEDIUM` (the noise ladder and its amplitude modulation, claims 1–5, are `HIGH`; the region blend and the post-passes, claims 6, 8–9, are `MEDIUM`/`LOW`; claim 7 was **contradicted** by brick 064 and is struck through in §3) |
+| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `064` (claim 7 contradicted, `U2` closed — see `terrain-climate-blend.md`), `080`, `089`–`090` |
 | Godot contract | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `docs/world-generation.md` §6-7 |
 
 ## 1. Scope
@@ -84,11 +84,17 @@ because 061 uses none of them (they belong to bricks 062, 080–083 and 089–09
    Every one of them is a *flattening* term. `MEDIUM` because none of the four helper
    bodies was read.
 
-7. `MEDIUM` — **Climate and height share the same ladder.** The `GAP_ANALYSIS` row calls
-   this a "terrain/biome generator", and the two `0.0001` weight fields are read before
-   anything height-specific happens, which is consistent with the same samples feeding the
-   temperature/humidity blends. Not confirmed: this note did not trace the weights past
-   their use in the height sum.
+7. ~~`MEDIUM`~~ **CONTRADICTED — brick 064.** This claim read: *"Climate and height
+   share the same ladder"* — the `GAP_ANALYSIS` row calls this a "terrain/biome
+   generator", the two `0.0001` weight fields are read before anything height-specific
+   happens, and that looked consistent with the same samples feeding the
+   temperature/humidity blends. It was never confirmed here, and brick 064 read the two
+   blends themselves: they take no `valueNoise2D` sample for the climate value at all,
+   but blend stored per-region values over a nearest-site window
+   (`terrain-climate-blend.md` §3, claims 1 and 7). Climate and height share exactly one
+   thing, the ±768-unit noise that jitters the region sites (claim 5). The claim is kept
+   here struck through rather than deleted, per `confidence.md` §4 — the reasoning that
+   produced it is why `U2` existed.
 
 8. `LOW` — **A per-region entity can lower the terrain around itself.** Past line 4855 the
    function looks up the nearest entity in the region, and if its field at `+0x18` is
@@ -129,7 +135,7 @@ directly (§7).
 | # | Unknown | How it could be resolved | Impact if wrong |
 |---|---|---|---|
 | U1 | Where region heights come from (claim 4) — the values blended are already in the region array when this runs | reading the region-generation writer | None for 061, which uses a noise field instead of region data. It matters for bricks 089–090, which own the region grid |
-| U2 | Whether the two `0.0001` weight fields also drive temperature/humidity (claim 7) | reading `World_temperatureBlend` / `World_humidityBlend` | None for 061. Bricks 064–065 should resolve it before deciding whether climate shares elevation's fields or gets its own |
+| U2 | **(RESOLVED — brick 064)** Whether the two `0.0001` weight fields also drive temperature/humidity (claim 7) | **They do not.** `World_temperatureBlend` and `World_humidityBlend` were read in full (`terrain-climate-blend.md` §2–3): climate is a nearest-region-site blend over stored per-region values and samples none of the height field's weight layers. Claim 7 is contradicted, not merely unconfirmed. Consequence for us: climate gets its **own** `ValueNoise` layer and its own salt, and altitude's effect on temperature stays with brick 085 rather than being baked into the field | None for 061 |
 | U3 | The absolute vertical scale (claim 9) | mapping the original's unit to a metre | None: our vertical anchors are chosen against `WorldBounds` and `WorldScale`, not imported |
 
 ## 8. Deliberate divergences

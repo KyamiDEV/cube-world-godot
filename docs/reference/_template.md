@@ -8,7 +8,7 @@
 | Subsystem | `<world / entity / ai / combat / inventory / quest / ui / net>` |
 | Reference source | `<cube/... and/or server/... paths actually read>` |
 | Read on | `<YYYY-MM-DD>` |
-| Overall confidence | `<HIGH / MEDIUM / LOW>` |
+| Overall confidence | `<HIGH / MEDIUM / LOW — the minimum over load-bearing claims, confidence.md §2>` |
 | Backlog bricks | `<IDs this note informs>` |
 | Godot contract | `<file(s) implementing it, once they exist>` |
 
@@ -18,12 +18,13 @@
 
 ## 2. Sources examined
 
-| Path | What was read | Notes |
-|---|---|---|
-| `server/world/Zone.h` | full | class layout only |
-| `server/world/Zone.cpp` | 3 methods | rest not needed |
+| Path | What was read | Read depth | Notes |
+|---|---|---|---|
+| `server/world/Zone.h` | full | `FULL` | class layout only |
+| `server/world/Zone.cpp` | 3 methods | `PARTIAL` | rest not needed |
 
-<List only what was actually read. "Read the minimum necessary" is auditable here.>
+<List only what was actually read. "Read the minimum necessary" is auditable here.
+Read depth is `FULL` / `PARTIAL` / `GAP-ONLY` / `UNREAD` — see `confidence.md` §1b.>
 
 ## 3. Observed behavior
 

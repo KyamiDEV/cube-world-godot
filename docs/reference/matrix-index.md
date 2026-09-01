@@ -47,3 +47,11 @@ server functions are game code; everything else is SQLite, STL, CRT and FreeType
 Brick 030 builds the index from notes back to bricks. Until then, every matrix row
 carries its brick IDs, and every note carries its `Backlog bricks` field — those two
 fields are what 030 will read.
+
+## Confidence
+
+Brick 029 (`confidence.md`) is the convention every `Confidence` column and `Open
+questions` row in these matrices follows: claim confidence vs. read depth, the
+`GAP_ANALYSIS.md`-only ceiling, and the `(RESOLVED — brick NNN)` lifecycle used
+whenever a question closes (as brick 028 did three times, in `matrix-combat.md`,
+`matrix-items.md`, `matrix-ui.md`).

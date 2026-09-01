@@ -71,8 +71,7 @@ Copy `_template.md` to start one. A note must answer, for the subsystem:
 
 ## 4. Confidence
 
-Every behavioral claim carries a level. Brick 029 refines this convention; the
-baseline required by `CLAUDE.md` §4.5 is:
+Every behavioral claim carries a level, required by `CLAUDE.md` §4.5:
 
 | Level | Means |
 |---|---|
@@ -83,6 +82,12 @@ baseline required by `CLAUDE.md` §4.5 is:
 A `LOW` claim may still be implemented — behavior has to be chosen somehow — but it
 must be marked in the note and be cheap to revise. Never launder a `LOW` claim into a
 `HIGH` one by restating it in a later document.
+
+This is the baseline every note starts from. `confidence.md` (brick 029) is the full
+convention: the separate read-depth axis (`FULL`/`PARTIAL`/`GAP-ONLY`/`UNREAD`), the
+rule that a `GAP_ANALYSIS.md`-only claim cannot be recorded `HIGH`, how "overall
+confidence" is computed for a note, and the open-question resolution lifecycle. Read it
+before recording a claim that isn't a straightforward `HIGH`/`MEDIUM`/`LOW` call.
 
 ## 5. Clean-room discipline (`CLAUDE.md` §16)
 

@@ -29,7 +29,8 @@ Rules for the table:
 - **Binary** is `client`, `server`, or `both`. A class present in both is game-logic
   core and worth more attention than a client-only one.
 - **Confidence** is `HIGH` / `MEDIUM` / `LOW` for the *role claim in this row*, not for
-  the subsystem as a whole.
+  the subsystem as a whole. A row backed only by a `GAP_ANALYSIS.md` one-line summary
+  cannot be `HIGH` unless independently corroborated — see `confidence.md` §3.
 - **Note** links the per-subsystem note once one exists; `—` while the row is only an
   index entry.
 - A class deliberately **not** reimplemented gets a row with `Placed = NONE` and a
@@ -56,7 +57,9 @@ as a data pattern. These are the rows most likely to be missed by a class-by-cla
 ## 4. Open questions
 
 Questions this mapping raised that a later note must answer. Each becomes an
-uncertainty row (`_template.md` §7) in the note that resolves it.
+uncertainty row (`_template.md` §7) in the note that resolves it. When a question is
+resolved, prefix it `(RESOLVED — brick <NNN>)` and rewrite "Resolved by" to state the
+actual answer in place — never delete the row. Full lifecycle: `confidence.md` §5.
 
 | # | Question | Blocks | Resolved by |
 |---|---|---|---|

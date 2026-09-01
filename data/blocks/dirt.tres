@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="BlockDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/terrain/block_definition.gd" id="1_2wml0"]
+
+[resource]
+script = ExtResource("1_2wml0")
+id = "block.dirt"
+display_name = "Dirt"
+texture_top = "res://assets/textures/blocks/dirt.png"
+texture_side = "res://assets/textures/blocks/dirt.png"
+texture_bottom = "res://assets/textures/blocks/dirt.png"
+hardness = 0.75
+footstep_tag = "dirt"

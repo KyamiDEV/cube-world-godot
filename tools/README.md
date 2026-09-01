@@ -5,6 +5,7 @@ Developer tooling that is not shipped game code.
 | Dir | Contents |
 |---|---|
 | `probe/` | headless GDScript probes run via `--script` |
+| `generators/` | headless GDScript content generators run via `--script`; output is committed to `assets/`/`data/`, re-run to regenerate |
 | `scripts/` | PowerShell entry points |
 | `local/` | machine-local overrides (gitignored) |
 
@@ -34,6 +35,12 @@ To point the tools at a different copy of the same build:
 ```powershell
 "D:\godot\godot.windows.editor.double.x86_64.exe" | Set-Content tools\local\godot_path.txt
 ```
+
+## Generators
+
+| Generator | Writes |
+|---|---|
+| `generators/generate_block_set.gd` | `assets/textures/blocks/*.png`, `data/blocks/*.tres` — the default grass/dirt/stone block set (brick 038) |
 
 ## Probes
 

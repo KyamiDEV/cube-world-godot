@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="BlockDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/terrain/block_definition.gd" id="1_fxdu7"]
+
+[resource]
+script = ExtResource("1_fxdu7")
+id = "block.stone"
+display_name = "Stone"
+texture_top = "res://assets/textures/blocks/stone.png"
+texture_side = "res://assets/textures/blocks/stone.png"
+texture_bottom = "res://assets/textures/blocks/stone.png"
+hardness = 3.0
+footstep_tag = "stone"

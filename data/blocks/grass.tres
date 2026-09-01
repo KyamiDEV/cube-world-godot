@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="BlockDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/terrain/block_definition.gd" id="1_wygft"]
+
+[resource]
+script = ExtResource("1_wygft")
+id = "block.grass"
+display_name = "Grass"
+texture_top = "res://assets/textures/blocks/grass_top.png"
+texture_side = "res://assets/textures/blocks/grass_side.png"
+texture_bottom = "res://assets/textures/blocks/dirt.png"
+hardness = 0.5
+footstep_tag = "grass"

@@ -16,17 +16,70 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–037)
+- Phase `C — Voxel infrastructure` — in progress (031–038)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `038 — Create first grass/dirt/stone block set`
+- Next task `039 — Configure VoxelTerrain baseline`
 
 ## Completed bricks
 
-`001`–`037`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`038`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
-property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap).
+property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
+grass/dirt/stone block set).
+
+`038` added the first real, committed content: four placeholder textures under
+`assets/textures/blocks/` (`grass_top.png`, `grass_side.png`, `dirt.png`, `stone.png` —
+16x16, flat base color plus small deterministic per-pixel noise so faces read as a
+material rather than a solid swatch; `grass_side` is dirt with a green fringe on the top
+quarter, the reference grass-block silhouette) and three `BlockDefinition` resources
+under `data/blocks/` (`grass.tres`, `dirt.tres`, `stone.tres`), both written by a new
+one-off headless generator, `tools/generators/generate_block_set.gd` (a new `generators/`
+subdirectory of `tools/`, alongside `probe/` — deterministic content generation run via
+`--script`, output committed and re-generatable, distinct from `probe/`'s "assert
+something about the environment" role). The generator calls `BlockDefinition.validate()`
+and `ResourceSaver.save()` itself, so a bad field value fails the generation step, not a
+later load. Texture/data paths match exactly what `test_block_definition.gd` and
+`test_block_registry.gd` already hardcoded as example fixtures (`grass_top.png`,
+`grass_side.png`, reusing `dirt.png` as grass's bottom face) — those tests never asserted
+the files existed, but the coincidence confirmed the naming scheme before any file was
+written. `hardness` differs per kind (grass 0.5, dirt 0.75, stone 3.0) as a first
+placeholder mining-effort ordering; `drop_item_id` is left empty on all three — no
+`ItemRegistry` exists yet (Phase H), and 035 already made that field optional for exactly
+this reason.
+
+Added `world/terrain/block_set.gd` (`BlockSet`, static `load_default(dir) -> BlockRegistry`)
+— the loader `block_definition.gd`'s own header comment predicted back in 031 ("a loader
+parses `data/blocks/*.tres` ... and hands each one to a `BlockRegistry`"), and the first
+concrete implementation of `docs/ids-and-registries.md`'s generic "a loader parses data
+and calls register()" line. Scans the directory and sorts filenames rather than
+hardcoding the three ids, so a later block kind is purely a new `.tres` data file — no
+loader change. A missing directory, a file that fails to load, a file that isn't a
+`BlockDefinition`, or a definition that fails its own `validate()` is logged and skipped
+rather than failing the whole load, same "one entry missing, not a crash" contract
+`BlockRegistry.register_block()` already uses; the returned registry is always locked,
+even when nothing loaded. No new docs page — this is a direct implementation of an
+existing contract, not a new one, same reasoning 033–036 used.
+
+Running the generator against the real project surfaced one thing worth recording: once
+these PNGs are real, imported `res://` project assets (rather than the runtime-only
+`user://` PNGs `test_blocky_library_builder.gd` synthesizes), loading them with
+`Image.load()` — what `blocky_library_builder.gd` (037) does for every face texture —
+now prints an engine warning, `"Loaded resource as image file, this will not work on
+export"`. Tests still pass (the warning doesn't fail anything headless), but it is a real
+signal that this texture-loading path will not survive an exported build, not just a
+theoretical one — recorded in Known risks below rather than fixed here, since fixing it
+means changing `blocky_library_builder.gd` (037)'s already-tested loading strategy, out
+of this brick's "create a block set" scope.
+
+Tests added in `tests/unit/test_block_set.gd` (5 tests): default load is a locked
+registry with exactly grass/dirt/stone; footstep tags match each kind; every loaded
+definition is individually valid; the default set builds a real `VoxelBlockyLibrary`
+through `BlockyLibraryBuilder` with **no** block degrading to a placeholder (the
+end-to-end check that the real texture assets actually load, not just the synthetic ones
+037's own tests generate); and a missing directory returns an empty, still-locked
+registry rather than null or a crash.
 
 `037` added `world/terrain/blocky_library_builder.gd` (`BlockyLibraryBuilder`, static
 `build(registry: BlockRegistry) -> VoxelBlockyLibrary`) — the first brick that actually
@@ -389,7 +442,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 18 files, 235 tests, 10 084 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 19 files, 240 tests, 10 115 assertions, 0 failed.
 
 ## What exists now
 
@@ -403,6 +456,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 18 files, 235 tests, 10 08
 | Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `is_solid`, `destructible`, `hardness`, `drop_item_id`, `footstep_tag`, `validate()` |
 | Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
+| Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
+| Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -410,14 +465,14 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 18 files, 235 tests, 10 08
 
 ## Next 10 actions
 
-1. `038` first grass/dirt/stone block set — real texture assets (CLAUDE.md §10 batch
-   `bpy` pipeline, or hand-authored placeholders) plus `BlockDefinition` data feeding
-   `BlockRegistry`/`BlockyLibraryBuilder` (037, now DONE). Original Godot/Voxel-Tools
-   engineering; `docs/reference/traceability.md` §4 confirms no matrix cites this range —
-   no reference read needed before starting.
-2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline. Remember
+1. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline, sourcing the block
+   library from `BlockSet.load_default()` (038, now DONE). Remember
    `blocky_library_builder.gd`'s `+1` voxel-value offset (library index = network_index
    + 1, air = 0) wherever raw voxel values are read or written.
+2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
+   (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
+   ("will not work on export") once real imported `res://` PNGs existed to trigger it.
+   Not blocking for editor/headless dev and testing; see Known risks below.
 3. `052`–`055` mesh block size benchmarks; record the measured choice.
 4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
 5. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
@@ -477,6 +532,15 @@ opening the reference tree.
 
 ## Known risks
 
+- `blocky_library_builder.gd` (037) loads block face textures with `Image.load()` on a
+  `res://` path. That bypasses the import pipeline on purpose for runtime-generated
+  textures, but now that brick 038 committed real, imported `res://` PNGs
+  (`assets/textures/blocks/*.png`), Godot warns `"Loaded resource as image file, this
+  will not work on export"`. Harmless for editor/headless dev and the test suite (which
+  is all that exists today), but must be resolved (e.g. load as `Texture2D` via
+  `ResourceLoader`/`load()` and read `get_image()`, falling back to `Image.load()` only
+  for non-project paths) before any exported/packaged build — flagged, not fixed, to keep
+  038 scoped to "create a block set".
 - Decompiled behavior can be ambiguous.
 - Generation determinism can regress accidentally.
 - Networking must be designed before late-stage multiplayer integration.

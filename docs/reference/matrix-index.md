@@ -44,9 +44,10 @@ server functions are game code; everything else is SQLite, STL, CRT and FreeType
 
 ## Traceability
 
-Brick 030 builds the index from notes back to bricks. Until then, every matrix row
-carries its brick IDs, and every note carries its `Backlog bricks` field — those two
-fields are what 030 will read.
+`traceability.md` (brick 030) is the reverse index — backlog brick → matrix row/concept,
+plus a consolidated open-questions-vs-blocked-bricks table. It reads every matrix row's
+brick IDs and (once notes exist) each note's `Backlog bricks` field; update it whenever
+those change.
 
 ## Confidence
 

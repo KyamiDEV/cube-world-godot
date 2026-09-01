@@ -105,5 +105,6 @@ before recording a claim that isn't a straightforward `HIGH`/`MEDIUM`/`LOW` call
 ## 6. Traceability
 
 Each note links the backlog bricks it informs; each brick that consumed a note names
-it. Brick 030 builds the index across all notes — until then, keep the
-`Backlog bricks` field of each note current.
+it. `traceability.md` (brick 030) is the reverse index across all matrices and notes —
+keep the `Backlog bricks` field of each note, and `traceability.md` itself, current as
+notes are added.

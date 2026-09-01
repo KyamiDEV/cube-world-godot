@@ -15,15 +15,27 @@
 
 ## Current phase / milestone / task
 
-- Phase `B — Architecture & reference extraction`
+- Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `030 — Create traceability index from reference notes to backlog`
+- Next task `031 — Create voxel block definition schema` (Phase C starts)
 
 ## Completed bricks
 
-`001`–`029`. Phase A complete; Phase B contracts complete (011–020); reference tree
-mapping (021–028) complete — all 8 matrices done; confidence/uncertainty convention
-(029) formalized.
+`001`–`030`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
+index).
+
+`030` built `docs/reference/traceability.md`: a reverse index from backlog brick → matrix
+row/concept, read off the `Bricks` column of every §1/§2 row across all 8 matrices
+(021–028), organized by backlog phase (D through K — no reference-informed rows exist
+before Phase D). §3 consolidates all 23 open questions from the 8 matrices' §4 sections
+into one table with their `Blocks`/status, mirroring (not replacing) the "Next N actions"
+list below per `confidence.md` §5. §4 records why most of Phase A/C/L have no rows (
+original design, Voxel Tools supersedes the reference's own chunk cache) versus "not yet
+cross-referenced" (an honest gap, not asserted absence). `matrix-index.md` §6 and
+`README.md` §6 now point to it instead of describing the not-yet-built index. No code
+changed — docs-only brick, same as 029; `check.ps1`/`test.ps1` not re-run for this reason,
+last run stays the one recorded below.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
 `Spawn`, `Field`, `Chunk`, `ChunkBuffer`, `LandscapeTile`, `WorldInfo`, `WorldMap`,
@@ -218,26 +230,28 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `030` traceability index from notes to bricks — mapping bricks 021–028 are all `DONE`,
-   confidence convention (029) is done, this is what stitches them together.
-2. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
-3. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
-4. `052`–`055` mesh block size benchmarks; record the measured choice.
-5. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
-6. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
-7. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). (`matrix-items.md` Q1 / `matrix-ui.md` Q2 — `GameController` scoping — is now **resolved**, see brick 028 above: no new matrix or brick.)
-8. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
-9. Before `141`–`144`: resolve `matrix-combat.md` Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread). (`matrix-combat.md` Q1 is now **resolved** by brick 028 — quest-script trigger data, not a network format; bricks 249/251 design combat-event replication fresh, with no reference wire format to draw on.)
-10. Before `206`–`209`: resolve Q1 from `matrix-quests.md` (the unrecovered 11-counter quest-progress score behind `computeQuestScore` — likely resolvable by design decision alone). Q2 (`check_quest_id_match`'s `event type 0x19`) is unaffected by brick 028's Q1 resolution — still open, still relevant before `251`.
-11. Before phase J/K UI bricks (224–231) start: resolve Q1 from `matrix-ui.md` (character creation, main menu/title screen, and merchant/trade dialog have no owning backlog brick yet — a scoping pass may need to insert new bricks).
-12. Before `235`/`236`: optionally resolve Q3 from `matrix-client-server.md` (no connect/login/handshake function was found in either binary — a targeted raw read of `server/net/Server.cpp`, only if reference corroboration is wanted; not required by clean-room policy).
-13. Update this file after every brick.
+1. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
+   Phase C is original Godot/Voxel-Tools engineering; `docs/reference/traceability.md` §4
+   confirms no matrix cites this range — no reference read needed before starting.
+2. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
+3. `052`–`055` mesh block size benchmarks; record the measured choice.
+4. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
+5. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
+6. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). (`matrix-items.md` Q1 / `matrix-ui.md` Q2 — `GameController` scoping — is now **resolved**, see brick 028 above: no new matrix or brick.)
+7. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
+8. Before `141`–`144`: resolve `matrix-combat.md` Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread). (`matrix-combat.md` Q1 is now **resolved** by brick 028 — quest-script trigger data, not a network format; bricks 249/251 design combat-event replication fresh, with no reference wire format to draw on.)
+9. Before `206`–`209`: resolve Q1 from `matrix-quests.md` (the unrecovered 11-counter quest-progress score behind `computeQuestScore` — likely resolvable by design decision alone). Q2 (`check_quest_id_match`'s `event type 0x19`) is unaffected by brick 028's Q1 resolution — still open, still relevant before `251`.
+10. Before phase J/K UI bricks (224–231) start: resolve Q1 from `matrix-ui.md` (character creation, main menu/title screen, and merchant/trade dialog have no owning backlog brick yet — a scoping pass may need to insert new bricks).
+11. Before `235`/`236`: optionally resolve Q3 from `matrix-client-server.md` (no connect/login/handshake function was found in either binary — a targeted raw read of `server/net/Server.cpp`, only if reference corroboration is wanted; not required by clean-room policy).
+12. Update this file after every brick.
 
 ## Working set
 
 At session start read `CLAUDE.md`, then this file, then only the active backlog row, its
-dependency rows, and the files the task names. For 021+ also read
-`docs/reference/README.md` and `matrix-index.md` before opening the reference tree.
+dependency rows, and the files the task names. For a brick appearing in
+`docs/reference/traceability.md` §2, also read the cited matrix section before designing
+against it. For 021+ also read `docs/reference/README.md` and `matrix-index.md` before
+opening the reference tree.
 
 ## Human test state
 

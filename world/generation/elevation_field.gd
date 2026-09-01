@@ -152,8 +152,7 @@ static func for_world(p_hash: GenerationHash) -> ElevationField:
 ## business, and the blocky quantisation the world will actually show is brick 063.
 func at(column: Vector2i) -> float:
 	var shore := shore_weight(_continentalness.at(column))
-	return (lerpf(OCEAN_FLOOR_VOXELS, LAND_BASE_VOXELS, shore)
-			+ relief_amplitude_for(shore) * _relief.value01(column))
+	return base_for(shore) + relief_amplitude_for(shore) * _relief.value01(column)
 
 
 ## The same height, asked at a voxel: Y is dropped, exactly as `Continentalness.at_voxel()`
@@ -189,7 +188,7 @@ func shore_at(column: Vector2i) -> float:
 ## The height the ground would stand at with no relief, in voxels. Monotone in
 ## continentalness, and the floor `at()` can never go below at that column.
 func base_at(column: Vector2i) -> float:
-	return lerpf(OCEAN_FLOOR_VOXELS, LAND_BASE_VOXELS, shore_at(column))
+	return base_for(shore_at(column))
 
 
 ## How much relief this column may carry above its base, in voxels.
@@ -217,6 +216,17 @@ func relief_at(column: Vector2i) -> float:
 ## building a field.
 static func shore_weight(continental: float) -> float:
 	return ValueNoise.fade(clampf((continental - SHORE_LOW) / SHORE_WIDTH, 0.0, 1.0))
+
+
+## The base height for a shore weight, in voxels: the height the ground would stand at
+## with no relief at all.
+##
+## Static, and separate from `base_at()`, for `relief_amplitude_for()`'s reason and one
+## more: brick 062's shaping pass recomposes `base + amplitude * shaped_relief` from a
+## shore weight it has already paid for, and a second `lerpf` written out at the call site
+## would be a second place the vertical anchors live.
+static func base_for(shore: float) -> float:
+	return lerpf(OCEAN_FLOOR_VOXELS, LAND_BASE_VOXELS, shore)
 
 
 ## Relief amplitude for a shore weight, in voxels: fully seaward columns get

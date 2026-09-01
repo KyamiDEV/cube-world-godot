@@ -6,8 +6,8 @@
 | Reference source | `server/world/World.cpp`, `server/GAP_ANALYSIS.md` |
 | Read on | `2026-09-02` |
 | Overall confidence | `MEDIUM` (the noise ladder and its amplitude modulation, claims 1–5, are `HIGH`; the region blend and the post-passes, claims 6–9, are `MEDIUM`/`LOW`) |
-| Backlog bricks | `061` (written for), `062`–`063`, `080`, `089`–`090` |
-| Godot contract | `world/generation/elevation_field.gd`, `docs/world-generation.md` §6 |
+| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `080`, `089`–`090` |
+| Godot contract | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `docs/world-generation.md` §6-7 |
 
 ## 1. Scope
 
@@ -139,9 +139,9 @@ directly (§7).
 | decade-spaced frequencies with per-call amplitudes (claim 1) | one `ValueNoise` layer, `cell_size = 1024`, 6 octaves, `gain = 0.5` | Powers of two are a determinism requirement for us, not a taste: `terrain-value-noise.md` §9 — an exact lattice and an exact interpolation weight. A call-site ladder also cannot state its own range or its own slope bound, and the range is what `GenerationFixtures.range_reason()` checks and the bound is what makes "coherent" a claim rather than a hope |
 | the base is blended from region-array heights (claim 4) | the base is `lerp(OCEAN_FLOOR, LAND_BASE, shore_weight(continentalness))` | Their base is world *state*; ours has to be a pure function of `(seed, column)` (`docs/rng.md` §2), because our server and client both generate. A noise-derived base also needs no region pass to exist first, which is what lets 061 land before 089 |
 | land/ocean comes from the fraction of nearby regions with positive height (claim 4) | `Continentalness` (060), a field | Same reason. Theirs is quantised to a 16384-unit lattice and smoothed by the blend; ours is coherent at every scale by construction |
-| each relief tier modulated by its own squared weight field (claim 3) | one amplitude, blended by the shore weight only | Scope: a per-place ruggedness field is a *shaping* decision, and brick 062 owns shaping. Recorded here as the mechanism 062 should reach for first — including the squaring, which is the part that makes flat the default |
+| each relief tier modulated by its own squared weight field (claim 3) | **kept**, once, by brick 062: one `ValueNoise` weight layer strictly coarser than every relief octave, remapped to `[0, 1]` and squared over a floor (`ErosionPass.ruggedness_weight()`) | Kept because the squaring is what makes flat the default and rugged the exception, which is the finding worth having. Once rather than per tier, because our relief is one fBm layer with a stated range and a stated slope bound (row 1) rather than a call-site ladder — there are no separate tiers to weight separately. Floored at `0.1` because `w²` reaching zero is a mathematical plane, which their per-tier sum never produces. Brick 061 modulated by the shore weight alone and left this here (`docs/world-generation.md` §6.7, §7.2) |
 | relief is additive-upward (claim 2) | **kept** | The one shape decision this note changed in our implementation. It makes the base a genuine floor, so an ocean floor cannot be turned into a mountain by a noise sample, and it gives `MINIMUM_VOXELS` an exact value instead of a bound |
-| four flattening post-passes (claim 6) | none yet | Rivers, roads, water depth and structure flattening are bricks 062, 080–083 and 089–090. The *shape* of the finding — that they all multiply relief toward the base and never add to it — is the part worth keeping when those bricks arrive |
+| four flattening post-passes (claim 6) | none of the four; their *shape* is now the contract of `ErosionPass` | Rivers, roads, water depth and structure flattening are bricks 080–083 and 089–090. Brick 062 kept what was worth keeping from `INV-2` — that a post-pass multiplies relief toward the base and never adds to it — as the invariant `base_at <= at <= unshaped_at`, asserted per column. Those later bricks join the same product as further `[0, 1]` factors rather than rewriting the composition (`docs/world-generation.md` §7.1) |
 
 ## 9. Tests
 
@@ -151,6 +151,9 @@ directly (§7).
 | the height stays inside a stated closed range, and the range has headroom inside `WorldBounds` | `tests/unit/test_elevation_field.gd` (through `GenerationFixtures.range_reason()`, plus the headroom assertion) |
 | the field is a pure function of `(seed, column)` — the divergence from claim 4 | `tests/unit/test_elevation_field.gd` (through `GenerationFixtures.determinism_reason()` / `seed_sensitivity_reason()`) |
 | a coarser field places the finer detail (the surviving half of claim 3) | `tests/unit/test_elevation_field.gd::test_the_deep_ocean_is_calmer_than_the_interior` |
+| a coarser field places the finer detail, by the original's own squared weight (claim 3) | `tests/unit/test_erosion_pass.gd::test_the_world_now_has_both_plains_and_rugged_ground`, `::test_the_flattest_ground_is_flatter_than_the_most_rugged` |
+| a post-pass scales relief toward the base and never away from it (`INV-2`) | `tests/unit/test_erosion_pass.gd::test_the_pass_lowers_the_ground_and_never_raises_it` |
+| the flattening removes real height without deleting the extremes | `tests/unit/test_erosion_pass.gd::test_the_pass_removes_real_height`, `::test_the_shaped_world_still_spans_sea_floor_and_high_ground` |
 | the ground is walkable — a bounded step per voxel, asserted against a derived bound | `tests/unit/test_elevation_field.gd::test_a_kilometre_of_walking_is_walkable`, with `test_the_step_bound_is_a_real_constraint` proving the check can fail |
 
 Nothing here needs a human playtest yet. Whether the resulting landscape *reads* as Cube

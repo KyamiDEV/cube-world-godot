@@ -711,3 +711,156 @@ determinism check while failing.
   it rather than assume.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`; the surface a column's height
   lands on is the generator's business.
+
+## 7. The erosion / shape pass (brick 062)
+
+Implementation: `world/generation/erosion_pass.gd` (`ErosionPass`).
+Tests: `tests/unit/test_erosion_pass.gd`.
+Reference: `docs/reference/terrain-base-height-field.md` §3 claim 3, §8.
+
+§6 gives every column the same relief budget once its shore weight is known: a landward
+column always carries the full `RELIEF_AMPLITUDE_VOXELS`. That is a world where every
+stretch of land is equally hilly — no plains to cross, and no ranges to stand out against
+them. This pass decides **where** the ground may be rugged, and **what shape** the
+surviving relief takes.
+
+### 7.1 It is a pass, not a second field
+
+```text
+base_at(column) <= at(column) <= elevation().at(column)
+```
+
+Every term multiplies relief by something in `[0, 1]`; nothing touches the base. That is
+exactly the shape of all four of the original's own post-passes — a river/climate gate, a
+road field, a water-depth field and a structure falloff, each of which scales relief
+*toward* the base and never away from it (`terrain-base-height-field.md` §3 claim 6,
+`INV-2`).
+
+Three consequences worth stating, because they are why the brick is built this way:
+
+1. **The range is inherited, not restated.** `MINIMUM_VOXELS`/`MAXIMUM_VOXELS` are §6's,
+   and both ends stay reachable — the minimum at a column with no relief, the maximum at
+   full ruggedness on a landward relief peak. So it is still a closed range, and the
+   `WorldBounds` headroom argument of §6.2 carries over unchanged.
+2. **Bricks 080–083 and 089–090 join the same product.** Rivers, roads and structure
+   flattening are more factors, not a rewrite of the composition.
+3. **061 stays readable on its own.** `unshaped_at()` is the height before shaping, which
+   is what makes "the pass only lowers" a thing a test can check rather than a claim.
+
+### 7.2 The two terms
+
+```text
+shore  = elevation.shore_at(column)                          # [0, 1], sampled once
+relief = ruggedness(column) · valley_shaped(relief01(column))
+height = base_for(shore) + relief_amplitude_for(shore) · relief
+```
+
+| Term | Answers | Curve |
+|---|---|---|
+| **ruggedness** | *where* the ground may be rugged | `RUGGEDNESS_FLOOR + (1 − FLOOR)·w²`, `w` a `ValueNoise` layer in `[0, 1]` |
+| **valley bias** | *what shape* the surviving relief takes | `lerp(r, r², VALLEY_BIAS)` |
+
+| Constant | Value | Why |
+|---|---|---|
+| `RUGGEDNESS_CELL_SIZE_VOXELS` | `8192` = 4096 m | eight regions, i.e. 8 × §6's relief cell. The original's weight field sits one *decade* coarser than the tier it modulates; a decade is not available to us (powers of two only, §5.2), so this is the nearest one |
+| `RUGGEDNESS_OCTAVES` | `3` | finest cell `2048` voxels — see §7.3 |
+| `RUGGEDNESS_GAIN` | `0.5` | the conventional half |
+| `RUGGEDNESS_FLOOR` | `0.1` | what the flattest ground in the world keeps: 12.8 voxels = 6.4 m of roll. Not zero — `w²` at zero is a mathematical plane, and a plane is not a plain |
+| `VALLEY_BIAS` | `0.5` | half-way to a full squaring of the relief |
+| salt | `WorldHash.SALT_RUGGEDNESS` (`11`, appended) | a weight field sharing the relief's salt would place mountains exactly where the relief already peaks, which is not a decision |
+
+**The squaring is the mechanism, and it is the original's.** Its weight fields are each
+remapped to `[0, 1]` as `(n + 1)·0.5` and then multiplied by themselves (claim 3): `w²`
+puts most of its mass near zero, so **flat is the default and rugged is the exception**.
+That is the half of claim 3 brick 061 deliberately left here (§6.7). Measured over the
+sweep of §7.5, the mean ruggedness weight is `0.342` against a `[0.1, 1]` midpoint of
+`0.55` — the `1/3` the reference note predicts for a squared uniform weight, shifted by
+the floor.
+
+**The valley bias is why the pass is called erosion rather than modulation.**
+`lerp(r, r², k)` has fixed points at `0` and `1` and is strictly below `r` in between, so
+it lowers slopes without moving either the valley floor or the ridge line: material comes
+off the hillsides, and the stated range survives untouched.
+
+Both curves are integer powers written as multiplications, never `pow()`. Same argument
+§5.3 makes about `cos`: `pow` is a libm entry point with no bit-exactness guarantee, both
+server and client generate from the same seed, and a last-bit disagreement about a
+hillside is a disagreement about where the ground is.
+
+### 7.3 A weight field is coarser than what it weights
+
+`RUGGEDNESS_OCTAVES = 3` puts the finest ruggedness cell at `8192 >> 2` = 2048 voxels,
+**twice** the coarsest relief cell (1024). Every scale this field carries is therefore
+coarser than every scale it modulates, which is the property the octave count is chosen
+for: a weight octave finer than a relief octave stops *placing* relief and starts *being*
+relief — with the amplitude of a multiplier and no slope bound of its own. The test
+asserts the inequality rather than the octave count alone.
+
+The scale ladder across the three fields is now, coarsest first:
+
+| Field | Cells | Carries |
+|---|---|---|
+| `Continentalness` | 8192 → 1024 | land and ocean |
+| `ErosionPass` ruggedness | 8192 → 2048 | where relief is allowed |
+| `ElevationField` relief | 1024 → 32 | the hills themselves |
+
+Ruggedness overlaps continentalness deliberately — a mountain range and a landmass are the
+same size of thing — and it is a different field because it has a different salt.
+
+### 7.4 The step bound, and an honest note about it
+
+`max_step_per_voxel()` is derived before any sample is taken, like §5.4's and §6.5's:
+
+```text
+|dh/dx| <= (|LAND_BASE − OCEAN_FLOOR| + RELIEF_AMPLITUDE·(1 − RELIEF_OCEAN_SCALE))
+           · shore_max_slope() · |dc/dx|                       # the coast, as in §6.5
+         + RELIEF_AMPLITUDE · ( 2·(1 − RUGGEDNESS_FLOOR)·|dw/dx|
+                              + (1 + VALLEY_BIAS)·|dr/dx| )    # the hillside
+```
+
+which comes to **2.627 voxels per voxel**, against §6.5's `2.179`. The bound went **up**
+while every height went **down**, and that is not a mistake: `v'(r) = (1 − k) + 2kr` peaks
+at `1 + k` on a ridge line, so the valley bias multiplies the relief's own slope by up to
+`1.5` where the relief is highest. **This pass lowers ground but can locally steepen it.**
+Steeper hillsides are the point of an erosion pass; the bound is what keeps "steeper" from
+quietly becoming "a cliff", and `test_the_step_bound_is_a_real_constraint` runs the same
+check over raw `GenerationHash` values to prove the assertion can fail.
+
+### 7.5 What the pass measures
+
+Over the same 2304-column sweep §5.5 and §6.6 use, for the `typed` world:
+
+| | before (§6.6) | after |
+|---|---:|---:|
+| lowest | `−93.2` | `−95.7` |
+| highest | `+180.5` | `+148.6` |
+| mean | `+24.3` | `−5.1` |
+| columns above the datum | 53.1% | 49.8% |
+
+It removes `29.4` voxels of ground from the average column and `89.2` from the column it
+flattens hardest, and the extremes survive it — the sweep still reaches an ocean basin and
+still reaches high ground, which is the property a flattening pass can satisfy every
+invariant above while destroying. A kilometre walk across the origin now measures a
+largest step of `0.076` voxels and 39.9 voxels of climb (was `0.231` and 95): that
+particular line runs over ground the ruggedness field decided is a plain, which is the
+pass working rather than a regression.
+
+The mean dropping below the datum is expected and is **not** a statement about sea level:
+`y = 0` is a datum (§6.1), the land fraction is brick 080's decision, and 080 now has a
+world where the ground under the waterline it picks is genuinely varied.
+
+### 7.6 Out of scope for this brick
+
+- **Sea level and water.** Still brick 080, and now with §7.5's distribution to choose
+  against.
+- **Rivers, roads, structure flattening.** Bricks 080–083, 089–090. They join §7.1's
+  product as further `[0, 1]` factors; the invariant is written so they can.
+- **Terracing.** Brick 063, which reads *this* pass rather than 061 — the terraces should
+  follow eroded ground, and `at()` stays continuous on purpose.
+- **Ruggedness as a biome input.** Brick 066 may want `ruggedness_noise_at()`; the accessor
+  is public and unsquared for that, but no biome decision is made here.
+- **A hydraulic or thermal erosion simulation.** Both need neighbour context and iteration
+  over a whole region, which is `VoxelGeneratorMultipassCB` territory and a different
+  brick's problem. Every term here is a pure function of one column, as `docs/rng.md` §2
+  requires of a field both the server and the client generate.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`.

@@ -22,20 +22,23 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–061 done, 062–090 open)
-- Next task `062 — Create erosion/shape pass` (dep: 061 — DONE). **The world now has
-  generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the
-  pinned constants in `Continentalness` or `ElevationField` is a generation version bump
-  (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free fix. Both free fixes
-  were taken (058, 059). 062's starting point is written down: the original modulates each
-  relief tier by a separate **squared** noise weight field one decade coarser
-  (`docs/reference/terrain-base-height-field.md` §3 claim 3, `docs/world-generation.md`
-  §6.7), and the squaring is the part that makes flat the default. `063 — terrace/block-
-  world shaping` is unblocked in parallel (dep 061 only).
+- Phase `D — World generation` — **IN PROGRESS** (056–062 done, 063–090 open)
+- Next task `063 — Create terrace/block-world shaping pass` (dep: 061 — DONE). **The world
+  now has generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or
+  the pinned constants in `Continentalness`, `ElevationField` or `ErosionPass` is a
+  generation version bump (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free
+  fix. Both free fixes were taken (058, 059). **063 should read `ErosionPass`, not
+  `ElevationField`** — its backlog dependency row predates 062, but terraces have to follow
+  eroded ground or the pass underneath them is invisible (`docs/world-generation.md` §7.6).
+  Its sizing constraint is already pinned: 061 chose 6 relief octaves so the finest relief
+  cell (32 voxels = 16 m) is **four times** the terrace height 063 quantises to, i.e. a
+  terrace of about 8 voxels = 4 m (§6.4). `064 — temperature field` is now unblocked too
+  (dep 062), and it owes an answer to `terrain-base-height-field.md` `U2`: whether climate
+  reuses `ErosionPass`' ruggedness weight field or gets its own.
 
 ## Completed bricks
 
-`001`–`061`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`062`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -50,7 +53,81 @@ size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decisio
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
-layer, 061 elevation field.
+layer, 061 elevation field, 062 erosion/shape pass.
+
+`062` is the first brick that is a **pass** rather than a field:
+`world/generation/erosion_pass.gd` (`ErosionPass`), one new file, one appended
+`WorldHash.SALT_RUGGEDNESS = 11`, and a three-line pure refactor of `elevation_field.gd`
+(`base_for(shore)` extracted next to the existing `relief_amplitude_for(shore)`, output
+bit-identical — **not** a version bump; 061's pinned signature `0babd0a337dd7cab` is
+unchanged and still asserted).
+
+The problem it fixes: 061 gives every landward column the *same* relief budget, so every
+stretch of land was equally hilly — no plains, and no ranges to stand out against them.
+`ErosionPass` takes 061's terms apart and puts them back with the relief scaled down:
+
+```text
+shore  = elevation.shore_at(column)                          # one continentalness sample
+relief = ruggedness(column) · valley_shaped(relief01(column)) # both in [0, 1]
+height = base_for(shore) + relief_amplitude_for(shore) · relief
+```
+
+Five decisions worth keeping:
+
+1. **It is a pass, and the invariant says so:** `base_at <= at <= unshaped_at`. Every term
+   multiplies relief by something in `[0, 1]`; nothing touches the base. That is the shape
+   of all four of the original's own post-passes (`terrain-base-height-field.md` `INV-2`),
+   and it buys three things — the range is *inherited* from 061 rather than restated (both
+   ends still reachable, so still a closed range), rivers/roads/structure flattening
+   (080–083, 089–090) join the same product instead of rewriting it, and "the pass only
+   lowers" is a per-column assertion rather than a claim.
+2. **The squaring is the mechanism, and it is the original's** — the half of claim 3 that
+   061 deliberately left here. `ruggedness_weight(w) = FLOOR + (1 − FLOOR)·w²` places
+   relief before it is detailed; `w²` puts most of its mass near zero, so **flat is the
+   default and rugged is the exception**. Measured mean weight `0.342` against a
+   `[0.1, 1]` midpoint of `0.55` — the `1/3` the reference note predicts, shifted by the
+   floor. `RUGGEDNESS_FLOOR = 0.1` because `w²` reaching zero is a mathematical plane, and
+   a plane is not a plain (12.8 voxels = 6.4 m of roll on the flattest ground).
+3. **A weight field must be coarser than what it weights.** Cell `8192` (8 regions —
+   powers of two are the nearest thing we have to the original's decade), 3 octaves, so
+   the *finest* ruggedness cell (2048) is twice the *coarsest* relief cell (1024). A
+   weight octave finer than a relief octave stops placing relief and starts being relief,
+   with a multiplier's amplitude and no slope bound of its own. The test asserts the
+   inequality, not the octave count.
+4. **`valley_shaped(r) = lerp(r, r², 0.5)` is the "erosion" half of the brick title** —
+   fixed points at `0` and `1`, strictly below in between, so material comes off the
+   hillsides while the valley floor and the ridge line stay where 061 put them and the
+   stated range survives untouched. Both curves are integer powers written as
+   multiplications, **never `pow()`**: §5.3's `cos` argument, unchanged — libm is not
+   bit-reproducible and both sides generate.
+5. **`max_step_per_voxel()` went up, from 2.179 to 2.627, while every height went down.**
+   Not a mistake: `v'(r) = (1 − k) + 2kr` peaks at `1 + k` on a ridge line, so the valley
+   bias multiplies the relief's own slope by up to 1.5 where relief is highest. **The pass
+   lowers ground but can locally steepen it** — which is the point of an erosion pass, and
+   the bound is what keeps "steeper" from becoming "a cliff". Stated plainly in the code
+   and in `docs/world-generation.md` §7.4 rather than left for someone to rediscover.
+
+Measured over the same 2304-column sweep 060/061 used: lowest `−95.7` (was `−93.2`),
+highest `+148.6` (was `+180.5`), mean `−5.1` (was `+24.3`), 49.8% of columns above the
+datum (was 53.1%). It removes `29.4` voxels from the average column and `89.2` from the
+one it flattens hardest, and the extremes survive — the sweep still reaches both an ocean
+basin and high ground. The mean falling below the datum is **not** a statement about sea
+level: `y = 0` is a datum, the land fraction is still 080's decision, and 080 now gets a
+world whose ground under the waterline is genuinely varied.
+
+**Reference read**: none new. 062 is the implementation of a finding 061 already recorded
+(`terrain-base-height-field.md` §3 claim 3 and §8's fourth divergence row), so the note was
+*updated* rather than re-read: claim 3's row now reads **kept, once, by 062** with the
+reasons it is one weight layer and not three; claim 6's row records that `INV-2` became
+this pass's contract; §9 gains three test rows; the header's brick and Godot-contract rows
+now name `erosion_pass.gd` and §7. `traceability.md` §2's `061–063` row cites the new file.
+
+Docs: `docs/world-generation.md` §7 (new, six subsections);
+`docs/reference/terrain-base-height-field.md` updated as above; `traceability.md` §2.
+
+Tests: `tests/unit/test_erosion_pass.gd` (new, 23 tests, 19 672 assertions) pinning a
+golden `signature()` (`cc4f0f5ecb8fa581`). Full suite: `files=39 tests=472
+assertions=31149 failed=0`. `check.ps1` OK (81 scripts).
 
 `061` is the first field that answers a question about **terrain** rather than about the
 world map: `world/generation/elevation_field.gd` (`ElevationField`), one new file plus a
@@ -1544,7 +1621,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **OK** — 31 files, 324 tests, 10 393 assertions, 0 failed.
+Last run (brick 062): `check.ps1` **OK** (81 scripts compiled) · `test.ps1` **OK** — 39 files, 472 tests, 31 149 assertions, 0 failed.
 
 ## What exists now
 
@@ -1577,6 +1654,8 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 | Generation | `world/generation/generation_hash.gd` | `GenerationHash.for_world(world_seed)`: positional hashing bound to one world — refuses a seed this build cannot reproduce (once, not per call), tags every coordinate space so two grids carrying the same numbers are different places, and exposes `hash_*`/`value01_*`/`chance_*`/`rng_*` per space. The generation version is deliberately *not* mixed into the hash (058, `docs/world-generation.md` §3.2-3.3) |
 | Generation | `world/generation/value_noise.gd` | `ValueNoise.layer(hash, cell_size, octaves, gain, salt)`: the coherent-noise primitive every Phase D field stands on — lattice value noise over `GenerationHash`, integer voxel lattice with `floor_div`, quintic fade (never `cos`: libm is not bit-reproducible and both sides generate), octaves separated by a lattice offset, `value()` `[-1, 1]` / `value01()` `[0, 1]`, and a derived `max_slope_per_voxel()` the tests walk the real field against (060, `docs/world-generation.md` §5.2-5.4) |
 | Generation | `world/generation/continentalness.gd` | `Continentalness.for_world(hash)`: the macro land/ocean field and the first thing this project generates — `at(column)` in `[0, 1]`, pinned at 8192-voxel (4096 m) cells, 4 octaves (finest = one region), gain 0.5, `SALT_CONTINENTALNESS`. Decides nothing: sea level is 080, height is 061 (060, `docs/world-generation.md` §5.5) |
+| Generation | `world/generation/elevation_field.gd` | `ElevationField.for_world(hash)`: signed ground height in voxels from the datum `y = 0` — `base_for(shore) + relief_amplitude_for(shore) * relief01(column)`, range `[-96, +192]`. Relief is **additive-upward**, so the base is a genuine floor. Shore band `[0.42, 0.58]` through `ValueNoise.fade()`; relief layer cell 1024 (exactly where `Continentalness` stops), 6 octaves, `SALT_ELEVATION`. `base_at`/`relief_amplitude_at`/`relief_at` are the terms 062 and 063 recompose (061, `docs/world-generation.md` §6) |
+| Generation | `world/generation/erosion_pass.gd` | `ErosionPass.for_world(hash)`: the shaping pass over `ElevationField` — `base <= at <= unshaped_at`, always. Two `[0, 1]` flattening factors on relief and none on the base: a **squared** ruggedness weight (cell 8192, 3 octaves, `SALT_RUGGEDNESS`, floored at 0.1) deciding *where* ground may be rugged, and `valley_shaped(r) = lerp(r, r², 0.5)` deciding *what shape* survives. Inherits 061's range; step bound rises to 2.627 because the valley bias steepens ridges while lowering everything (062, `docs/world-generation.md` §7) |
 | Tests | `tests/fixtures/generation_fixtures.gd` | `GenerationFixtures`: the shared determinism floor every Phase D pass is tested against — four pinned named worlds, five coordinate sample lists (chosen for negatives, cell boundaries, `WorldBounds` corners), `determinism_reason()`/`seed_sensitivity_reason()` (factory-taking, so a visit-order-dependent pass cannot hide), `range_reason()`/`variation_reason()`, `signature()` for golden pinning, `self_check()` (059, `docs/world-generation.md` §4) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -1588,25 +1667,31 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 
 ## Next 10 actions
 
-1. `061` create the elevation field (next task) — deps 058 (DONE), 060 (DONE). **The
-   version window is now closed**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`
-   or `Continentalness`'s constants moves ground and is a **generation version bump**
+1. `063` create the terrace/block-world shaping pass (next task) — dep 061 (DONE), and in
+   practice 062 (DONE). **Read `ErosionPass`, not `ElevationField`**: the backlog
+   dependency row predates 062, and terraces laid over unshaped ground would make the
+   erosion pass invisible (`docs/world-generation.md` §7.6). The sizing constraint is
+   already pinned by 061: the finest relief cell is 32 voxels = 16 m, chosen to be **four
+   times** the terrace height, i.e. quantise to roughly 8 voxels = 4 m (§6.4) — a coarser
+   terrace rounds 061's finest octave away entirely. The version window stays closed: a
+   change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned constants in
+   `Continentalness`/`ElevationField`/`ErosionPass` is a **generation version bump**
    (`docs/rng.md` §3, `docs/world-generation.md` §2.1), so 057's `GenerationVersion`
-   checklist (§2.5) is live from here on. What 060 already fixed, and 061 should reuse
-   rather than re-invent: build the field on `ValueNoise.layer(...)` with **one new
-   appended `WorldHash.SALT_*`** (`SALT_ELEVATION` is already reserved as `1`) and pinned
-   constants, sample through `GenerationHash` at **column** space, state a closed range and
-   assert it with `range_reason()`, and test through `GenerationFixtures` +
-   one pinned `signature()` + a slope-bound walk, not hand-written coordinate checks.
-   `traceability.md` §2's `061` rows cite `matrix-world.md` §1 (`cube::Region`, MEDIUM),
-   §2 (terrain noise/height/climate fields, MEDIUM), `region-coordinate-hashing.md` and now
-   `terrain-value-noise.md` — read those before designing, per §1's rule. Two open design
-   questions 061 has to answer and 060 deliberately left alone: how continentalness maps to
-   a height (the redistribution curve / land-fraction decision — 060's field is the raw
-   macro shape), and what vertical range a height may occupy inside `WorldBounds`'
-   ±2048 voxels. Still open and carried forward from Phase C: no `.tscn` exists, and no
+   checklist (§2.5) applies. Reuse rather than re-invent, as 060–062 all did: pinned
+   constants (never arguments), **one new appended `WorldHash.SALT_*`** if a new field is
+   needed at all — a terrace probably needs none, since quantisation is a function of a
+   height it is handed — a stated closed range asserted with `range_reason()`, and testing
+   through `GenerationFixtures` + one pinned `signature()`, not hand-written coordinate
+   checks. Note that 063 is the first pass whose output is **deliberately discontinuous**,
+   so `max_step_per_voxel()` cannot carry over unchanged: state what replaces it (a maximum
+   *riser* height) rather than dropping the bound silently. `064` (temperature, dep 062) is
+   unblocked in parallel and owes an answer to `terrain-base-height-field.md` `U2` —
+   whether climate reuses `ErosionPass`' ruggedness weight field or gets its own.
+   `traceability.md` §2's `061–063` row cites `terrain-base-height-field.md`,
+   `terrain-value-noise.md` and `matrix-world.md` §1/§2 — read those before designing, per
+   §1's rule. Still open and carried forward from Phase C: no `.tscn` exists, and no
    player/camera to raycast from or to parent the 042 `VoxelViewer` under — a Phase F
-   question (039's nextsteps entry, carried by 042–060). The
+   question (039's nextsteps entry, carried by 042–062). The
    `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
    Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
    stays empty until something is expensive enough to measure.

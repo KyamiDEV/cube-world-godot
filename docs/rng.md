@@ -79,7 +79,10 @@ both times to close the *same* mirror world and both times before any world exis
   even, so half of all (seed, salt) pairs were still mirrored. Fixed by adding an odd
   constant after each fold (`docs/world-generation.md` §4.6).
 
-The same change made after brick 060 is a version bump, not a fix. Note what the second
+**Brick 060 has landed**, so the window is closed: the world now has generated content
+(`world/generation/value_noise.gd`, `world/generation/continentalness.gd`,
+`docs/world-generation.md` §5), and a third change to this arithmetic is a version bump,
+not a fix. Note what the second
 one cost to find: 058's regression test used one seed and salt 0, an odd effective seed,
 where the identity does not hold. A hash regression test sweeps **both parities** of
 `seed * 31 + salt`.
@@ -98,6 +101,13 @@ where the identity does not hold. A hash regression test sweeps **both parities*
   that shares its salt (brick 058, `docs/world-generation.md` §3.2). Tag values follow
   the same append-never-renumber rule as salts, and a salt must stay below
   `GenerationHash.SPACE_SALT_STRIDE`.
+- **Octaves inside one pass are separated by a lattice offset, not by a salt.** A layered
+  field (`ValueNoise`, brick 060) needs its layers decorrelated too, and `salt + octave`
+  is not the way: salts are one per pass and adding to one walks into the next pass's.
+  Each octave shifts its *lattice coordinate* by a fixed step instead, reading a different
+  part of the same hash field. Without it every octave samples lattice `(0, 0)` at the
+  world origin and agrees there (`docs/world-generation.md` §5.2). The step value is baked
+  into every world made with it, so it follows the same never-change rule as a salt.
 - **Forks** separate consumers of a sequential stream. `rng.derive(salt)` or
   `derive_named("loot")` gives a subsystem its own stream, so a change in how many
   values one system draws cannot shift another system's results. Sharing one stream

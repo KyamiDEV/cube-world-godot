@@ -19,14 +19,15 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–059 done, 060–090 open)
-- Next task `060 — Create continentalness/noise layer` (deps: 059 — DONE). **The first
-  brick that generates anything**: from here on, a change to `WorldHash` or
-  `GenerationHash` is a generation version bump (`docs/rng.md` §3), not a free fix.
+- Phase `D — World generation` — **IN PROGRESS** (056–060 done, 061–090 open)
+- Next task `061 — Create elevation field` (deps: 058 — DONE, 060 — DONE). **The world now
+  has generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise` or
+  `Continentalness`'s pinned constants is a generation version bump (`docs/rng.md` §3,
+  `docs/world-generation.md` §2.1), not a free fix. Both free fixes were taken (058, 059).
 
 ## Completed bricks
 
-`001`–`059`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`060`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -40,7 +41,97 @@ world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh
 size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decision, 055
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
-coordinate hashing, 059 deterministic generation test fixtures.
+coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
+layer.
+
+`060` is **the first brick that generates anything**, and it is two files under
+`world/generation/`, split the way the brick title is:
+
+**`value_noise.gd` (`ValueNoise`, an instance configured per layer)** — the coherent-noise
+primitive every Phase D field will stand on. `GenerationHash` (058) answers every
+coordinate independently, which is right for a placement mask and unusable for a *field*:
+terrain whose height is a hash per column is a forest of one-voxel spikes with no slope, no
+valley and no scale at which a biome could exist. `ValueNoise` hashes the corners of a
+coarse lattice and interpolates, then sums octaves at halving cell sizes. Built **on top
+of** `GenerationHash`, not beside it, so the seed binding, the checked version, the space
+tag and order-freedom all still hold underneath. Surface: `layer()`/`reject_reason()`,
+`value()` `[-1, 1]`, `value01()` `[0, 1]`, `octave_value()`, `cell_size()`/`octaves()`/
+`gain()`/`salt()`/`finest_cell_size()`, `max_slope_per_voxel()`/`max_slope01_per_voxel()`.
+
+**`continentalness.gd` (`Continentalness`)** — its first user and the first generated
+field: per column, `0` = middle of an ocean, `1` = middle of a landmass. Pinned
+`CELL_SIZE_VOXELS = REGION_SIZE_VOXELS * 8` (8192 voxels = 4096 m), `OCTAVES = 4` (so the
+finest layer is exactly one region across — 089's structure grid gets a value of its own,
+not an interpolation of its neighbours'), `GAIN = 0.5`, new
+`WorldHash.SALT_CONTINENTALNESS = 10` (appended, never renumbered). Constants, not
+arguments: they are baked into every world made with them.
+
+Five decisions worth keeping:
+
+1. **The lattice lives in integer voxel space, divided with `GenerationGrid.floor_div()`.**
+   No float ever carries a world coordinate, so nothing loses exactness at the ±524288
+   corners of `WorldBounds`, and the interpolation weight `floor_mod(x, cell) / cell` is
+   exact because the cell is a power of two. Truncating division would mirror the whole
+   field about the origin — which is exactly what the original's own `valueNoise2D` does
+   (see the reference read below). Third appearance in Phase D of the same class of defect,
+   always in the half of the world a positive-quadrant test never visits.
+2. **The fade is the quintic polynomial, not the original's `cos`, and that is a
+   networking decision.** `cos` is a libm implementation detail; `+`, `-`, `*` on doubles
+   are exactly specified by IEEE-754. Both server and client generate from the same seed
+   (`world-generation-authority.md`), so a last-bit disagreement about a coastline is a
+   disagreement about where the land is. The quintic is also `C²` where the cosine is only
+   `C¹`.
+3. **Octaves are separated by a lattice offset, not by a salt.** Salts are one per pass and
+   must stay below `SPACE_SALT_STRIDE`, so `salt + octave` walks into the next pass's salt.
+   Without any offset every octave samples lattice `(0, 0)` at the world origin and agrees
+   there — a spike at the one coordinate everything else is measured from. Recorded as a
+   rule in `docs/rng.md` §4.
+4. **`max_slope_per_voxel()` is derived, not measured, and is asserted.** Along an axis an
+   octave is `lerp(a, b, fade(t))` with `a, b ∈ [-1, 1]`, so its slope is at most
+   `2 · 1.875 / cell`; the layer's bound is the amplitude-weighted sum over the amplitude
+   sum. "Coherent" is the whole claim this brick makes, and a claim nothing checks quietly
+   stops being true — so the test walks 1201 adjacent columns across the origin against the
+   bound, **and runs the same walk over raw `GenerationHash` values to prove the check can
+   fail**. Falls out of the algebra: at `gain = 0.5` with halving cells every octave
+   contributes the *same* amount to the bound — detail octaves buy detail, not coherence.
+5. **The field decides nothing.** No sea level (080), no height (061), no vegetation
+   (067–073). Keeping the field and the thresholds apart is what lets 080 move a coastline
+   without reshaping the continents underneath it.
+
+One property the shared fixtures cannot check, asserted in `test_continentalness.gd`: the
+field must **span** its range. A macro field whose values all sit near 0.5 is repeatable,
+order-free, seed-sensitive, in range, varied — and has no oceans and no interiors. Measured
+over 2304 columns across ~24 coarse cells per axis: lowest `0.083`, highest `0.970`, mean
+`0.501`.
+
+**Reference read** (`traceability.md` §1: 060 falls in the `060–067` rows —
+`matrix-world.md` §1 `cube::Field` LOW and §2 terrain noise/height/climate fields MEDIUM,
+no gating question): full read of `valueNoise2D` (`server/world/World.cpp:3495–3536`) plus
+a grep-only pass over `World_baseHeightField`'s call sites, recorded as
+**`docs/reference/terrain-value-noise.md`**. Findings: it is value noise with a **linear**
+corner key `i + 57·j` (so `(i + 57, j - 1)` is the same corner — the field repeats along a
+diagonal), Hugo-Elias-shaped 32-bit integer hashing, cosine interpolation through libm,
+corner values in `(-1, 1]`, **no seed parameter at all** — per-world variation comes from
+adding offsets to the *sample coordinates*, so every world is a translation of every other
+— and a lattice taken by C truncation, which mirrors the field about the origin on each
+axis. §9 of the note is the divergence table. Nothing from the original is kept except the
+shape of the idea (lattice value noise) — every constant, the seeding, the interpolation
+and the octave ladder are ours.
+
+Explicitly *not* in scope: anything that reads the field (061 elevation, 062–063 shaping,
+064–065 climate, 080 sea level); a redistribution curve or land-fraction target (that is a
+decision, and it belongs to the brick that makes it); a 3D form of the layer (caves,
+077–078); domain warping, ridged/billow variants, analytic derivatives; any voxel — nothing
+is written to a `VoxelBuffer` yet.
+
+Docs: `docs/world-generation.md` §5 (new, six subsections); new
+`docs/reference/terrain-value-noise.md`; `docs/rng.md` §3 records that the free-fix window
+is now closed and §4 gained the octave-offset rule; `docs/README.md` and
+`traceability.md` §2 list the new note.
+
+Tests: `tests/unit/test_value_noise.gd` (new, 17 tests), `tests/unit/
+test_continentalness.gd` (new, 11 tests), both pinning a golden `signature()`. Full suite:
+`files=37 tests=427 assertions=10953 failed=0`. `check.ps1` OK (77 scripts).
 
 `059` built the shared floor every Phase D determinism test stands on, in one new file
 outside the layer tree: **`tests/fixtures/generation_fixtures.gd`** (`GenerationFixtures`,
@@ -1384,39 +1475,41 @@ Last run (brick 056): `check.ps1` **OK** (65 scripts compiled) · `test.ps1` **O
 | Generation | `world/generation/generation_version.gd` | `GenerationVersion`: the version *lifecycle* — `CURRENT`/`SUPPORTED`/`SUMMARIES`, `status()`/`status_of()` (`CURRENT_VERSION`/`LEGACY`/`RETIRED`/`FUTURE`/`INVALID`), `explain()`, `classify_header()`/`can_load_header()`/`explain_header()` (always passing the explicit supported list — never let `SaveVersion` fall back to its range), and `self_check()`, which fails the suite on a half-finished bump (057, `docs/world-generation.md` §2) |
 | Generation | `world/generation/generation_grid.gd` | `GenerationGrid`: the five coordinate spaces generation asks questions at (voxel, column, chunk, chunk column, region) and the floor-correct conversions between them; `CHUNK_SIZE_VOXELS = 16` (Voxel Tools' data-block size, *not* `DEFAULT_MESH_BLOCK_SIZE`), `REGION_SIZE_VOXELS = 1024` (a 1024 × 1024 signed grid across `WorldBounds`), public `floor_div()`/`floor_mod()`, `is_region_in_world()` (058, `docs/world-generation.md` §3.1) |
 | Generation | `world/generation/generation_hash.gd` | `GenerationHash.for_world(world_seed)`: positional hashing bound to one world — refuses a seed this build cannot reproduce (once, not per call), tags every coordinate space so two grids carrying the same numbers are different places, and exposes `hash_*`/`value01_*`/`chance_*`/`rng_*` per space. The generation version is deliberately *not* mixed into the hash (058, `docs/world-generation.md` §3.2-3.3) |
+| Generation | `world/generation/value_noise.gd` | `ValueNoise.layer(hash, cell_size, octaves, gain, salt)`: the coherent-noise primitive every Phase D field stands on — lattice value noise over `GenerationHash`, integer voxel lattice with `floor_div`, quintic fade (never `cos`: libm is not bit-reproducible and both sides generate), octaves separated by a lattice offset, `value()` `[-1, 1]` / `value01()` `[0, 1]`, and a derived `max_slope_per_voxel()` the tests walk the real field against (060, `docs/world-generation.md` §5.2-5.4) |
+| Generation | `world/generation/continentalness.gd` | `Continentalness.for_world(hash)`: the macro land/ocean field and the first thing this project generates — `at(column)` in `[0, 1]`, pinned at 8192-voxel (4096 m) cells, 4 octaves (finest = one region), gain 0.5, `SALT_CONTINENTALNESS`. Decides nothing: sea level is 080, height is 061 (060, `docs/world-generation.md` §5.5) |
 | Tests | `tests/fixtures/generation_fixtures.gd` | `GenerationFixtures`: the shared determinism floor every Phase D pass is tested against — four pinned named worlds, five coordinate sample lists (chosen for negatives, cell boundaries, `WorldBounds` corners), `determinism_reason()`/`seed_sensitivity_reason()` (factory-taking, so a visit-order-dependent pass cannot hide), `range_reason()`/`variation_reason()`, `signature()` for golden pinning, `self_check()` (059, `docs/world-generation.md` §4) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
 | Docs | `docs/architecture.md`, `conventions.md`, `rng.md`, `persistence.md`, `protocol.md`, `server-authority.md`, `simulation-time.md`, `logging-and-errors.md`, `world-generation.md`, `adr/0001`, `adr/0002` | the contracts those files implement |
 | Reference | `docs/reference/world-generation-authority.md` | who may generate world content: the reference's client-side generation was a bandwidth design, not a trust model — "the client may generate, the client never decides"; resolves `matrix-world.md` Q2 (056) |
+| Reference | `docs/reference/terrain-value-noise.md` | the original's `valueNoise2D`: lattice value noise, **no seed parameter** (per-world variation was a coordinate offset, so every world is a translation of every other), a linear corner key that repeats along a diagonal, cosine interpolation through libm, and a lattice taken by truncation — mirroring the field about the origin. §9 is the divergence table 060 implements (060) |
 | Reference | `docs/reference/region-coordinate-hashing.md` | how the original turned coordinates into content: a **linear** seed fed to the process-global `srand()`, first decision from the low bit of an LCG, region grid `0..1023` counted from a corner; §9 is the divergence table 058 implements (058) |
 | Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), the rest placeholder rows for Phase L bricks 257-263 |
 
 ## Next 10 actions
 
-1. `060` create the continentalness/noise layer (next task) — dep 059 (DONE). **This is
-   the first brick that generates anything**, and three consequences land with it:
-   (a) from the moment it exists, a change to `WorldHash`, `GenerationHash` or this pass
-   is a **generation version bump** (`docs/rng.md` §3, `docs/world-generation.md` §2.1) —
-   both free fixes have now been taken (058, 059); (b) it is the first brick with a
-   reference row that is not resolved-and-closed: `traceability.md` §2's `060–067` rows
-   cite `matrix-world.md` §1 (`cube::Field`, LOW) and §2 (terrain noise/height/climate
-   fields, MEDIUM), so read those two sections before designing, per §1's rule;
-   (c) it is the first user of `GenerationFixtures` — the pass's test file should be
-   `determinism_reason()` + `seed_sensitivity_reason()` + `range_reason()` +
-   `variation_reason()` + one pinned `signature()`, not hand-written coordinate checks.
-   Design constraints already fixed: sample through `GenerationHash` (never `WorldHash`
-   bare), at the **column** space for a 2D field; add exactly one new `WorldHash.SALT_*`
-   if the existing ones do not fit, appended never renumbered; stay inside `WorldBounds`;
-   value range stated in the doc and asserted by `range_reason()`. Note that
-   `GenerationHash` gives uniform *white noise* per coordinate — a continentalness field
-   needs spatial coherence (interpolation between lattice points, octaves), which is this
-   brick's actual content, and the interpolation must use `GenerationGrid`'s floor
-   arithmetic rather than truncation or the field mirrors at the origin. Still open and
-   carried forward from Phase C: no `.tscn` exists, and no player/camera to raycast from
-   or to parent the 042 `VoxelViewer` under — a Phase F question (039's nextsteps entry,
-   carried by 042–059). The `docs/performance-budget.md` §3 benchmark is re-run against
-   the real generator once Phase D lands (its §5 says so; feeds bricks 257–258).
+1. `061` create the elevation field (next task) — deps 058 (DONE), 060 (DONE). **The
+   version window is now closed**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`
+   or `Continentalness`'s constants moves ground and is a **generation version bump**
+   (`docs/rng.md` §3, `docs/world-generation.md` §2.1), so 057's `GenerationVersion`
+   checklist (§2.5) is live from here on. What 060 already fixed, and 061 should reuse
+   rather than re-invent: build the field on `ValueNoise.layer(...)` with **one new
+   appended `WorldHash.SALT_*`** (`SALT_ELEVATION` is already reserved as `1`) and pinned
+   constants, sample through `GenerationHash` at **column** space, state a closed range and
+   assert it with `range_reason()`, and test through `GenerationFixtures` +
+   one pinned `signature()` + a slope-bound walk, not hand-written coordinate checks.
+   `traceability.md` §2's `061` rows cite `matrix-world.md` §1 (`cube::Region`, MEDIUM),
+   §2 (terrain noise/height/climate fields, MEDIUM), `region-coordinate-hashing.md` and now
+   `terrain-value-noise.md` — read those before designing, per §1's rule. Two open design
+   questions 061 has to answer and 060 deliberately left alone: how continentalness maps to
+   a height (the redistribution curve / land-fraction decision — 060's field is the raw
+   macro shape), and what vertical range a height may occupy inside `WorldBounds`'
+   ±2048 voxels. Still open and carried forward from Phase C: no `.tscn` exists, and no
+   player/camera to raycast from or to parent the 042 `VoxelViewer` under — a Phase F
+   question (039's nextsteps entry, carried by 042–060). The
+   `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
+   Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
+   stays empty until something is expensive enough to measure.
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

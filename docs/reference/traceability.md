@@ -38,6 +38,7 @@ lowest brick number in the range.
 | 056, 096–101 | `matrix-world.md` §4 | Q2 — **RESOLVED (brick 056)**: client re-ran world generation locally as a bandwidth design, not a trust model; "the client may generate, the client never decides" | — | — | resolved |
 | 056, 096–101, 235–236, 248 | `world-generation-authority.md` | who may generate world content, and why `(seed, generation version)` agreement is a network contract rather than an internal detail | `world/generation/world_seed.gd`, `docs/world-generation.md` §1 | MEDIUM | — |
 | 058, 061, 089–090 | `region-coordinate-hashing.md` | how the original turned world coordinates into generated content (`srand(regX + 0x108a + regZ * 0x400 + seed * 3)`), and the shape of the region grid it ran on | `world/generation/generation_grid.gd`, `world/generation/generation_hash.gd`, `docs/world-generation.md` §3 | MEDIUM | — |
+| 060–067 | `terrain-value-noise.md` | the original's coherent-noise primitive (`valueNoise2D`): value noise, cosine interpolation, a linear corner key, no seed parameter, and a lattice taken by truncation — so a field mirrored about the origin | `world/generation/value_noise.gd`, `world/generation/continentalness.gd`, `docs/world-generation.md` §5 | MEDIUM | — |
 | 060–067 | `matrix-world.md` §1 | `cube::Zone` (also 102–103) | `world/zones/` | MEDIUM | — |
 | 060–067 | `matrix-world.md` §1 | `cube::Field` | `world/generation/` | LOW | — |
 | 060–067 | `matrix-world.md` §2 | terrain noise/height/climate fields | `world/generation/` | MEDIUM | — |

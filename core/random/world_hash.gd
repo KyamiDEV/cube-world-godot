@@ -74,6 +74,7 @@ const SALT_PROPS := 6
 const SALT_STRUCTURES := 7
 const SALT_SPAWNS := 8
 const SALT_LOOT := 9
+const SALT_CONTINENTALNESS := 10
 
 
 ## 64-bit hash of a 3D voxel or chunk coordinate under a world seed and pass salt.

@@ -445,3 +445,136 @@ picked *because* it was awkward. That is the entire argument for §4.3.
   until there is something to measure (bricks 257–258).
 - Making the checks available to production code. They live under `tests/`, which
   `docs/architecture.md` already exempts from the layer rules in one direction only.
+
+## 5. The coherent noise layer and the continentalness field (brick 060)
+
+Implementation: `world/generation/value_noise.gd` (`ValueNoise`),
+`world/generation/continentalness.gd` (`Continentalness`).
+Tests: `tests/unit/test_value_noise.gd`, `tests/unit/test_continentalness.gd`.
+Reference: `docs/reference/terrain-value-noise.md`.
+
+**This is the first brick that generates anything.** From here on, a change to
+`WorldHash`, `GenerationHash`, `ValueNoise` or the pinned constants in `Continentalness`
+moves ground a player has already walked on, which makes it a generation version bump
+(§2.1), not a fix. Both of the free fixes this project had were taken in 058 and 059.
+
+### 5.1 Why `GenerationHash` is not a field
+
+`GenerationHash` (§3) answers every coordinate independently. That is exactly what a
+placement mask wants — "does a tree stand here?" must not depend on the neighbours — and
+exactly what a *field* cannot use. Terrain whose height is a hash per column is a forest
+of one-voxel spikes: there is no slope to walk up, no valley to put a river in, no
+coastline to find, and no scale at which a biome could be said to exist.
+
+A field needs **spatial coherence**: neighbouring columns must be related, and related by
+a stated amount. `ValueNoise` is that layer, and it is built out of `GenerationHash`
+rather than beside it, so everything §3 guarantees — the seed binding, the checked
+version, the space tag, the order-freedom — still holds underneath it.
+
+### 5.2 What the layer is
+
+Value noise: hash the corners of a coarse lattice, interpolate between them, sum a few
+such layers at halving cell sizes.
+
+| Parameter | Meaning |
+|---|---|
+| `cell_size` | edge of the coarsest lattice cell, in voxels — a power of two |
+| `octaves` | how many layers are summed, each at half the previous cell size |
+| `gain` | amplitude ratio between one layer and the next |
+| `salt` | the pass's own `WorldHash.SALT_*`, so this field does not correlate with any other |
+
+`value()` returns `[-1, 1]` and `value01()` returns `[0, 1]`; both are closed intervals,
+clamped at the ends, because a caller that is promised a closed range should not have to
+handle the one-ulp overshoot a normalised floating-point sum can produce.
+
+Four decisions in the implementation are determinism decisions before they are quality
+ones:
+
+1. **The lattice lives in integer voxel space.** No float ever carries a world
+   coordinate, so nothing loses exactness at the ±524288-voxel corners of `WorldBounds`.
+   The interpolation weight is `floor_mod(x, cell) / cell` — an exact float, because the
+   cell is a power of two.
+2. **`GenerationGrid.floor_div()`, never `/`.** Truncating division puts voxel −1 and
+   voxel 0 in the same cell and mirrors the whole field about the origin. This is not a
+   hypothetical: it is what the original's own `valueNoise2D` does
+   (`docs/reference/terrain-value-noise.md` §4), and it is the third time in Phase D that
+   the same class of defect has appeared in the half of the world a positive-quadrant test
+   never visits.
+3. **The fade is a polynomial** — §5.3.
+4. **Octaves are separated by a lattice offset, not by a salt.** Salts are one per pass
+   and must stay below `GenerationHash.SPACE_SALT_STRIDE` (`docs/rng.md` §4), so
+   `salt + octave` would walk into the next pass's salt. Offsetting the lattice reads a
+   different part of the same hash field instead. Without the offset every octave samples
+   lattice `(0, 0)` at the world origin and agrees there, putting a spike at the one
+   coordinate everything else is measured from.
+
+### 5.3 The fade is a polynomial, and that is a networking decision
+
+The original interpolates with `(1 − cos(π·t)) / 2`. We use Perlin's quintic fade,
+`6t⁵ − 15t⁴ + 10t³`.
+
+`cos` is a C library implementation detail: nothing requires two platforms, or two
+versions of one platform, to return the same last bit. Addition, subtraction and
+multiplication on doubles are exactly specified by IEEE-754 and identical everywhere.
+Since **both the server and the client generate** the world from the same seed
+(`docs/reference/world-generation-authority.md`), a last-bit disagreement about a
+coastline is a disagreement about where the land is — the client may generate, but the two
+copies have to agree about what they generated.
+
+The quintic is also the better curve on its own merits: zero first *and* second derivative
+at both ends, so cell boundaries leave no crease once the field becomes a slope, where the
+cosine leaves a `C¹`-only join and a linear blend leaves a visible ridge along every
+lattice line.
+
+### 5.4 The slope bound
+
+`max_slope_per_voxel()` states the most the field can change between two columns one voxel
+apart. It is derived, not measured: along one axis an octave is `lerp(a, b, fade(t))` with
+`a, b ∈ [-1, 1]`, so its slope is at most `2 · 1.875 / cell` per voxel (`1.875` is the
+maximum of `fade'(t) = 30t²(1−t)²`), and the layer's bound is the amplitude-weighted sum of
+those over the amplitude sum.
+
+Having it as a number rather than a comment is the point. "Coherent" is the entire claim
+this brick makes, and a claim nothing checks is a claim that quietly stops being true:
+`tests/unit/test_value_noise.gd` walks 1201 adjacent columns across the origin and asserts
+every step against the bound, then runs the same walk over raw `GenerationHash` values to
+show the check can fail. A useful consequence falls out of the algebra: with `gain = 0.5`
+and halving cells, **every octave contributes the same amount to the bound** — detail
+octaves buy detail, not coherence.
+
+### 5.5 The continentalness field
+
+`Continentalness` is the layer's first user and the first thing this project generates: a
+per-column value in `[0, 1]` where `0` is the middle of an ocean and `1` the middle of a
+landmass.
+
+| Constant | Value | Why |
+|---|---|---|
+| `CELL_SIZE_VOXELS` | `GenerationGrid.REGION_SIZE_VOXELS * 8` = 8192 voxels = 4096 m | the coarsest layer is eight regions across, so a continent is something you travel through rather than across |
+| `OCTAVES` | 4 | which makes the finest layer exactly one region across — the grid brick 089 places structures on gets a value of its own rather than an interpolation of its neighbours' |
+| `GAIN` | 0.5 | the field stays dominated by its coarsest layer, which is what makes it a *macro* field |
+| salt | `WorldHash.SALT_CONTINENTALNESS` (10) | appended, never renumbered (`docs/rng.md` §4) |
+
+**It deliberately decides nothing.** It does not say where sea level is (brick 080), how
+high the ground stands (061), or what grows there (067–073). Every one of those reads this
+field and adds its own rule, and keeping the field and the thresholds apart is what lets
+080 move a coastline later without reshaping the continents underneath it.
+
+One property no determinism check covers, and the field's own test asserts: it has to
+**span** its range. A macro field whose values all sit near 0.5 is repeatable, order-free,
+seed-sensitive, in range, varied — and has no oceans and no interiors. Measured over 2304
+columns spread across roughly 24 coarse cells per axis: lowest `0.083`, highest `0.970`,
+mean `0.501`.
+
+### 5.6 Out of scope for this brick
+
+- Anything that reads the field. Elevation is 061; the shaping passes are 062–063; the
+  climate fields are 064–065; sea level is 080.
+- A redistribution curve or a land-fraction target. The field is the raw macro shape;
+  which part of it counts as land is a decision, and it belongs to the brick that makes it.
+- 3D noise. Caves (077–078) need a 3D form of the same layer; nothing before them does,
+  and adding it now would ship an untested surface.
+- Domain warping, ridged/billow variants, and analytic derivatives. Real needs, none of
+  them this brick's.
+- Any voxel. Nothing is written to a `VoxelBuffer` yet; the generator that does that
+  arrives with the passes that have something to write.

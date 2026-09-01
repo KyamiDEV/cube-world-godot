@@ -16,13 +16,13 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–052)
+- Phase `C — Voxel infrastructure` — in progress (031–053)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `053 — Benchmark mesh block size 32`
+- Next task `054 — Choose initial mesh block size from measured data`
 
 ## Completed bricks
 
-`001`–`052`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`053`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -33,7 +33,37 @@ block raycast interaction service, 044 block edit command model, 045 block edit
 validation layer, 046 block edit application layer, 047 edit undo/delta representation,
 048 initial voxel save stream wiring, 049 voxel load/save integration test, 050 voxel
 world bounds/authority policy, 051 voxel chunk metrics/profiling hooks, 052 mesh block
-size 16 benchmark).
+size 16 benchmark, 053 mesh block size 32 benchmark).
+
+`053` is a pure measurement brick — no production code changed. It re-runs the
+brick-052 harness (`tools/benchmarks/benchmark_mesh_block_size.gd` +
+`mesh_block_size_benchmark_runner.gd`) unchanged except `--block-size=32`; the
+`mesh_block_size` parameter and its `32`-wired / `8`/`64`-rejected tests already landed
+with 052, so no test file changed either. **Measured** (`mesh_block_size = 32`,
+`view_distance = 128` matching `DEFAULT_VIEW_DISTANCE`, default block set, placeholder
+flat-stone generator, three repeated runs on the dev machine): settles in 50-51 polled
+frames (30 are the fixed stability window, so real work completes by ~frame 20-21) and
+341.4-352.6 ms wall-clock; `memory_pools.block_count = 324`, `voxel_used ~= 2.65 MB`;
+`dropped_block_loads = dropped_block_meshs = 0`; all `tasks` queues `0` at settle;
+`RESULT=OK`, exit `0` on all three runs.
+
+Side-by-side with 052 (size 16): settle frames 52 -> 50-51; wall-clock 375.7-377.9 ms ->
+341.4-352.6 ms; `block_count` 324 -> 324 (identical); `voxel_used` ~2.65 MB -> ~2.65 MB
+(byte-identical). The data-block counters match exactly because they track 16³ *data*
+blocks, which `mesh_block_size` does not affect — it only changes mesh-chunk granularity.
+The one real difference this harness sees is wall-clock: size 32 settles ~25-35 ms
+(~7-9%) faster and one to two frames sooner on this small flat-terrain workload,
+consistent with fewer/larger mesh chunks meaning less per-chunk bookkeeping. This is a
+single synthetic benchmark, not a decision — brick 054 weighs both bricks' numbers (plus
+the memory/latency trade-off of larger mesh chunks under real generation and frequent
+edits) to choose the project default; 055 writes the chosen budget into a formal
+document. Full reasoning + comparison table in `docs/voxel-tools.md` §18 (new section).
+
+`docs/reference/traceability.md` §4 already confirmed no reference matrix cites 031-055,
+so no reference read was needed.
+
+Tests: none added (052 covers the `mesh_block_size` surface). Regression check only: full
+suite `files=30 tests=304 assertions=10336 failed=0`.
 
 `052` gave `VoxelTerrainBuilder.build()` a third optional parameter,
 `mesh_block_size: int = DEFAULT_MESH_BLOCK_SIZE` (16, `VoxelTerrain`'s own engine
@@ -959,7 +989,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 30 files, 304 tests, 10 336 assertions, 0 failed.
+Last run: `check.ps1` **OK** (63 scripts compiled) · `test.ps1` **OK** — 30 files, 304 tests, 10 336 assertions, 0 failed.
 
 ## What exists now
 
@@ -976,7 +1006,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 30 files, 304 tests, 10 33
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
 | Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build(registry, stream = null, mesh_block_size = 16)`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` is an optional parameter, `null` unless the caller passes one (048); `bounds = WorldBounds.aabb()` (050); `mesh_block_size` optional, 16 or 32 only (052) |
-| Benchmarks | `tools/benchmarks/benchmark_mesh_block_size.gd` + `mesh_block_size_benchmark_runner.gd` | Headless harness measuring `VoxelTerrainBuilder`'s `mesh_block_size` (16 vs 32) against the default block set/view distance; entry/runner split works around a `--script`-vs-autoload compile-order quirk (052, `docs/voxel-tools.md` §17) |
+| Benchmarks | `tools/benchmarks/benchmark_mesh_block_size.gd` + `mesh_block_size_benchmark_runner.gd` | Headless harness measuring `VoxelTerrainBuilder`'s `mesh_block_size` (16 vs 32) against the default block set/view distance; entry/runner split works around a `--script`-vs-autoload compile-order quirk (052/053, `docs/voxel-tools.md` §17-18 — size 16: ~376 ms/52 frames; size 32: ~347 ms/50 frames; identical data-block memory) |
 | Persistence | `world/persistence/voxel_stream_builder.gd` | `VoxelStreamBuilder.build(database_path)`: a configured `VoxelStreamSQLite` — deltas-only (`save_generator_output = false`), key cache enabled, unbounded `COORDINATE_FORMAT_STRING_CSD` — a fixed-width format would now fit `WorldBounds`, but switching is a genuinely optional future revisit, not owed by brick 050 (048/050, `docs/voxel-tools.md` §13/§15) |
 | World | `world/terrain/world_bounds.gd` | `WorldBounds.aabb()`/`contains(voxel_position)`: the authoritative world extent — `+-524288` voxels horizontal (X/Z), `+-2048` vertical (Y); assigned to `VoxelTerrainBuilder.build()`'s `terrain.bounds` unconditionally (050, `docs/voxel-tools.md` §15) |
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
@@ -992,14 +1022,16 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 30 files, 304 tests, 10 33
 
 ## Next 10 actions
 
-1. `053` benchmark mesh block size 32 (next task) — rerun
-   `tools/benchmarks/benchmark_mesh_block_size.gd -- --block-size=32` (same harness, one
-   flag) and record the numbers next to 052's in `docs/voxel-tools.md`/`nextsteps.md`, same
-   shape as 052's own entry above. `054` then compares both bricks' numbers to choose a
-   default; `055` documents the baseline performance budget. None of 039–052 added a
-   `.tscn`, and no player/camera exists yet to raycast from or to parent the 042
-   `VoxelViewer` under — deciding where these nodes actually live in a scene is still open
-   (039's nextsteps entry, carried forward again by 042/043/044/045/046/048/049/050).
+1. `054` choose initial mesh block size from measured data (next task) — both benchmark
+   runs are now recorded (`docs/voxel-tools.md` §17 size 16 / §18 size 32, comparison
+   table in §18): size 32 is ~7-9% faster to settle on the synthetic flat-terrain
+   workload with identical data-block memory; 054 must weigh that against the real
+   generation/edit workload trade-off of larger mesh chunks and set the project default
+   (currently `VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE = 16`). `055` then documents
+   the baseline performance budget. None of 039–053 added a `.tscn`, and no player/camera
+   exists yet to raycast from or to parent the 042 `VoxelViewer` under — deciding where
+   these nodes actually live in a scene is still open (039's nextsteps entry, carried
+   forward again by 042/043/044/045/046/048/049/050).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

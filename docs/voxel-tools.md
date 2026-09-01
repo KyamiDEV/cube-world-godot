@@ -563,3 +563,47 @@ Tests: `tests/unit/test_voxel_terrain_builder.gd` (+2 tests, now also covers 052
 invalid `mesh_block_size` (8, 64) is rejected; an explicit `32` is wired through unchanged;
 the existing `test_builds_a_configured_voxel_terrain` gained one assertion (default is 16).
 Full suite: `files=30 tests=304 assertions=10336 failed=0`.
+
+## 18. Mesh block size 32 benchmark (brick 053)
+
+A pure measurement brick: it re-runs the brick-052 harness
+(`tools/benchmarks/benchmark_mesh_block_size.gd` +
+`mesh_block_size_benchmark_runner.gd`) unchanged except `--block-size=32`, so 052's
+size-16 numbers and 053's size-32 numbers are directly comparable. No production code
+changed — `VoxelTerrainBuilder.build()`'s `mesh_block_size` parameter and its
+`32`-is-wired-through / `8`/`64`-rejected tests already landed with 052. The default
+harness `view_distance` is `128` (`DEFAULT_VIEW_DISTANCE`), default block set, placeholder
+flat-stone generator, one `VoxelViewer` at the origin — identical to the 052 run.
+
+**Measured (053, `mesh_block_size = 32`, `view_distance = 128`, three repeated runs on the
+dev machine):** settles in 50-51 polled frames (30 of which are the fixed stability
+window, so real work completes by roughly frame 20-21) and 341.4-352.6 ms wall-clock;
+`memory_pools.block_count = 324`, `voxel_used = 2 654 208 B (~= 2.65 MB)`;
+`dropped_block_loads = dropped_block_meshs = 0`; every `tasks` queue and
+`thread_pools.general.tasks` reads `0` at settle. `RESULT=OK`, exit `0` on all three runs.
+
+**Side-by-side with 052:**
+
+| metric | size 16 (052) | size 32 (053) |
+|---|---|---|
+| settle frames | 52 | 50-51 |
+| wall-clock (3 runs) | 375.7-377.9 ms | 341.4-352.6 ms |
+| `memory_pools.block_count` | 324 | 324 |
+| `memory_pools.voxel_used` | ~2.65 MB | ~2.65 MB |
+| dropped loads / meshes | 0 / 0 | 0 / 0 |
+
+`block_count` and `voxel_used` are byte-identical between the two sizes because those
+counters track 16³ *data* blocks (voxel storage), which `mesh_block_size` does not affect
+— it only changes mesh-chunk granularity. The one real difference this harness sees is
+wall-clock: size 32 settles ~25-35 ms (roughly 7-9%) faster and one to two frames sooner
+against this small flat-terrain workload, consistent with fewer, larger mesh chunks
+meaning less per-chunk bookkeeping. This is a single synthetic benchmark, not a decision
+— brick 054 weighs both bricks' numbers (plus the memory/latency trade-off of larger mesh
+chunks under real generation and frequent edits) to choose the project default; 055
+writes the chosen budget into a formal document.
+
+Not reverse-engineered: `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031-055.
+
+Tests: none added — 052 already covers the `mesh_block_size` surface. Regression check
+only: full suite `files=30 tests=304 assertions=10336 failed=0`.

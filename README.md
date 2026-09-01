@@ -7,11 +7,13 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: foundations.** Bricks 001–020 of 266 are done — verified toolchain, project
-> skeleton, test harness, and the core contracts (scale, time, RNG, IDs, saves,
-> protocol, authority). There is no playable world yet; the main scene prints a boot
-> report. Progress is tracked in [`backlog.md`](backlog.md) and
-> [`nextsteps.md`](nextsteps.md).
+> **Status: voxel infrastructure.** Bricks 001–039 of 266 are done — verified toolchain,
+> project skeleton, test harness, the core contracts (scale, time, RNG, IDs, saves,
+> protocol, authority), the reverse-engineering reference mapping (Phase B), and the
+> first real voxel content: a block schema/registry, a generated grass/dirt/stone block
+> set, a `VoxelBlockyLibrary` builder, and a baseline `VoxelTerrain` node. There is no
+> playable world yet; the main scene prints a boot report. Progress is tracked in
+> [`backlog.md`](backlog.md) and [`nextsteps.md`](nextsteps.md).
 
 ## Technical baseline
 
@@ -51,7 +53,7 @@ tools\scripts\godot.ps1 -e   # open the editor
 `check.ps1` is the pre-commit gate. `test.ps1` takes `-File`, `-Filter`, `-Verbose_` and
 `-NoImport`.
 
-Current state: **15 test files, 195 tests, ~9 978 assertions, 0 failures.**
+Current state: **20 test files, 244 tests, ~10 135 assertions, 0 failures.**
 
 ## What is implemented
 
@@ -65,6 +67,9 @@ Current state: **15 test files, 195 tests, ~9 978 assertions, 0 failures.**
 | Saves | `core/serialization/save_version.gd` | four independent version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | ownership, tick window, replay and rate-limit checks |
+| Blocks | `world/terrain/block_definition.gd`, `block_registry.gd` | block-kind schema (textures, collision, destructibility, footstep tag) and its validated, network-indexed catalogue |
+| Blocks | `world/terrain/blocky_library_builder.gd`, `data/blocks/*.tres` | builds a real `VoxelBlockyLibrary` from the registry; first committed content — `block.grass`/`block.dirt`/`block.stone` |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | baseline `VoxelTerrain` node: collision on, a placeholder flat-ground generator; mesher/material/viewer wiring follows in the next bricks |
 | Tooling | `tools/` | engine verification, whole-tree compile check, test runner |
 
 ## Design decisions worth knowing
@@ -87,6 +92,10 @@ A few choices that shape everything else — the reasoning is in the linked docu
   → [`docs/simulation-time.md`](docs/simulation-time.md)
 - **Layering is enforced by a test**, not by convention alone.
   → [`docs/architecture.md`](docs/architecture.md)
+- **Plain `VoxelBlockyLibrary`, not the attribute-driven `VoxelBlockyType` system.** The
+  block schema has no rotation/connected-state axis yet, so the simpler model is the
+  correct minimal fit — revisit only if a block kind genuinely needs per-voxel state.
+  → [`docs/voxel-tools.md`](docs/voxel-tools.md)
 
 ## Repository layout
 

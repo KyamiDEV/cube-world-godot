@@ -17,11 +17,11 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `026 — Map CubeWorld quest/NPC concepts`
+- Next task `027 — Map CubeWorld UI concepts`
 
 ## Completed bricks
 
-`001`–`025`. Phase A complete; Phase B contracts complete (011–020); reference tree
+`001`–`026`. Phase A complete; Phase B contracts complete (011–020); reference tree
 reading started at `021`.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
@@ -104,6 +104,28 @@ absorbed by 028); Q2 equipment slot count is contradictory across two server fun
 `GameController_onItemPickup` was not read past its GAP one-liner, relevant before
 brick 173 if affix mechanics matter for the loot roll service.
 
+`026` mapped quest/NPC concepts into `docs/reference/matrix-quests.md`. Placed the two
+classes deferred from `matrix-entity.md` (`QuestText`, `QuestTextNode` — a shared
+templating/tree engine with `Speech`) and found no dedicated `NPC`/`Quest`/`Faction`/
+`Shop` class in either binary: NPCs are plain `Creature` instances, and all quest/NPC
+behavior is 7 "concept with no single class" rows pulled from client `GameController`
+(`interactNpc`, `interactSpecialObject`, `computeQuestScore`, `questStateChanged`,
+`build_quest_text`) and server `game_misc`/`EntityData` (quest strings stored inline on
+the entity record, an opcode-tagged `check_quest_id_match`). Notable: quest progress in
+the original is a **polled derived score** (`computeQuestScore` sums 11 unrecovered
+counters), not a discrete objective list — the backlog's brick 207 "objective types"
+design is judged an acceptable behavioral equivalent, not a reference deviation, since
+the exact counters are decompiler data we would not ship anyway (matrix §4 Q1). Faction/
+hostility/aggro was **not** re-placed — already fully mapped in `matrix-combat.md` §2,
+cross-ref only. Two open questions recorded (matrix §4): Q1 the unrecovered 11-counter
+quest score (likely resolvable by design decision alone, see above); Q2 whether
+`check_quest_id_match`'s `event type 0x19` is the same opcode-tagged stream as
+`matrix-combat.md` Q1's `readCombatActionFromStream`/`readHitFromStream` — re-opens that
+question with new evidence, relevant before brick 251. Brick 200 ("NPC shop service")
+already covers the `interactNpc` trade-UI branch found here, so no new question was
+needed for it. `matrix-items.md` Q1 (`GameController` scoping) gained corroborating
+evidence rather than a duplicate question.
+
 ## Commands
 
 ```powershell
@@ -131,7 +153,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+1. `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
 2. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
 3. `030` traceability index from notes to bricks.
 4. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
@@ -141,8 +163,9 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 8. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
 9. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). Before `224`/`225`: Q1 (`GameController` — a 620-function client class — has no owning matrix; needs a scoping decision, possibly folded into 028).
 10. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
-11. Before `136`/`137`/`249`: resolve Q1 from `matrix-combat.md` (is `readCombatActionFromStream`/`readHitFromStream` quest-script trigger data or a combat-event wire-format precursor?). Before `141`–`144`: Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread).
-12. Update this file after every brick.
+11. Before `136`/`137`/`249`/`251`: resolve Q1 from `matrix-combat.md`, re-opened with new evidence by `matrix-quests.md` Q2 (is `readCombatActionFromStream`/`readHitFromStream`/`check_quest_id_match`'s `event type 0x19` one shared opcode-tagged event-record format, or separate combat/quest trigger tables?). Before `141`–`144`: Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread).
+12. Before `206`–`209`: resolve Q1 from `matrix-quests.md` (the unrecovered 11-counter quest-progress score behind `computeQuestScore` — likely resolvable by design decision alone, since a discrete objective-list model is judged an acceptable behavioral equivalent).
+13. Update this file after every brick.
 
 ## Working set
 

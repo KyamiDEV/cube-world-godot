@@ -55,7 +55,7 @@
 | 023 | B | Map CubeWorld AI-related classes | 022 | Not needed by default | NO | DONE |
 | 024 | B | Map CubeWorld combat-related classes | 023 | Not needed by default | NO | DONE |
 | 025 | B | Map CubeWorld inventory/item/equipment concepts | 024 | Not needed by default | NO | DONE |
-| 026 | B | Map CubeWorld quest/NPC concepts | 025 | Not needed by default | NO | TODO |
+| 026 | B | Map CubeWorld quest/NPC concepts | 025 | Not needed by default | NO | DONE |
 | 027 | B | Map CubeWorld UI concepts | 026 | Not needed by default | NO | TODO |
 | 028 | B | Map CubeWorld client/server split | 027 | Not needed by default | NO | TODO |
 | 029 | B | Create confidence/uncertainty recording convention | 028 | Not needed by default | NO | TODO |

@@ -113,7 +113,7 @@ across bricks 039–042:
 | `mesher` | 040 | a `VoxelMesherBlocky` (below) |
 | `material_override` | 041 | explicit `null` (§8) |
 | `max_view_distance` | 042 | `DEFAULT_VIEW_DISTANCE` = 128 (§9) |
-| `bounds` | undecided — no world-size decision exists yet | left at the engine default |
+| `bounds` | 050 (world bounds/authority policy) | left at the engine default; read directly by `block_edit_validator.gd` (045, §11) for layer-2 bounds checking in the meantime |
 
 **The generator is a temporary placeholder, not world generation.** Phase D
 (056–067, `docs/reference/matrix-world.md`) owns the real deterministic
@@ -244,3 +244,35 @@ match any mask and is already excluded from a hit — no extra filtering was nee
 "basic" raycast. `DEFAULT_MAX_DISTANCE` (10.0 world/voxel units) matches
 `VoxelTool.raycast()`'s own default, named explicitly as a placeholder — real player
 reach balance is Phase F/G and may replace it outright.
+
+## 11. Block edit gameplay validation (brick 045)
+
+`world/terrain/block_edit_validator.gd` (`BlockEditValidator.validate(command, terrain,
+registry) -> Verdict`) is layer 2 (gameplay) validation for `EditBlockCommand` (044),
+per `docs/server-authority.md` §3 — layer 1 is `CommandGate` (019). It checks: registry
+locked, terrain produces a `VoxelTool`, `command.position` inside `terrain.bounds`, then
+per-kind — `PLACE` needs a registered `block_id` and an air target voxel; `REMOVE` needs
+a non-air target voxel whose resolved `BlockDefinition.destructible` is true. Reuses
+`block_raycast_service.gd` (043)'s `+1`/`-1` air-offset convention for reading the
+target voxel's current value; no new offset logic.
+
+**`bounds` confirmed by fetching `doc/classes/VoxelTerrain.xml` (v1.7 tag) this brick**:
+`type="AABB"`, in voxel coordinates, default `AABB(-536870900, -536870900, -536870900,
+1073741800, 1073741800, 1073741800)` — effectively unbounded. It belongs to
+`VoxelTerrain` itself, not `VoxelNode` (confirmed against the same fetch of
+`VoxelNode.xml` that found no `bounds` member there). §6's table above already left this
+property "undecided" pending a real world-size policy (brick 050); this brick reads it
+directly rather than inventing a second bounds mechanism, so 050's whole job is setting
+this one property correctly — this validator does not change when 050 lands.
+
+Returns a `Verdict` enum (`ACCEPT` plus one member per rejection reason), the same shape
+as `CommandGate.Verdict` (019) rather than the string-reason convention `StableId`/
+`BlockDefinition`/`EditBlockCommand.validate()` use — this is a command-authority
+decision, like layer 1, not a data-shape self-check. Only the three
+programmer/data-error verdicts (`INVALID_REGISTRY`, `INVALID_TERRAIN`,
+`UNRESOLVABLE_VOXEL`) are logged (`Log.check`); the five ordinary gameplay rejections
+are not, per `docs/server-authority.md` §4 ("rejection is normal") and
+`docs/logging-and-errors.md`'s no-per-frame-spam rule — block edits can be frequent.
+Stateless: no `CommandGate`-style rejection-counting was added, since there is no
+per-peer state to key it on here; a server loop can count at its own call site later
+without changing this file.

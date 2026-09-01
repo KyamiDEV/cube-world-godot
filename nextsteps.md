@@ -16,20 +16,81 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–044)
+- Phase `C — Voxel infrastructure` — in progress (031–045)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `045 — Create block edit validation layer`
+- Next task `046 — Create block edit application layer`
 
 ## Completed bricks
 
-`001`–`044`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`045`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
 baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline, 043
-block raycast interaction service, 044 block edit command model).
+block raycast interaction service, 044 block edit command model, 045 block edit
+validation layer).
+
+`045` added `world/terrain/block_edit_validator.gd` (`BlockEditValidator`, static
+`validate(command: EditBlockCommand, terrain: VoxelTerrain, registry: BlockRegistry) ->
+Verdict`) — layer 2 (gameplay) validation for `EditBlockCommand` (044) per
+`docs/server-authority.md` §3, the counterpart to layer 1 (`CommandGate`, 019). Assumes
+`command.validate()` (044, structural only) already passed, the same way `CommandGate`
+assumes a well-formed envelope; this layer only checks what that pass cannot: registry
+membership and actual voxel content. Returns a `Verdict` enum (`ACCEPT`,
+`INVALID_REGISTRY`, `INVALID_TERRAIN`, `OUT_OF_BOUNDS`, `UNKNOWN_BLOCK`,
+`UNRESOLVABLE_VOXEL`, `TARGET_OCCUPIED`, `TARGET_IS_AIR`, `NOT_DESTRUCTIBLE`), mirroring
+`CommandGate.Verdict`'s shape rather than the string-reason convention `StableId`/
+`BlockDefinition`/`EditBlockCommand.validate()` use — this is a command-authority
+decision (layer 2), not a data-shape self-check, so it follows the sibling layer's
+pattern instead.
+
+Checks, in order: registry locked (`INVALID_REGISTRY`) -> terrain produces a
+`VoxelTool` (`INVALID_TERRAIN`) -> `command.position` inside `terrain.bounds`
+(`OUT_OF_BOUNDS`) -> per-kind. `PLACE`: `block_id` is actually registered
+(`UNKNOWN_BLOCK`, distinct from 044's grammar/domain-only check), target voxel is air
+(`TARGET_OCCUPIED` otherwise). `REMOVE`: target voxel is not air (`TARGET_IS_AIR`
+otherwise), its resolved id exists in the registry (`UNRESOLVABLE_VOXEL` otherwise —
+data corruption or a terrain built from a different registry, same defensive case
+`block_raycast_service.gd`, 043, already guards), its `BlockDefinition.destructible` is
+true (`NOT_DESTRUCTIBLE` otherwise). Reuses the exact `+1`/`-1` air-offset convention
+043 established (`tool.get_voxel(pos) - 1` -> `registry.id_from_network_index()`) —
+no new offset logic.
+
+Bounds decision: rather than invent a bounds concept ahead of brick 050 ("voxel world
+bounds/authority policy"), this reads `VoxelTerrain.bounds` directly — a real property
+that already exists on every terrain (confirmed via `doc/classes/VoxelTerrain.xml`,
+`godot_voxel` v1.7 tag, fetched this brick: `type="AABB"`, in voxel coordinates,
+currently left at the engine's own effectively-unbounded default per
+`docs/voxel-tools.md` §6). 050 only ever needs to set `terrain.bounds` correctly; no
+second bounds mechanism was added here. Also confirmed this brick: `VoxelNode` itself
+(the `VoxelTerrain` base class) carries no `bounds` member — it is `VoxelTerrain`'s own
+addition, not inherited, so a future non-`VoxelTerrain` `VoxelNode` subtype would need
+its own equivalent decision.
+
+Logging is deliberately asymmetric: `INVALID_REGISTRY`/`INVALID_TERRAIN`/
+`UNRESOLVABLE_VOXEL` go through `Log.check()` (programmer/data errors), but the five
+ordinary gameplay verdicts are *not* logged — `docs/server-authority.md` §4 ("rejection
+is normal") plus `docs/logging-and-errors.md`'s no-per-frame-spam rule, since block
+edits (mining swings, misclicks) can be frequent enough that per-rejection logging
+would be exactly that spam. No stateful metrics/counters (`CommandGate`'s
+`_rejections` dictionary) were added — this validator is a stateless per-command check
+with no peer state to key metrics on, same "plain static utility" shape as
+`block_raycast_service.gd` (043); a future server loop can add counting at its own call
+site if needed, without changing this file.
+
+Tests: `tests/unit/test_block_edit_validator.gd` (9 tests, +9 total) — split the same
+way `test_block_raycast_service.gd` (043) splits its own: `INVALID_REGISTRY`/
+`OUT_OF_BOUNDS`/`UNKNOWN_BLOCK` against a built-but-unmeshed terrain (added to the tree
+so `get_voxel_tool()` is real, but no wait for meshing since these never read voxel
+content), and the five voxel-content-dependent verdicts (`ACCEPT`/`TARGET_OCCUPIED`/
+`ACCEPT`/`NOT_DESTRUCTIBLE`/`TARGET_IS_AIR`) against a fully meshed terrain via the same
+poll-`is_area_meshed()` `_ready_terrain()` helper 043's test file uses, plus
+`verdict_name()`. `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031–055, so no reference read was needed for gameplay design, same as
+031–044 (only the one `VoxelTerrain.xml` engine-doc fetch above, for `bounds`'s real
+type).
 
 `044` added `network/packets/edit_block_command.gd` (`EditBlockCommand`) — the
 `docs/protocol.md` §2 worked example given a concrete shape. Carries only intent: `kind`
@@ -643,7 +704,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 23 files, 263 tests, 10 200 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 24 files, 272 tests, 10 217 assertions, 0 failed.
 
 ## What exists now
 
@@ -663,6 +724,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 23 files, 263 tests, 10 20
 | Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
 | Terrain | `world/terrain/block_raycast_service.gd`, `block_raycast_hit.gd` | `BlockRaycastService.cast(terrain, registry, origin, direction, max_distance)`: wraps `VoxelTool.raycast()`, resolves the hit voxel value back to a `BlockDefinition` id through the registry (043, `docs/voxel-tools.md` §10) |
 | Network | `network/packets/edit_block_command.gd` | `EditBlockCommand`: PLACE/REMOVE intent (`kind`, `position`, `face_normal`, `block_id`, `tick`); `from_hit()` builds one from a `BlockRaycastHit`; `validate()` is structural only (044) |
+| Terrain | `world/terrain/block_edit_validator.gd` | `BlockEditValidator.validate(command, terrain, registry)`: layer-2 gameplay validation against `terrain.bounds`/actual voxel content — registered block, empty/occupied target, `destructible` (045, `docs/server-authority.md` §3) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -670,19 +732,16 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 23 files, 263 tests, 10 20
 
 ## Next 10 actions
 
-1. `045` block edit validation layer: gameplay validation (layer 2, `docs/server-authority.md`
-   §3) for the `EditBlockCommand` payload (044, now DONE) — is `position` within the
-   world's editable bounds, does `REMOVE` target a `destructible` block, does `PLACE`
-   target an empty/overwritable voxel, does the registry actually contain `block_id`.
-   This is world-state validation, distinct from 044's `validate()` (structural only).
-   Remember `blocky_library_builder.gd`'s `+1` voxel-value offset (library index =
-   network_index + 1, air = 0) wherever raw voxel values are read or written —
-   `block_raycast_service.gd` already applies it once for the hit-resolution direction;
-   block edit *application* (046) will need the inverse direction (id -> raw value) when
-   writing. None of 039–044 added a `.tscn`, and no player/camera exists yet to raycast
-   from or to parent the 042 `VoxelViewer` under — deciding where these nodes actually
-   live in a scene is still open (039's nextsteps entry, carried forward again by
-   042/043/044).
+1. `046` block edit application layer: apply an already-validated `EditBlockCommand` to
+   real voxel data — writes `registry.network_index(block_id) + 1` (037's offset,
+   inverse of the `- 1` `block_raycast_service.gd`/`block_edit_validator.gd` apply on
+   read) for `PLACE`, `0` for `REMOVE`, via `VoxelTool.set_voxel()`. Callers run
+   `command.validate()` (044, structural) then `BlockEditValidator.validate()` (045,
+   gameplay) first — this layer trusts both already passed, same "layer already checked
+   it" assumption 045 itself makes about 044. None of 039–045 added a `.tscn`, and no
+   player/camera exists yet to raycast from or to parent the 042 `VoxelViewer` under —
+   deciding where these nodes actually live in a scene is still open (039's nextsteps
+   entry, carried forward again by 042/043/044/045).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
@@ -760,6 +819,11 @@ opening the reference tree.
   `VoxelNode.xml`/`VoxelTerrain.xml`, brick 039. `VoxelGeneratorFlat.channel` defaults to
   `CHANNEL_SDF` (1), **not** `CHANNEL_TYPE` (0) — a blocky placeholder generator must set
   `channel` explicitly or it silently produces SDF data a blocky mesher can't read.
+- **`VoxelTerrain.bounds` is `AABB`, in voxel coordinates**, default effectively
+  unbounded (`AABB(-536870900, ..., 1073741800, ...)`) — confirmed against upstream
+  `VoxelTerrain.xml` (v1.7 tag), brick 045. `block_edit_validator.gd` (045) reads it
+  directly for the layer-2 "in bounds" check rather than inventing a second bounds
+  concept; a future world-size decision (brick 050) only has to set this property.
 
 ## Known risks
 

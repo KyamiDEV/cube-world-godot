@@ -7,13 +7,14 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: voxel infrastructure.** Bricks 001–040 of 266 are done — verified toolchain,
+> **Status: voxel infrastructure.** Bricks 001–041 of 266 are done — verified toolchain,
 > project skeleton, test harness, the core contracts (scale, time, RNG, IDs, saves,
 > protocol, authority), the reverse-engineering reference mapping (Phase B), and the
 > first real voxel content: a block schema/registry, a generated grass/dirt/stone block
 > set, a `VoxelBlockyLibrary` builder, and a baseline `VoxelTerrain` node with a
-> `VoxelMesherBlocky` attached. There is no playable world yet; the main scene prints a
-> boot report. Progress is tracked in [`backlog.md`](backlog.md) and
+> `VoxelMesherBlocky` attached and its terrain-level material explicitly left unset (the
+> per-block atlas materials are sufficient). There is no playable world yet; the main
+> scene prints a boot report. Progress is tracked in [`backlog.md`](backlog.md) and
 > [`nextsteps.md`](nextsteps.md).
 
 ## Technical baseline
@@ -70,7 +71,7 @@ Current state: **20 test files, 244 tests, ~10 135 assertions, 0 failures.**
 | Authority | `network/authority/command_gate.gd` | ownership, tick window, replay and rate-limit checks |
 | Blocks | `world/terrain/block_definition.gd`, `block_registry.gd` | block-kind schema (textures, collision, destructibility, footstep tag) and its validated, network-indexed catalogue |
 | Blocks | `world/terrain/blocky_library_builder.gd`, `data/blocks/*.tres` | builds a real `VoxelBlockyLibrary` from the registry; first committed content — `block.grass`/`block.dirt`/`block.stone` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | baseline `VoxelTerrain` node: collision on, a placeholder flat-ground generator, a `VoxelMesherBlocky`; material/viewer wiring follows in the next bricks |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | baseline `VoxelTerrain` node: collision on, a placeholder flat-ground generator, a `VoxelMesherBlocky`, terrain-level `material_override` explicitly `null`; viewer wiring follows in the next brick |
 | Tooling | `tools/` | engine verification, whole-tree compile check, test runner |
 
 ## Design decisions worth knowing

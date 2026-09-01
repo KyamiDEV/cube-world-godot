@@ -5,12 +5,21 @@ extends RefCounted
 ## Scope is deliberately narrow: this owns only what no later Phase C brick already
 ## claims — collision policy, the placeholder generator, and (as of brick 040) the
 ## mesher, so the node produces real, textured voxels end-to-end and is testable now,
-## without waiting on the rest of the stack. Terrain-level `material_override` (041) and
-## `VoxelViewer` interest streaming (042) are left untouched here; a caller composes
-## both onto the same node once each exists. `stream` is explicitly left null —
-## persistence is brick 048, and `VoxelNode.stream`'s own doc says an unassigned
-## stream makes the whole volume generate on demand, which is exactly what a save-less
-## baseline needs.
+## without waiting on the rest of the stack. `VoxelViewer` interest streaming (042) is
+## left untouched here; a caller composes it onto the same node once it exists. `stream`
+## is explicitly left null — persistence is brick 048, and `VoxelNode.stream`'s own doc
+## says an unassigned stream makes the whole volume generate on demand, which is exactly
+## what a save-less baseline needs.
+##
+## `material_override` (041): explicitly left null, not just unset. `VoxelTerrain.
+## material_override`, when set, overrides *every* per-model material in the mesher's
+## library (godot_voxel doc/source/blocky_terrain.md's own override-order list) — it
+## would blow away the per-block texture atlas + baked-AO material 037/040 already build
+## per `VoxelBlockyModel`. There is no terrain-wide look (a shared shader, a global tint)
+## this project needs yet, so a null override is the correct baseline, not a placeholder
+## waiting to be filled in. Revisit only if a future brick needs one material behavior
+## applied uniformly across every block kind (e.g. a triplanar snow shader) — see
+## `docs/voxel-tools.md` §8.
 ##
 ## `mesher` (040): a `VoxelMesherBlocky` wrapping the same registry's
 ## `BlockyLibraryBuilder.build()` output (037). Built from the same `registry` argument
@@ -56,6 +65,7 @@ static func build(registry: BlockRegistry) -> VoxelTerrain:
 	terrain.generator = generator
 	terrain.mesher = mesher
 	terrain.stream = null
+	terrain.material_override = null
 	terrain.generate_collisions = true
 	return terrain
 

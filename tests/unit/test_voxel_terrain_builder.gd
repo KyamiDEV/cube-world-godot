@@ -1,5 +1,5 @@
 extends TestCase
-## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-040).
+## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-041).
 
 var _temp_paths: PackedStringArray = []
 
@@ -67,6 +67,8 @@ func test_builds_a_configured_voxel_terrain() -> void:
 	assert_not_null(terrain.mesher, "040: a VoxelMesherBlocky, not left null anymore")
 	assert_true(terrain.mesher is VoxelMesherBlocky)
 	assert_null(terrain.stream, "no save format yet (048) — the generator covers the whole volume")
+	assert_null(terrain.material_override,
+			"041: a terrain-wide override would replace every per-block atlas material")
 	assert_true(terrain.generate_collisions)
 
 

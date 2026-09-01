@@ -111,7 +111,7 @@ across bricks 039–042:
 | `stream` | 048 (persistence) | explicit `null` |
 | `generate_collisions` | 039 | `true` |
 | `mesher` | 040 | a `VoxelMesherBlocky` (below) |
-| `material_override` | 041 | left unset |
+| `material_override` | 041 | explicit `null` (§8) |
 | `VoxelViewer` / `max_view_distance` | 042 | not touched |
 | `bounds` | undecided — no world-size decision exists yet | left at the engine default |
 
@@ -147,3 +147,34 @@ beyond that one material property. Recorded directly here rather than in a new
 `world-terrain-material.md` file (`matrix-world.md`'s own "Resolved by" placeholder) —
 the answer is a compact fact about the engine, not a design that needs its own document.
 `matrix-world.md` §4 and `docs/reference/traceability.md` §3 are updated to point here.
+
+## 8. Terrain material/shader baseline (brick 041)
+
+Backlog brick 041 is titled "create terrain material/shader baseline". By the time it
+started, 037/040 had already given every block kind its own `StandardMaterial3D` (a
+per-block texture atlas, `vertex_color_use_as_albedo = true` for baked AO) set on the
+`VoxelBlockyModel`, not the terrain. The open question (`nextsteps.md` action 1) was
+whether `VoxelTerrain.material_override` still needs a terrain-wide value on top of that.
+
+Fetched `doc/source/blocky_terrain.md` from the `godot_voxel` reference repo (CLAUDE.md
+§15 source) to check. It documents an explicit override order:
+
+> "there are several levels at which materials get applied, each one overriding the
+> other: Materials present on meshes are the default (if you use meshes explicitly) -
+> Materials specified on `VoxelBlockyModel` will override mesh materials - The material
+> specified on `VoxelTerrain` will override all library materials"
+
+So `VoxelTerrain.material_override`, if set, replaces *every* per-model material in the
+mesher's library with one shared `Material` — it is a way to force one uniform look
+(e.g. a single triplanar/shared shader) across an entire terrain, not a way to add to
+what the per-block materials already do. Setting it here would silently discard the
+per-block atlas texturing 037/040 already built and tested. Since nothing in this
+project currently needs one material applied uniformly across every block kind, the
+correct baseline is an **explicit `null`** — recorded as a real assignment in
+`voxel_terrain_builder.gd` (`terrain.material_override = null`), not left merely unset,
+so the decision reads as intentional to the next person editing this file. Revisit only
+if a future brick needs a genuinely terrain-wide material behavior (e.g. weather/snow
+overlay, Phase J).
+
+Answer: **no terrain-level material is needed on top of the per-block atlas materials.**
+Resolves the `nextsteps.md` "Next 10 actions" item 1 open question for 041.

@@ -112,7 +112,7 @@ across bricks 039–042:
 | `generate_collisions` | 039 | `true` |
 | `mesher` | 040 | a `VoxelMesherBlocky` (below) |
 | `material_override` | 041 | explicit `null` (§8) |
-| `VoxelViewer` / `max_view_distance` | 042 | not touched |
+| `max_view_distance` | 042 | `DEFAULT_VIEW_DISTANCE` = 128 (§9) |
 | `bounds` | undecided — no world-size decision exists yet | left at the engine default |
 
 **The generator is a temporary placeholder, not world generation.** Phase D
@@ -178,3 +178,32 @@ overlay, Phase J).
 
 Answer: **no terrain-level material is needed on top of the per-block atlas materials.**
 Resolves the `nextsteps.md` "Next 10 actions" item 1 open question for 041.
+
+## 9. `VoxelViewer`/interest baseline (brick 042)
+
+`VoxelViewer` is a `Node3D`, not a `VoxelTerrain` property — confirmed by fetching
+`doc/classes/VoxelViewer.xml` from the `godot_voxel` reference repo (CLAUDE.md §15
+source): it extends `Node3D` and Voxel Tools streams data around whatever `VoxelViewer`s
+exist in the scene tree, matched against each `VoxelNode`'s own `max_view_distance`
+(`VoxelTerrain.xml`'s own doc on that property: "If a `VoxelViewer` requests more, it
+will be clamped"). So this brick splits into two builders, not one:
+
+- `world/terrain/voxel_terrain_builder.gd` (039–042) now also sets
+  `terrain.max_view_distance = DEFAULT_VIEW_DISTANCE`, a new constant (`128`, matching
+  both properties' own engine default — named explicitly so the "never silently clamped"
+  pairing survives either default changing later, not left as two independently-defaulted
+  `128` literals).
+- `world/terrain/voxel_viewer_builder.gd` (new file, `VoxelViewerBuilder.build() ->
+  VoxelViewer`) builds a `VoxelViewer` with `view_distance = DEFAULT_VIEW_DISTANCE`,
+  `requires_visuals = true`, `requires_collisions = true` — a sandbox baseline needs both
+  meshed terrain and collision around the viewer, so both are set explicitly even though
+  they match the engine default, same "explicit, not merely unset" reasoning §8 used for
+  `material_override`.
+
+Neither builder adds the `VoxelViewer` to a scene tree or parents it under a camera —
+no player/camera exists yet (Phase F: bricks 106–130). Where the node actually lives is
+left open, same as `voxel_terrain_builder.gd`'s own still-open "where does this node live
+in a scene" question (039's `nextsteps.md` entry, carried forward again here).
+`enabled_in_editor` and `requires_data_block_notifications` are left at their engine
+defaults (`false`) — no live-in-editor streaming workflow or block-notification consumer
+exists yet to justify overriding either.

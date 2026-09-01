@@ -5,11 +5,18 @@ extends RefCounted
 ## Scope is deliberately narrow: this owns only what no later Phase C brick already
 ## claims — collision policy, the placeholder generator, and (as of brick 040) the
 ## mesher, so the node produces real, textured voxels end-to-end and is testable now,
-## without waiting on the rest of the stack. `VoxelViewer` interest streaming (042) is
-## left untouched here; a caller composes it onto the same node once it exists. `stream`
-## is explicitly left null — persistence is brick 048, and `VoxelNode.stream`'s own doc
-## says an unassigned stream makes the whole volume generate on demand, which is exactly
-## what a save-less baseline needs.
+## without waiting on the rest of the stack. `stream` is explicitly left null —
+## persistence is brick 048, and `VoxelNode.stream`'s own doc says an unassigned stream
+## makes the whole volume generate on demand, which is exactly what a save-less baseline
+## needs.
+##
+## `max_view_distance` (042): `VoxelViewer` is a separate `Node3D`, not a `VoxelTerrain`
+## property, so it is built by `voxel_viewer_builder.gd` instead of here — this file only
+## owns the terrain-side clamp a `VoxelViewer` requests against
+## (`VoxelTerrain.max_view_distance`'s own doc: "If a VoxelViewer requests more, it will
+## be clamped"). Set to `DEFAULT_VIEW_DISTANCE`, the same constant
+## `VoxelViewerBuilder.build()` uses for `VoxelViewer.view_distance`, so a baseline viewer
+## is never silently clamped below what it asked for.
 ##
 ## `material_override` (041): explicitly left null, not just unset. `VoxelTerrain.
 ## material_override`, when set, overrides *every* per-model material in the mesher's
@@ -44,6 +51,12 @@ const PLACEHOLDER_GROUND_HEIGHT := 4
 ## The one block kind the placeholder generator fills below `PLACEHOLDER_GROUND_HEIGHT`.
 const PLACEHOLDER_BLOCK_ID := "block.stone"
 
+## Shared with `voxel_viewer_builder.gd`'s `VoxelViewer.view_distance` (042) — the engine
+## default for both properties already agrees (128), but the value is named here as a
+## constant, not left as two independently-defaulted `128`s, so the "never silently
+## clamped" invariant survives either default changing later.
+const DEFAULT_VIEW_DISTANCE := 128
+
 
 ## Returns null (and logs why) when `registry` is not locked, or does not contain
 ## `PLACEHOLDER_BLOCK_ID` — both are programmer/data errors, not runtime conditions a
@@ -67,6 +80,7 @@ static func build(registry: BlockRegistry) -> VoxelTerrain:
 	terrain.stream = null
 	terrain.material_override = null
 	terrain.generate_collisions = true
+	terrain.max_view_distance = DEFAULT_VIEW_DISTANCE
 	return terrain
 
 

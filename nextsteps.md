@@ -16,19 +16,49 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–041)
+- Phase `C — Voxel infrastructure` — in progress (031–042)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `042 — Create voxel viewer/interest baseline`
+- Next task `043 — Create basic block raycast interaction service`
 
 ## Completed bricks
 
-`001`–`041`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`042`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
 property schema, 036 footstep/surface tag, 037 `VoxelBlockyLibrary` bootstrap, 038 first
 grass/dirt/stone block set, 039 `VoxelTerrain` baseline, 040 `VoxelMesherBlocky`
-baseline, 041 terrain material/shader baseline).
+baseline, 041 terrain material/shader baseline, 042 `VoxelViewer`/interest baseline).
+
+`042` added `world/terrain/voxel_viewer_builder.gd` (`VoxelViewerBuilder`, static
+`build() -> VoxelViewer`) — the last of the four `VoxelNode`/`VoxelTerrain` properties
+`docs/voxel-tools.md` §6 had split across bricks 039–042. `VoxelViewer` turned out to be
+a separate `Node3D`, not a `VoxelTerrain` property — confirmed by fetching
+`doc/classes/VoxelViewer.xml` and re-checking `VoxelTerrain.xml`'s `max_view_distance`
+doc from the `godot_voxel` reference repo (CLAUDE.md §15 source) — so the brick splits
+into two small pieces: `voxel_terrain_builder.gd` now also sets
+`terrain.max_view_distance = DEFAULT_VIEW_DISTANCE` (a new constant, `128`, matching both
+properties' own engine default but named explicitly so it can't drift into two
+independently-defaulted literals), and the new `voxel_viewer_builder.gd` builds a
+`VoxelViewer` with `view_distance` set to that same constant plus `requires_visuals =
+true`/`requires_collisions = true` — explicit, not merely left at the matching engine
+default, same "explicit is a real decision" reasoning 041 used for `material_override`.
+`enabled_in_editor`/`requires_data_block_notifications` are left at their engine defaults
+(`false`) — no live-in-editor streaming workflow or block-notification consumer exists to
+justify overriding either.
+
+Neither builder adds the viewer to a scene tree or parents it under a camera — no
+player/camera exists yet (Phase F, bricks 106–130) to attach it to. This carries forward,
+not resolves, the "where does this node live in a scene" question 039's own nextsteps
+entry first raised; full reasoning in `docs/voxel-tools.md` §9 (new section, same pattern
+as §§6–8). Tests: `tests/unit/test_voxel_viewer_builder.gd` (new, 2 tests) — baseline
+`requires_visuals`/`requires_collisions` are true, and `view_distance` matches
+`VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE` exactly (the coupling this brick's whole
+design rests on). `tests/unit/test_voxel_terrain_builder.gd`'s existing
+`test_builds_a_configured_voxel_terrain` gained one assertion (`max_view_distance ==
+DEFAULT_VIEW_DISTANCE`), same shape as 041's addition to that same test. No new docs
+contract beyond `docs/voxel-tools.md` §9 — this is a direct continuation of §§6–8's
+per-property pattern, not a new one.
 
 `041` resolved the open question `nextsteps.md` itself had flagged (former "Next 10
 actions" item 1): does `VoxelTerrain.material_override` still need a value now that
@@ -546,7 +576,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 246 tests, 10 141 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 21 files, 248 tests, 10 154 assertions, 0 failed.
 
 ## What exists now
 
@@ -562,7 +592,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 246 tests, 10 14
 | Blocks | `world/terrain/blocky_library_builder.gd` | Builds a real `VoxelBlockyLibrary` from a locked `BlockRegistry`: air at index 0, per-block runtime texture atlas, collision/culling from `is_solid`/`transparent` |
 | Blocks | `world/terrain/block_set.gd` | `BlockSet.load_default()`: scans `data/blocks/*.tres`, registers each into a locked `BlockRegistry` |
 | Blocks | `data/blocks/*.tres`, `assets/textures/blocks/*.png` | First content: `block.grass`/`block.dirt`/`block.stone` definitions and their placeholder textures, written by `tools/generators/generate_block_set.gd` |
-| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8), viewer left for 042, `stream` left null for 048 |
+| Terrain | `world/terrain/voxel_terrain_builder.gd` | `VoxelTerrainBuilder.build()`: a `VoxelTerrain` node with collision on, a placeholder flat-stone `VoxelGeneratorFlat`, and a `VoxelMesherBlocky` sourced from `BlockyLibraryBuilder`; `material_override` explicitly `null` (041 — per-block atlas materials are sufficient, see `docs/voxel-tools.md` §8); `max_view_distance = DEFAULT_VIEW_DISTANCE` (042); `stream` left null for 048 |
+| Terrain | `world/terrain/voxel_viewer_builder.gd` | `VoxelViewerBuilder.build()`: a `VoxelViewer` node with `view_distance = VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE`, `requires_visuals`/`requires_collisions` true; not yet parented under a camera (042, `docs/voxel-tools.md` §9 — no player/camera exists yet, Phase F) |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -570,13 +601,13 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 20 files, 246 tests, 10 14
 
 ## Next 10 actions
 
-1. `042` `VoxelViewer`/interest baseline, attaching to the node
-   `VoxelTerrainBuilder.build()` (039–041, now DONE) already produces — `mesher` (040)
-   and the explicit-`null` `material_override` (041) are both set, so 042 only owns
-   `VoxelViewer`/`max_view_distance`. Remember `blocky_library_builder.gd`'s `+1`
-   voxel-value offset (library index = network_index + 1, air = 0) wherever raw voxel
-   values are read or written. None of 039–041 added a `.tscn` — deciding where the
-   node actually lives in a scene is still open (039's nextsteps entry, carried forward).
+1. `043` basic block raycast interaction service, using `VoxelToolTerrain` against the
+   `VoxelTerrain` node `VoxelTerrainBuilder.build()` (039–042, now DONE) produces.
+   Remember `blocky_library_builder.gd`'s `+1` voxel-value offset (library index =
+   network_index + 1, air = 0) wherever raw voxel values are read or written. None of
+   039–042 added a `.tscn`, and no player/camera exists yet to raycast from or to parent
+   the 042 `VoxelViewer` under — deciding where these nodes actually live in a scene is
+   still open (039's nextsteps entry, carried forward again by 042).
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.
@@ -642,6 +673,11 @@ opening the reference tree.
   `BaseMaterial3D` property) to display it — confirmed against `godot_voxel`'s
   `doc/source/blocky_terrain.md`, brick 040. No mesher-level AO property exists to set;
   it is unconditional. Resolves `matrix-world.md` Q1 — no custom AO shader is needed.
+- **`VoxelViewer` is a `Node3D`, not a `VoxelTerrain` property.** Voxel Tools streams
+  data around whatever `VoxelViewer`s exist in the scene tree; `VoxelTerrain.
+  max_view_distance` only clamps what a `VoxelViewer` may request — confirmed against
+  upstream `VoxelViewer.xml`/`VoxelTerrain.xml`, brick 042. `voxel_terrain_builder.gd`'s
+  `DEFAULT_VIEW_DISTANCE` constant keeps both properties in sync.
 - **`VoxelNode` (base of `VoxelTerrain`) owns `generator`/`stream`/`mesher`**; `VoxelTerrain`
   itself adds `bounds`, `generate_collisions`, `collision_layer`/`collision_mask`,
   `max_view_distance`, `mesh_block_size` (16 or 32 only). An unassigned `stream` makes the

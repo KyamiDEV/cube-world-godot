@@ -1,5 +1,5 @@
 extends TestCase
-## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-041).
+## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042).
 
 var _temp_paths: PackedStringArray = []
 
@@ -70,6 +70,8 @@ func test_builds_a_configured_voxel_terrain() -> void:
 	assert_null(terrain.material_override,
 			"041: a terrain-wide override would replace every per-block atlas material")
 	assert_true(terrain.generate_collisions)
+	assert_eq(terrain.max_view_distance, VoxelTerrainBuilder.DEFAULT_VIEW_DISTANCE,
+			"042: never silently clamps a baseline VoxelViewer below what it requests")
 
 
 func test_mesher_library_matches_the_registry() -> void:

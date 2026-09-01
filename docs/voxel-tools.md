@@ -114,6 +114,7 @@ across bricks 039–042:
 | `material_override` | 041 | explicit `null` (§8) |
 | `max_view_distance` | 042 | `DEFAULT_VIEW_DISTANCE` = 128 (§9) |
 | `bounds` | 050 (world bounds/authority policy) | `WorldBounds.aabb()` (§15) — read directly by `block_edit_validator.gd` (045, §11) for layer-2 bounds checking |
+| `mesh_block_size` | 052 (surface) / 054 (decision) | optional builder parameter, `DEFAULT_MESH_BLOCK_SIZE` = 16 (§17–§19, ADR 0002) |
 
 **The generator is a temporary placeholder, not world generation.** Phase D
 (056–067, `docs/reference/matrix-world.md`) owns the real deterministic
@@ -607,3 +608,33 @@ matrix cites 031-055.
 
 Tests: none added — 052 already covers the `mesh_block_size` surface. Regression check
 only: full suite `files=30 tests=304 assertions=10336 failed=0`.
+
+## 19. Mesh block size decision (brick 054)
+
+Given 052's (size 16) and 053's (size 32) numbers, this brick fixes the project default.
+The full decision, alternatives and revisit conditions are **ADR 0002**; the summary:
+
+- **Decision: `VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE` stays `16`** — now a
+  deliberate, measured choice rather than the inherited engine default. The constant
+  value is unchanged; its meaning is not.
+- **Why not 32**, despite it benchmarking ~7-9% (~25-35 ms) faster to cold-settle: that
+  benchmark measured only initial streaming on flat, un-edited terrain. It never touched
+  the per-edit re-mesh path, where size 32 is a 32³ = 32 768-cell mesh job against size
+  16's 16³ = 4 096 — **8× the meshing work per block edit**, on the player-visible
+  latency path, in a game built around frequent mining/building edits. The 32 saving is
+  one-time and at startup; the 32 cost is per-edit and continuous.
+- `build()` keeps its optional `mesh_block_size` parameter and still accepts an explicit
+  `32`, so a future static-terrain or heavy-view-distance context can opt in per terrain
+  without reopening the decision.
+- Data-block memory is identical either way (`mesh_block_size` does not affect the fixed
+  16³ data-block storage), so there is no memory dimension to this trade-off — only
+  cold-start latency vs. per-edit latency.
+
+Not reverse-engineered: `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031-055.
+
+Tests: `tests/unit/test_voxel_terrain_builder.gd` — `test_builds_a_configured_voxel_terrain`
+gained one assertion (`DEFAULT_MESH_BLOCK_SIZE == 16` explicitly, so a silent change to
+`32` fails a test citing ADR 0002). No production code behavior changed — only doc
+comments and this decision record. Brick 055 writes these numbers into the formal voxel
+performance budget.

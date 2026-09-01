@@ -55,3 +55,4 @@ stays readable — that is the point of the record.
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-baseline-technical-stack.md) | Baseline technical stack and architecture | Accepted |
+| [0002](0002-mesh-block-size.md) | Initial mesh block size | Accepted |

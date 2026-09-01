@@ -1,5 +1,5 @@
 extends TestCase
-## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042, 048, 050).
+## Covers world/terrain/voxel_terrain_builder.gd (bricks 039-042, 048, 050, 052-054).
 
 var _temp_paths: PackedStringArray = []
 
@@ -75,7 +75,9 @@ func test_builds_a_configured_voxel_terrain() -> void:
 	assert_eq(terrain.bounds, WorldBounds.aabb(),
 			"050: the project's own authoritative extent, not the engine's unbounded default")
 	assert_eq(terrain.mesh_block_size, VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE,
-			"052: the engine default (16), now named explicitly")
+			"052: build() applies the project default mesh block size")
+	assert_eq(VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE, 16,
+			"054: fixed at 16 as a deliberate measured decision (ADR 0002), not 32")
 
 
 func test_rejects_an_invalid_mesh_block_size() -> void:

@@ -56,14 +56,17 @@ extends RefCounted
 ## the 040 mesher will assign to that value — no separate "generator epoch" to keep in
 ## sync.
 ##
-## `mesh_block_size` (052): an explicit optional parameter, `DEFAULT_MESH_BLOCK_SIZE` (16)
-## unless a caller passes `32` — the only two values `VoxelTerrain.mesh_block_size` accepts
-## (confirmed against upstream `VoxelTerrain.xml`, `godot_voxel` reference repo, tag `v1.7`).
-## Named explicitly, same "explicit is a decision" reasoning `material_override` (041) and
-## `max_view_distance` (042) already use, so bricks 052-053's benchmarks change exactly one
-## call-site argument rather than two independently-defaulted literals. An out-of-range
-## value is rejected the same way an unlocked registry is: `Log.check` plus a null return,
-## not silently clamped or passed through to the engine.
+## `mesh_block_size` (052-054): an explicit optional parameter, `DEFAULT_MESH_BLOCK_SIZE`
+## (16) unless a caller passes `32` — the only two values `VoxelTerrain.mesh_block_size`
+## accepts (confirmed against upstream `VoxelTerrain.xml`, `godot_voxel` reference repo,
+## tag `v1.7`). Brick 054 fixed the default at 16 as a deliberate, measured decision
+## (ADR 0002): bricks 052/053 measured size 32 ~7-9% faster to cold-settle on a synthetic
+## flat workload, but that one-time startup saving is outweighed by size 32's 8x per-edit
+## re-mesh cost (32^3 vs 16^3 mesh cells) on the player-visible latency path in an
+## edit-heavy game. The `32` path stays available per-terrain for a future static-terrain
+## or heavy-view-distance context that is measured to benefit. An out-of-range value is
+## rejected the same way an unlocked registry is: `Log.check` plus a null return, not
+## silently clamped or passed through to the engine.
 
 ## Altitude of the placeholder ground plane, in voxel coordinates — `VoxelGeneratorFlat.
 ## height` operates directly in voxel space, not world units (`core/math/world_scale.gd`
@@ -79,9 +82,12 @@ const PLACEHOLDER_BLOCK_ID := "block.stone"
 ## clamped" invariant survives either default changing later.
 const DEFAULT_VIEW_DISTANCE := 128
 
-## `VoxelTerrain.mesh_block_size`'s own engine default (052) — the value bricks 039-051
-## already ran under implicitly. Named explicitly here so a caller changing it (053's
-## benchmark) touches one argument, not a silently-relied-upon default.
+## The project default mesh-chunk edge length, in voxels. Also `VoxelTerrain.
+## mesh_block_size`'s own engine default and the value bricks 039-051 ran under
+## implicitly — but as of brick 054 this is a deliberate, measured choice, not an
+## inherited default: size 16 keeps the per-edit re-mesh unit small (8x cheaper than
+## size 32) on the player-visible latency path, at the cost of a one-time ~7-9% slower
+## cold streaming settle. Full reasoning and revisit conditions: ADR 0002.
 const DEFAULT_MESH_BLOCK_SIZE := 16
 
 ## The only two values `VoxelTerrain.mesh_block_size` accepts (052, confirmed against

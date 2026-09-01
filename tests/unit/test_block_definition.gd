@@ -79,6 +79,61 @@ func test_is_solid_can_be_set_false_and_stays_valid() -> void:
 	assert_true(definition.is_valid(), "collision is engine-integration, not a validity rule")
 
 
+func test_destructible_defaults_to_true() -> void:
+	var definition := _valid()
+	assert_true(definition.destructible, "most reference blocks are minable")
+
+
+func test_destructible_can_be_set_false_and_stays_valid() -> void:
+	var definition := _valid()
+	definition.destructible = false
+	assert_true(definition.is_valid(), "permanence is engine-integration, not a validity rule")
+
+
+func test_hardness_defaults_to_one() -> void:
+	var definition := _valid()
+	assert_eq(definition.hardness, 1.0)
+
+
+func test_rejects_zero_hardness() -> void:
+	var definition := _valid()
+	definition.hardness = 0.0
+	assert_eq(definition.validate(), "hardness must be greater than 0")
+
+
+func test_rejects_negative_hardness() -> void:
+	var definition := _valid()
+	definition.hardness = -1.0
+	assert_eq(definition.validate(), "hardness must be greater than 0")
+
+
+func test_drop_item_id_defaults_to_empty_and_stays_valid() -> void:
+	var definition := _valid()
+	assert_eq(definition.drop_item_id, "")
+	assert_true(definition.is_valid(), "empty drop_item_id means no drop")
+
+
+func test_accepts_a_well_formed_drop_item_id() -> void:
+	var definition := _valid()
+	definition.drop_item_id = "item.dirt"
+	assert_true(definition.is_valid())
+
+
+func test_rejects_a_malformed_drop_item_id() -> void:
+	var definition := _valid()
+	definition.drop_item_id = "Item.Dirt"
+	assert_ne(definition.validate(), "")
+	assert_true(definition.validate().begins_with("drop_item_id: "),
+			"the reason is prefixed so it's clear which field failed")
+
+
+func test_rejects_a_drop_item_id_from_another_domain() -> void:
+	var definition := _valid()
+	definition.drop_item_id = "block.dirt"
+	assert_eq(definition.validate(),
+			"drop_item_id must be in the 'item' domain, got 'block.dirt'")
+
+
 func test_registers_into_a_block_registry() -> void:
 	# End-to-end with DefinitionRegistry (brick 016) — the registry only checks the id,
 	# so a valid-but-unvalidated-by-the-registry definition still needs its own check.

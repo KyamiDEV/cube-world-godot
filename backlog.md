@@ -64,7 +64,7 @@
 | 032 | C | Create voxel/block registry | 031 | Not needed by default | NO | DONE |
 | 033 | C | Create block material property schema | 032 | Not needed by default | NO | DONE |
 | 034 | C | Create block collision property schema | 033 | Not needed by default | NO | DONE |
-| 035 | C | Create block interaction/destruction property schema | 034 | Not needed by default | NO | TODO |
+| 035 | C | Create block interaction/destruction property schema | 034 | Not needed by default | NO | DONE |
 | 036 | C | Create block footstep/surface tags | 035 | Not needed by default | NO | TODO |
 | 037 | C | Create VoxelBlockyLibrary bootstrap | 031 | Not needed by default | NO | TODO |
 | 038 | C | Create first grass/dirt/stone block set | 037 | Not needed by default | NO | TODO |

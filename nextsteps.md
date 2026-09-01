@@ -16,16 +16,39 @@
 ## Current phase / milestone / task
 
 - Phase `B — Architecture & reference extraction` — **COMPLETE** (011–030)
-- Phase `C — Voxel infrastructure` — in progress (031–034)
+- Phase `C — Voxel infrastructure` — in progress (031–035)
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `035 — Create block interaction/destruction property schema`
+- Next task `036 — Create block footstep/surface tags`
 
 ## Completed bricks
 
-`001`–`034`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`035`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C in progress (031 block definition schema, 032 block registry, 033
-material property schema, 034 collision property schema).
+material property schema, 034 collision property schema, 035 interaction/destruction
+property schema).
+
+`035` extended `world/terrain/block_definition.gd` with three fields: `destructible: bool
+= true` (bare adjective, same style as `transparent`, not `is_destructible` — independent
+of `is_solid`, since a block can collide but never be destroyed or vice versa), `hardness:
+float = 1.0` (an abstract positive mining-effort multiplier, deliberately not seconds and
+not tied to any tool-tier scheme — that belongs to Phase G/H equipment/combat data, not
+block-kind data; validated `> 0` regardless of `destructible`, so a data file can't carry
+a stale nonsensical value), and `drop_item_id: String = ""` (stable ID, domain `item`,
+empty = no drop; quantity/roll variance is deferred to the Phase H loot system — this
+field only names *what*, not how many). No `ItemRegistry` exists yet, so `validate()`
+only checks `drop_item_id`'s grammar and domain via `StableId`, the same way `id` itself
+is checked without a live registry to cross-reference — whether the named item actually
+exists is a data-loading-time concern, not this resource's, same reasoning brick 033 used
+for texture paths. `docs/reference/traceability.md` §4 already confirmed no reference
+matrix cites 031–055, so no reference read was needed, same as 031–034. Tests extended in
+`tests/unit/test_block_definition.gd` (23 tests, +9): destructible default/false-stays-
+valid, hardness default/zero-rejected/negative-rejected, drop_item_id default-empty-
+valid/well-formed-accepted/malformed-rejected-with-field-prefix/wrong-domain-rejected.
+`tests/unit/test_block_registry.gd` needed no change — all three new fields default to
+values that keep its existing `_grass()`/`_dirt()` helpers valid unmodified, same as 034.
+No docs page added — same "direct application of an existing convention" reasoning as
+031–034, not a new contract.
 
 `034` extended `world/terrain/block_definition.gd` with a single `is_solid: bool = true`
 field — whether the block kind produces collision at all. Deliberately a plain predicate,
@@ -292,7 +315,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 217 tests, 10 040 assertions, 0 failed.
+Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 226 tests, 10 051 assertions, 0 failed.
 
 ## What exists now
 
@@ -303,7 +326,7 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 217 tests, 10 04
 | Time | `core/time/simulation_clock.gd` | 60 Hz fixed step, catch-up clamp, snapshot cadence |
 | RNG | `core/random/deterministic_rng.gd`, `world_hash.gd` | splitmix64 stream + positional hashing for generation |
 | IDs | `core/ids/stable_id.gd`, `definition_registry.gd` | ID grammar, catalogues, aliases, network indices |
-| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `is_solid`, `validate()` |
+| Blocks | `world/terrain/block_definition.gd` | Block-kind schema: `id`, `display_name`, `texture_top`/`texture_side`/`texture_bottom`, `transparent`, `is_solid`, `destructible`, `hardness`, `drop_item_id`, `validate()` |
 | Blocks | `world/terrain/block_registry.gd` | Typed `BlockDefinition` catalogue: validates fields, then delegates storage/locking/indices to `DefinitionRegistry` |
 | Saves | `core/serialization/save_version.gd` | four version numbers, load verdicts, migration steps |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
@@ -312,8 +335,8 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 17 files, 217 tests, 10 04
 
 ## Next 10 actions
 
-1. `035`–`038` remaining block property schemas (interaction/destruction, footstep/
-   surface tags — material done in 033, collision done in 034), `VoxelBlockyLibrary`
+1. `036`–`038` remaining block property schema (footstep/surface tags — material done in
+   033, collision done in 034, interaction/destruction done in 035), `VoxelBlockyLibrary`
    bootstrap, first grass/dirt/stone block set. Phase C is original Godot/Voxel-Tools
    engineering; `docs/reference/traceability.md` §4 confirms no matrix cites this range —
    no reference read needed before starting.

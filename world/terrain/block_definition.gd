@@ -9,8 +9,8 @@ extends Resource
 ## self-validation every domain's definition type is responsible for
 ## (`docs/ids-and-registries.md` §5).
 ##
-## Interaction/destruction and footstep/surface-tag fields are added by dedicated
-## bricks (035–036) rather than guessed here.
+## Footstep/surface-tag fields are added by a dedicated brick (036) rather than
+## guessed here.
 
 ## Stable content ID, domain "block" — e.g. "block.grass". Written into save files and
 ## network packets; see `docs/ids-and-registries.md`.
@@ -46,6 +46,32 @@ extends Resource
 ## decorative or liquid-surface kind) sets this to false explicitly.
 @export var is_solid: bool = true
 
+## Whether this block kind can be destroyed by ordinary player action at all (backlog
+## brick 035). Bare adjective, no `is_`/`has_` prefix — same style as `transparent`
+## (033), both read fine as a predicate on their own. Defaults to true: most reference
+## blocks (stone, dirt, grass) are minable; a future kind meant to be permanent (e.g. a
+## world-boundary or structural-core block) sets this to false explicitly. Independent
+## of `is_solid` — a block can collide but never be destroyed, or vice versa (a
+## walk-through hazard that still yields a drop).
+@export var destructible: bool = true
+
+## Relative effort required to destroy this block kind, e.g. mining-time weight. An
+## abstract positive multiplier, not seconds and not tied to any specific tool-tier
+## system — which tool types affect it, and how, is equipment/combat-system data
+## (Phase G/H), not block-kind data. Meaningless when `destructible` is false, but still
+## validated so a data file can't carry a nonsensical value it forgot to fix when
+## flipping `destructible` back on later.
+@export var hardness: float = 1.0
+
+## Stable ID (domain "item") of the item this block kind yields on destruction, or an
+## empty string for no drop (e.g. a decorative or liquid-surface kind). Quantity/roll
+## variance is a loot-system concern (Phase H), not recorded here — this field only
+## names *what*, not how many. No `ItemRegistry` exists yet (Phase H), so `validate()`
+## below only checks the ID's own grammar and domain, the same way it already checks
+## `id`/`display_name` without a live registry to cross-reference against — whether the
+## named item actually exists is a data-loading-time concern, not this resource's.
+@export var drop_item_id: String = ""
+
 
 ## Returns an empty string when well-formed, otherwise a human-readable reason — same
 ## convention as `StableId.validate()`, so a bad data file logs a useful error instead
@@ -64,6 +90,14 @@ func validate() -> String:
 		return "texture_side is empty"
 	if texture_bottom.is_empty():
 		return "texture_bottom is empty"
+	if hardness <= 0.0:
+		return "hardness must be greater than 0"
+	if not drop_item_id.is_empty():
+		var drop_problem := StableId.validate(drop_item_id)
+		if not drop_problem.is_empty():
+			return "drop_item_id: " + drop_problem
+		if StableId.domain_of(drop_item_id) != "item":
+			return "drop_item_id must be in the 'item' domain, got '%s'" % drop_item_id
 	return ""
 
 

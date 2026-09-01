@@ -17,11 +17,11 @@
 
 - Phase `B — Architecture & reference extraction`
 - Milestone `M002 — Voxel sandbox` (M001 bootstrap COMPLETE)
-- Next task `025 — Map CubeWorld inventory/item/equipment concepts`
+- Next task `026 — Map CubeWorld quest/NPC concepts`
 
 ## Completed bricks
 
-`001`–`024`. Phase A complete; Phase B contracts complete (011–020); reference tree
+`001`–`025`. Phase A complete; Phase B contracts complete (011–020); reference tree
 reading started at `021`.
 
 `021` mapped `*/world/` (13 classes: `World`, `Zone`, `Region`, `Dungeon`, `House`,
@@ -87,6 +87,23 @@ the two attack-*selection* decision trees (`Combat_selectNextAttackAnim`,
 `Combat_selectSpiritAttackId`) were read only via their one-line GAP summary, not their
 bodies (blocks 138, 139, 192).
 
+`025` mapped inventory/item/equipment concepts into `docs/reference/matrix-items.md`.
+One dedicated class (`InventoryWidget`, client) placed in `client/ui/`; `Database`
+cross-referenced as out of scope (same generic SQLite blob store already flagged in
+`matrix-entity.md`); 9 "concept with no single class" rows gathered from server
+`game_misc` item/equip/loot/currency functions and client `GameController`. Notable:
+`attribution.tsv` attributes the actual inventory-grid rebuild/scroll/hover functions
+(GAP-named `InventoryWidget_rebuildItemList` etc.) to `GameController`, not
+`InventoryWidget` — `GameController` is a 620-function client class with no owning
+matrix in 021–028, only its ~10 item-relevant functions were pulled in here, same
+"concept with no single class" pattern as 021–024. Three open questions recorded
+(matrix §4): Q1 `GameController` itself needs a home (a new matrix before 224/225, or
+absorbed by 028); Q2 equipment slot count is contradictory across two server functions
+(16 vs 12) with no VERIFIED offset to arbitrate, unlike combat's `cube_Creature_offsets`
+— brick 164 must choose independently; Q3 the "rng affix" rolled by
+`GameController_onItemPickup` was not read past its GAP one-liner, relevant before
+brick 173 if affix mechanics matter for the loot roll service.
+
 ## Commands
 
 ```powershell
@@ -114,15 +131,15 @@ Last run: `check.ps1` **OK** · `test.ps1` **OK** — 15 files, 195 tests, 9 978
 
 ## Next 10 actions
 
-1. `025` map inventory/item/equipment concepts → `docs/reference/matrix-items.md`.
-2. `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
-3. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
-4. `030` traceability index from notes to bricks.
-5. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
-6. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
-7. `052`–`055` mesh block size benchmarks; record the measured choice.
-8. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
-9. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
+1. `026` quests (`QuestText`/`QuestTextNode` deferred from 022) · `027` UI (`WorldPreviewWidget` belongs here, deferred from 021) · `028` client/server split.
+2. `029` confidence/uncertainty convention (baseline already in `docs/reference/README.md` §4).
+3. `030` traceability index from notes to bricks.
+4. `031`–`038` block definition schema, registry, block set — first use of `DefinitionRegistry`.
+5. `039`–`042` `VoxelTerrain` + `VoxelMesherBlocky` + viewer baseline.
+6. `052`–`055` mesh block size benchmarks; record the measured choice.
+7. Before `056`: resolve Q2 from `matrix-world.md` (client-side world generation — singleplayer-only pattern?) — `matrix-ai.md`'s observation that both binaries carry near-identical AI-tick bodies is corroborating evidence, still unresolved.
+8. Before `112`/`116`/`128`/`243`: resolve Q1 from `matrix-entity.md` (cite the matrix for creature/player locomotion, or add a dedicated brick) — `matrix-ai.md`'s nav/locomotion-primitives row cross-refs the same question.
+9. Before `164`/`165`: resolve Q2 from `matrix-items.md` (contradictory equipment slot count, 16 vs 12, neither VERIFIED). Before `172`/`173`: Q3 (unread "rng affix" roll in `GameController_onItemPickup`). Before `224`/`225`: Q1 (`GameController` — a 620-function client class — has no owning matrix; needs a scoping decision, possibly folded into 028).
 10. Before `177`/`178`: resolve Q1 from `matrix-ai.md` (does the `BehaviorNode` tree need both a true Sequence and a first-success Selector, given `SequentialBehavior` observably behaves as the latter?). Before `190`/`216`: resolve Q2 from `matrix-ai.md` (unconfirmed world-clock field gating `SpawnLocationBehavior`'s location switch).
 11. Before `136`/`137`/`249`: resolve Q1 from `matrix-combat.md` (is `readCombatActionFromStream`/`readHitFromStream` quest-script trigger data or a combat-event wire-format precursor?). Before `141`–`144`: Q2 (unexplained `2^a*2^b` formula shape — may not need resolving under clean-room policy). Before `138`/`139`/`192`: Q3 (attack-selection decision-tree bodies unread).
 12. Update this file after every brick.

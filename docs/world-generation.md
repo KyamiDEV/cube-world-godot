@@ -864,3 +864,170 @@ world where the ground under the waterline it picks is genuinely varied.
   brick's problem. Every term here is a pure function of one column, as `docs/rng.md` §2
   requires of a field both the server and the client generate.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`.
+
+## 8. The terrace / block-world shaping pass (brick 063)
+
+Implementation: `world/generation/terrace_pass.gd` (`TerracePass`).
+Tests: `tests/unit/test_terrace_pass.gd`.
+Reference: none — see §8.6.
+
+§6 and §7 produce a continuous height: a smooth landscape that happens to be stored in
+voxels. This pass is what makes it a **block world**. Every column's ground is snapped
+down to the terrace plane below it, so a hillside stops being a ramp and becomes a
+staircase of flat shelves separated by clean vertical faces. It is the last shaping pass
+over the height field, and the one that gives the world its silhouette.
+
+### 8.1 The whole pass
+
+```text
+at(column) = floor(erosion.at(column) / H) * H,   H = TERRACE_HEIGHT_VOXELS = 8
+```
+
+| Constant | Value | Why |
+|---|---|---|
+| `TERRACE_HEIGHT_VOXELS` | `8` = 4 m | pinned from the other end by brick 061 — see §8.2 |
+| salt | none | quantisation is a pure function of a height this pass is handed; there is nothing here for a seed to vary, and `docs/rng.md` §4's append-only salt list is untouched |
+| noise layers | none | the pass costs one division and one `floor` per column on top of §7 |
+
+Three things follow from it being a **floor** rather than a rounding.
+
+**It only ever lowers ground.** `floor` is monotone, so `base <= erosion.at()` gives
+`terraced(base) <= at()`, and the family invariant of §7.1 survives the quantisation in
+terraced form:
+
+```text
+terraced(base_at(column)) <= at(column) <= erosion.at(column)
+```
+
+with `at()` never more than one terrace below the height it started from. The *unterraced*
+base is no longer a lower bound, and that is honest rather than a regression: a column
+sitting just above its base is pulled down past it, by less than one terrace. Rounding
+would have raised ground as often as it lowered it and broken the family outright.
+
+**The terrace planes are anchored to the datum.** `y = 0` is a terrace boundary (§6.1), so
+every shelf in the world sits at a height a designer, a save file and a server can all
+name. The negative side floors too, never truncates toward zero — truncation would put
+voxel −1 and voxel 0 on the same shelf and mirror the staircase about the datum, which is
+the same defect `GenerationGrid.floor_div()` exists to avoid one level down (§3.5).
+
+**The output is discontinuous, on purpose.** This is the first pass for which
+`max_step_per_voxel()` means nothing; §8.3 says what replaces it.
+
+The range is §7's and §6's, unchanged: both ends are exact multiples of the terrace height
+(`−96 = −12·8`, `+192 = 24·8`), so quantising maps the range into itself. That divisibility
+is a property of 061's vertical anchors rather than of this file, so the test asserts it —
+a later change to `OCEAN_FLOOR_VOXELS` or `LAND_BASE_VOXELS` must fail there instead of
+silently pushing the world one terrace out of its own stated range. The minimum is now
+*easier* to reach than before (any column within one terrace of the ocean floor lands
+exactly on it); the maximum needs a column whose eroded height is exactly `MAXIMUM_VOXELS`,
+so in practice the world's ceiling is one terrace below it.
+
+`floor` and a power-of-two divisor are also a determinism decision, not only a design one:
+`h / 8.0` is an exact exponent shift for every finite double and `floor` is exactly
+specified by IEEE-754, so the whole pass is bit-identical on every platform — the same
+argument §5.3 makes about the fade, applied to a division.
+
+### 8.2 The terrace height was pinned by brick 061
+
+`ElevationField.RELIEF_OCTAVES = 6` was chosen so the finest relief cell is 32 voxels =
+16 m, **four times** the terrace height here (§6.4). Coarsen the terrace and 061's finest
+octave is rounded away entirely — the detail it pays four hashes an octave for would never
+reach the ground. The test asserts `finest_relief_cell == 4 · TERRACE_HEIGHT_VOXELS`
+rather than the constant alone, so the two numbers cannot drift apart.
+
+8 voxels is 4 m, roughly two player heights of shelf to shelf.
+
+### 8.3 What replaces the step bound
+
+```text
+riser <= ceil(erosion.max_step_per_voxel() / H) · H
+```
+
+because `floor(a/H)` and `floor(b/H)` cannot differ by more than `ceil(|a − b|/H)` steps.
+§7.4's bound is `2.627` voxels per voxel, comfortably under one terrace, so
+`max_riser_voxels()` comes to exactly **one terrace, 8 voxels**: every riser in the world
+is a single 4 m face and never a stacked cliff. That is what the terrace height is sized
+for, and it is derived from the constants rather than hoped for — a future pass that
+steepened the ground past one terrace per voxel would make this number grow and say so.
+
+`test_the_riser_bound_is_a_real_constraint` quantises raw positional hashing over the same
+amplitude and counts the terraces it skips, so the assertion is known to be capable of
+failing.
+
+### 8.4 The fixture-column variation check is 2, not 8
+
+Every other Phase D pass asserts at least 8 distinct values over
+`GenerationFixtures.columns()`. This one asserts 2, and that is the pass working rather
+than a weakened check. Those 15 columns are deliberately *nearby* coordinates — the origin,
+its neighbours, cell boundaries, the two region corners — chosen to catch sign and boundary
+defects, not to sample the world. §7 answers 15 distinct heights there, but they span
+barely 12 voxels, so quantising them lands on exactly two shelves (`+64` and `+56`).
+Demanding 8 would demand the terrace be finer than the ground it measures.
+
+The real variation check for this pass runs over the 2304-column sweep instead, and
+demands a *populated span* of terraces rather than a count of distinct values.
+
+### 8.5 What the pass measures
+
+Over the same 2304-column sweep §5.5, §6.6 and §7.5 use, for the `typed` world:
+
+| | before (§7.5) | after |
+|---|---:|---:|
+| lowest | `−95.7` | `−96.0` |
+| highest | `+148.6` | `+144.0` |
+| mean | `−5.1` | `−8.9` |
+| columns above the datum | 49.8% | 49.8% |
+
+It removes `3.9` voxels from the average column — half a terrace, which is what a floor
+over a field with no preferred phase should remove — and never a whole one. The sweep
+lands on **31 distinct terraces spanning indices −12…18**, i.e. every terrace in the span
+is populated: the world uses its whole vertical range in shelves rather than clustering at
+one end.
+
+A kilometre walk across the origin (`z = 613`, the line §6.5 and §7.4 use) is now **1992
+flat steps and 8 risers**, every riser exactly one terrace. The same line under §7 had zero
+flat steps — every one of its 2000 columns differed from its neighbour. That contrast is
+the brick: the ground stopped being a curve and became a floor you can stand on.
+
+### 8.6 There is no reference claim behind this
+
+`docs/reference/terrain-base-height-field.md` records nothing about vertical quantisation —
+its claims are about how the original stacked noise tiers onto a base and which post-passes
+scaled them (§3, claims 2–6). Terracing is therefore **original design** within the pass
+shape §7.1 established, motivated by the target look rather than by recovered behavior, and
+`docs/reference/traceability.md`'s `061–063` row should be read as covering the height field
+underneath it and not this quantisation. Nothing here is asserted about what the original
+did.
+
+### 8.7 This is not a generation version bump
+
+§2.1's honest test is "would a cell an existing world has not reached yet still come out
+the same". `TerracePass` adds a new pass; it changes no constant, no salt, no hash and no
+existing field — `ErosionPass.at()` answers exactly what it answered before, and its pinned
+signature is unchanged. No world has ever had a voxel written from any of these fields
+(§8.8), so there is no world whose terrain this could contradict. `GENERATION_VERSION`
+stays where it is.
+
+That stops being true the moment a generator writes voxels from this chain. From then on a
+change to `TERRACE_HEIGHT_VOXELS` is a bump like any other pinned constant.
+
+### 8.8 Out of scope for this brick
+
+- **Sea level and water.** Still brick 080, and now with a terraced sea floor to put a
+  waterline against — a flat shelf under water is a beach or a shallow, which is a better
+  starting point for 083/084 than a continuous slope was.
+- **Rivers, roads, structure flattening.** Bricks 080–083, 089–090. They belong to §7.1's
+  product, i.e. **underneath** this pass: shape the continuous height, then terrace it. A
+  flattening term applied after quantisation would produce heights that are not terrace
+  planes, and every consumer of `surface_y()` would have to re-snap them.
+- **Varying the terrace height per place.** A biome-dependent or ruggedness-dependent
+  terrace would need the terrace planes to stop lining up between neighbouring columns,
+  which turns a single riser into an arbitrary cliff and voids §8.3. If it is ever wanted,
+  it is a brick with its own bound, not a constant swapped for a field.
+- **Noise on the terrace edges.** The contour a riser follows is exactly a contour of §7's
+  continuous field. Perturbing it would need a new salt and a new field, and the brick's
+  own sizing note says a terrace needs neither.
+- **Materials, and which block a shelf is made of.** Bricks 075–076. This pass says where
+  the surface is, never what it is.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`. `surface_y()` is the integer
+  plane a generator will fill up to, and the generator is a later brick.

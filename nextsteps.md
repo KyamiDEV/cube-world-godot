@@ -22,23 +22,25 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–062 done, 063–090 open)
-- Next task `063 — Create terrace/block-world shaping pass` (dep: 061 — DONE). **The world
-  now has generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or
-  the pinned constants in `Continentalness`, `ElevationField` or `ErosionPass` is a
-  generation version bump (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free
-  fix. Both free fixes were taken (058, 059). **063 should read `ErosionPass`, not
-  `ElevationField`** — its backlog dependency row predates 062, but terraces have to follow
-  eroded ground or the pass underneath them is invisible (`docs/world-generation.md` §7.6).
-  Its sizing constraint is already pinned: 061 chose 6 relief octaves so the finest relief
-  cell (32 voxels = 16 m) is **four times** the terrace height 063 quantises to, i.e. a
-  terrace of about 8 voxels = 4 m (§6.4). `064 — temperature field` is now unblocked too
-  (dep 062), and it owes an answer to `terrain-base-height-field.md` `U2`: whether climate
-  reuses `ErosionPass`' ruggedness weight field or gets its own.
+- Phase `D — World generation` — **IN PROGRESS** (056–063 done, 064–090 open)
+- Next task `064 — Create temperature field` (dep: 062 — DONE). **The world now has
+  generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the
+  pinned constants in `Continentalness`, `ElevationField`, `ErosionPass` or `TerracePass`
+  is a generation version bump (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a
+  free fix. Both free fixes were taken (058, 059). 064 **owes an answer to
+  `terrain-base-height-field.md` `U2`**: whether climate reuses `ErosionPass`' ruggedness
+  weight field or gets its own — resolve it in the note rather than assume
+  (`docs/world-generation.md` §6.7). It is also the first field since 060 to need a **new
+  salt**, and `WorldHash.SALT_TEMPERATURE = 2` already exists (appended long before it was
+  used), so nothing is appended — check the salt is unused elsewhere and take it.
+  `065 — humidity field` (dep 061) is unblocked in parallel and will want the same shape;
+  `066 — biome classifier` (dep 061) consumes both plus, probably,
+  `ErosionPass.ruggedness_noise_at()`, which 062 left public and unsquared for exactly
+  that.
 
 ## Completed bricks
 
-`001`–`062`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`063`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -53,7 +55,84 @@ size 16 benchmark, 053 mesh block size 32 benchmark, 054 mesh block size decisio
 baseline voxel performance budget). **Phase C complete — milestone M002 exit criteria met.**
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
-layer, 061 elevation field, 062 erosion/shape pass.
+layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass.
+
+`063` is the brick that turns the height field into a **block world**:
+`world/generation/terrace_pass.gd` (`TerracePass`), one new file, **no** change to any
+existing file — no new salt, no new noise layer, no constant touched anywhere below it.
+`ErosionPass`' pinned signature `cc4f0f5ecb8fa581` is unchanged and still asserted, which
+is the check that it really is downstream-only.
+
+The whole pass is one line, and that is the design:
+
+```text
+at(column) = floor(erosion.at(column) / H) * H,   H = TERRACE_HEIGHT_VOXELS = 8 (= 4 m)
+```
+
+Six decisions worth keeping:
+
+1. **It reads `ErosionPass`, not `ElevationField`** — the backlog dependency row says 061,
+   but terraces laid over unshaped ground would make 062 invisible
+   (`docs/world-generation.md` §7.6). Every future shaping term (rivers, roads, structure
+   flattening — 080–083, 089–090) belongs *underneath* this pass, in §7.1's product:
+   applied after quantisation it would produce heights that are not terrace planes and
+   every consumer of `surface_y()` would have to re-snap them.
+2. **`floor`, never `round`, and it keeps the family invariant.** `floor` is monotone, so
+   `base <= erosion.at()` gives `terraced(base) <= at()`, and §7.1's shape survives in
+   terraced form: `terraced(base_at) <= at <= erosion.at`, never more than one terrace
+   below where it started. Rounding would raise ground as often as it lowers it and break
+   the family outright. Stated honestly in §8.1: the *unterraced* base stops being a lower
+   bound, because a column just above its base is pulled past it by under one terrace.
+3. **The terrace height was pinned by 061, not chosen here.** `RELIEF_OCTAVES = 6` puts the
+   finest relief cell at 32 voxels = **four times** 8 (§6.4); coarsen the terrace and 061's
+   finest octave is rounded away entirely. The test asserts
+   `finest_relief_cell == 4 · TERRACE_HEIGHT_VOXELS` rather than the constant alone, so the
+   two cannot drift apart. Terrace planes are anchored to the **datum** (`y = 0` is a
+   boundary), and the negative side floors rather than truncating toward zero — truncation
+   would put voxel −1 and voxel 0 on one shelf and mirror the staircase about the origin,
+   the same defect `GenerationGrid.floor_div()` avoids one level down (§3.5).
+4. **`max_step_per_voxel()` is replaced, not dropped.** This is the first pass whose output
+   is deliberately discontinuous, so a per-voxel slope bound means nothing. What replaces
+   it is `max_riser_voxels() = ceil(erosion.max_step_per_voxel() / H) · H`, because
+   `floor(a/H)` and `floor(b/H)` differ by at most `ceil(|a−b|/H)` steps. 062's bound is
+   `2.627`, comfortably under one terrace, so **every riser in the world is a single 4 m
+   face and never a stacked cliff** — a derived consequence of the constants, and a number
+   that would grow and say so if a later pass steepened the ground.
+5. **A power of two, and that is a determinism decision.** `h / 8.0` is an exact exponent
+   shift for every finite double and `floor` is exactly specified by IEEE-754, so the pass
+   is bit-identical on every platform — §5.3's `cos`/`pow` argument applied to a division.
+6. **`variation_reason()` is asserted at 2 here where every other Phase D pass uses 8**,
+   and that is the pass working rather than a weakened check. `GenerationFixtures.columns()`
+   is a list of deliberately *nearby* coordinates; 062 answers 15 distinct heights there but
+   they span barely 12 voxels, so quantising lands on exactly two shelves (`+64`, `+56`).
+   The real variation check runs over the 2304-column sweep and demands a *populated span*
+   of terraces (§8.4).
+
+Measured over the same sweep 060/061/062 used: lowest `−96.0` (was `−95.7`), highest
+`+144.0` (was `+148.6`), mean `−8.9` (was `−5.1`), 49.8% above the datum (unchanged). It
+removes `3.9` voxels from the average column — half a terrace, which is what a floor over a
+field with no preferred phase should remove — and never a whole one. The sweep lands on
+**31 distinct terraces spanning indices −12…18**: every terrace in the span is populated.
+The kilometre walk at `z = 613` is now **1992 flat steps and 8 risers**, each exactly one
+terrace; the same line under 062 had *zero* flat steps. That contrast is the brick.
+
+**Not a generation version bump** (§8.7): a new pass that changes no constant, salt, hash
+or existing field, and no world has ever had a voxel written from this chain, so there is
+no world whose terrain it could contradict. That stops being true the moment a generator
+writes voxels — from then on `TERRACE_HEIGHT_VOXELS` is a bump like any other pinned
+constant.
+
+**Reference read**: none, and that is recorded rather than assumed.
+`terrain-base-height-field.md` contains no claim about vertical quantisation, so terracing
+is **original design** within the pass shape 062 established — written up as
+`docs/world-generation.md` §8.6, with `traceability.md` §2's `061–063` row annotated to say
+so and 063 added to its §4 "original design" list. The reference note itself is unchanged.
+
+Docs: `docs/world-generation.md` §8 (new, eight subsections); `traceability.md` §2 and §4.
+
+Tests: `tests/unit/test_terrace_pass.gd` (new, 26 tests, 51 326 assertions) pinning a
+golden `signature()` (`2af464f70e43590a`). Full suite: `files=40 tests=498
+assertions=82482 failed=0`. `check.ps1` OK (83 scripts).
 
 `062` is the first brick that is a **pass** rather than a field:
 `world/generation/erosion_pass.gd` (`ErosionPass`), one new file, one appended
@@ -1621,7 +1700,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 062): `check.ps1` **OK** (81 scripts compiled) · `test.ps1` **OK** — 39 files, 472 tests, 31 149 assertions, 0 failed.
+Last run (brick 063): `check.ps1` **OK** (83 scripts compiled) · `test.ps1` **OK** — 40 files, 498 tests, 82 482 assertions, 0 failed.
 
 ## What exists now
 
@@ -1656,6 +1735,7 @@ Last run (brick 062): `check.ps1` **OK** (81 scripts compiled) · `test.ps1` **O
 | Generation | `world/generation/continentalness.gd` | `Continentalness.for_world(hash)`: the macro land/ocean field and the first thing this project generates — `at(column)` in `[0, 1]`, pinned at 8192-voxel (4096 m) cells, 4 octaves (finest = one region), gain 0.5, `SALT_CONTINENTALNESS`. Decides nothing: sea level is 080, height is 061 (060, `docs/world-generation.md` §5.5) |
 | Generation | `world/generation/elevation_field.gd` | `ElevationField.for_world(hash)`: signed ground height in voxels from the datum `y = 0` — `base_for(shore) + relief_amplitude_for(shore) * relief01(column)`, range `[-96, +192]`. Relief is **additive-upward**, so the base is a genuine floor. Shore band `[0.42, 0.58]` through `ValueNoise.fade()`; relief layer cell 1024 (exactly where `Continentalness` stops), 6 octaves, `SALT_ELEVATION`. `base_at`/`relief_amplitude_at`/`relief_at` are the terms 062 and 063 recompose (061, `docs/world-generation.md` §6) |
 | Generation | `world/generation/erosion_pass.gd` | `ErosionPass.for_world(hash)`: the shaping pass over `ElevationField` — `base <= at <= unshaped_at`, always. Two `[0, 1]` flattening factors on relief and none on the base: a **squared** ruggedness weight (cell 8192, 3 octaves, `SALT_RUGGEDNESS`, floored at 0.1) deciding *where* ground may be rugged, and `valley_shaped(r) = lerp(r, r², 0.5)` deciding *what shape* survives. Inherits 061's range; step bound rises to 2.627 because the valley bias steepens ridges while lowering everything (062, `docs/world-generation.md` §7) |
+| Generation | `world/generation/terrace_pass.gd` | `TerracePass.for_world(hash)`: the block world — `at(column) = floor(erosion.at(column) / 8) * 8`, so every height is an exact terrace plane 8 voxels = 4 m apart, anchored to the datum. No salt, no noise layer, no change to anything below it. Keeps the family invariant in terraced form (`terraced(base_at) <= at <= erosion.at`, never more than one terrace lost) because `floor` is monotone; inherits 062's range because both ends are multiples of 8. **`max_step_per_voxel()` does not carry over** — the output is discontinuous on purpose, and `max_riser_voxels()` replaces it: `ceil(2.627 / 8) * 8` = one terrace, so every riser is a single 4 m face. `surface_y()` is the integer plane a generator fills up to; `continuous_at`/`removed_at`/`fraction_at`/`terrace_index_at` are the terms 075/084/085 read (063, `docs/world-generation.md` §8) |
 | Tests | `tests/fixtures/generation_fixtures.gd` | `GenerationFixtures`: the shared determinism floor every Phase D pass is tested against — four pinned named worlds, five coordinate sample lists (chosen for negatives, cell boundaries, `WorldBounds` corners), `determinism_reason()`/`seed_sensitivity_reason()` (factory-taking, so a visit-order-dependent pass cannot hide), `range_reason()`/`variation_reason()`, `signature()` for golden pinning, `self_check()` (059, `docs/world-generation.md` §4) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -1667,31 +1747,35 @@ Last run (brick 062): `check.ps1` **OK** (81 scripts compiled) · `test.ps1` **O
 
 ## Next 10 actions
 
-1. `063` create the terrace/block-world shaping pass (next task) — dep 061 (DONE), and in
-   practice 062 (DONE). **Read `ErosionPass`, not `ElevationField`**: the backlog
-   dependency row predates 062, and terraces laid over unshaped ground would make the
-   erosion pass invisible (`docs/world-generation.md` §7.6). The sizing constraint is
-   already pinned by 061: the finest relief cell is 32 voxels = 16 m, chosen to be **four
-   times** the terrace height, i.e. quantise to roughly 8 voxels = 4 m (§6.4) — a coarser
-   terrace rounds 061's finest octave away entirely. The version window stays closed: a
-   change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned constants in
-   `Continentalness`/`ElevationField`/`ErosionPass` is a **generation version bump**
-   (`docs/rng.md` §3, `docs/world-generation.md` §2.1), so 057's `GenerationVersion`
-   checklist (§2.5) applies. Reuse rather than re-invent, as 060–062 all did: pinned
-   constants (never arguments), **one new appended `WorldHash.SALT_*`** if a new field is
-   needed at all — a terrace probably needs none, since quantisation is a function of a
-   height it is handed — a stated closed range asserted with `range_reason()`, and testing
-   through `GenerationFixtures` + one pinned `signature()`, not hand-written coordinate
-   checks. Note that 063 is the first pass whose output is **deliberately discontinuous**,
-   so `max_step_per_voxel()` cannot carry over unchanged: state what replaces it (a maximum
-   *riser* height) rather than dropping the bound silently. `064` (temperature, dep 062) is
-   unblocked in parallel and owes an answer to `terrain-base-height-field.md` `U2` —
-   whether climate reuses `ErosionPass`' ruggedness weight field or gets its own.
-   `traceability.md` §2's `061–063` row cites `terrain-base-height-field.md`,
+1. `064` create the temperature field (next task) — dep 062 (DONE). It is the first
+   **climate** field, and it owes a decision before it owes code: `U2` in
+   `terrain-base-height-field.md` asks whether climate reuses `ErosionPass`' ruggedness
+   weight field or gets its own, and `docs/world-generation.md` §6.7 says 064 resolves it
+   rather than assumes it. Record the answer in the note's `§7 Uncertainties` table, not
+   only in the new code. Second decision the brick owes: whether temperature reads
+   *elevation* at all (a lapse rate — colder with height) or is a pure horizontal field
+   that 072/085 combine with height themselves; the second keeps 064 a one-input pass and
+   is the smaller commitment, but say which and why. `WorldHash.SALT_TEMPERATURE = 2`
+   already exists and is unused — take it, do not append a new one. The version window
+   stays closed: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned
+   constants in `Continentalness`/`ElevationField`/`ErosionPass`/`TerracePass` is a
+   **generation version bump** (`docs/rng.md` §3, `docs/world-generation.md` §2.1), so
+   057's `GenerationVersion` checklist (§2.5) applies. Reuse rather than re-invent, as
+   060–063 all did: pinned constants (never arguments), a stated closed range asserted with
+   `range_reason()`, a derived slope bound (temperature is continuous again, so
+   `max_step_per_voxel()` is back in scope — 063's `max_riser_voxels()` was specific to a
+   quantised pass), and testing through `GenerationFixtures` + one pinned `signature()`,
+   not hand-written coordinate checks. Note 063's finding when picking the fixture
+   `variation_reason()` threshold: `GenerationFixtures.columns()` is 15 *nearby* columns,
+   so a field whose cell size is large will legitimately answer very few distinct values
+   there and the sweep has to carry the variation check (§8.4). `065` (humidity, dep 061)
+   is unblocked in parallel and wants the same shape; `066` (biome classifier, dep 061)
+   consumes both plus, probably, `ErosionPass.ruggedness_noise_at()`, which 062 left public
+   and unsquared for exactly that. `traceability.md` §2's `060–067` rows cite
    `terrain-value-noise.md` and `matrix-world.md` §1/§2 — read those before designing, per
    §1's rule. Still open and carried forward from Phase C: no `.tscn` exists, and no
    player/camera to raycast from or to parent the 042 `VoxelViewer` under — a Phase F
-   question (039's nextsteps entry, carried by 042–062). The
+   question (039's nextsteps entry, carried by 042–063). The
    `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
    Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
    stays empty until something is expensive enough to measure.

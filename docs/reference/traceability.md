@@ -40,7 +40,7 @@ lowest brick number in the range.
 | 058, 061, 089–090 | `region-coordinate-hashing.md` | how the original turned world coordinates into generated content (`srand(regX + 0x108a + regZ * 0x400 + seed * 3)`), and the shape of the region grid it ran on | `world/generation/generation_grid.gd`, `world/generation/generation_hash.gd`, `docs/world-generation.md` §3 | MEDIUM | — |
 | 060–067 | `terrain-value-noise.md` | the original's coherent-noise primitive (`valueNoise2D`): value noise, cosine interpolation, a linear corner key, no seed parameter, and a lattice taken by truncation — so a field mirrored about the origin | `world/generation/value_noise.gd`, `world/generation/continentalness.gd`, `docs/world-generation.md` §5 | MEDIUM | — |
 | 060–067 | `matrix-world.md` §1 | `cube::Zone` (also 102–103) | `world/zones/` | MEDIUM | — |
-| 061–063, 080, 089–090 | `terrain-base-height-field.md` | how the original stacked that primitive into a ground height: three decade-spaced relief tiers, each *placed* by a squared weight field one decade coarser, added upward on a base blended from region data | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `docs/world-generation.md` §6-7 | MEDIUM | — |
+| 061–063, 080, 089–090 | `terrain-base-height-field.md` | how the original stacked that primitive into a ground height: three decade-spaced relief tiers, each *placed* by a squared weight field one decade coarser, added upward on a base blended from region data | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `docs/world-generation.md` §6-7 (brick 063's `terrace_pass.gd` inherits claim 6's "a pass only lowers" shape and nothing else — the quantisation itself has **no** reference basis, `docs/world-generation.md` §8.6) | MEDIUM | — |
 | 060–067 | `matrix-world.md` §1 | `cube::Field` | `world/generation/` | LOW | — |
 | 060–067 | `matrix-world.md` §2 | terrain noise/height/climate fields | `world/generation/` | MEDIUM | — |
 | 061, 089–090 | `matrix-world.md` §1 | `cube::Region` | `world/regions/` | MEDIUM | — |
@@ -208,7 +208,10 @@ matrix level). Two different reasons cover almost all of it:
   wiring — Voxel Tools supersedes the reference's own `Chunk`/`ChunkBuffer`, per
   `matrix-world.md` §1), all of Phase B's own contract bricks (011–020, 029–030 — these
   *produced* the matrices, they don't consume one), brick 059 (Phase D's test fixtures —
-  harness work, not generated behavior), and most of Phase L (257–266,
+  harness work, not generated behavior), brick 063 (the terrace quantisation — the note
+  behind §2's `061–063` row records nothing about vertical quantisation, so 063 is
+  original design within the pass shape 062 established; `docs/world-generation.md` §8.6),
+  and most of Phase L (257–266,
   profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148
   respawn state, 145 knockback, 147 death state, most of 231's settings-shell scope

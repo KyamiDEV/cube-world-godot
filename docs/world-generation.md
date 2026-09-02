@@ -3044,3 +3044,147 @@ named.
   consumer actually needs it.
 - **A flow network, or guaranteeing any particular relationship between a river/lake and the
   ocean beyond the exclusion itself.** §7.6's own long-standing scope boundary, unchanged.
+
+## 23. Shoreline rules (brick 084)
+
+Implementation: `world/generation/shoreline_material.gd` (`ShorelineMaterial`).
+Tests: `tests/unit/test_shoreline_material.gd`.
+Reference: two hits for "beach" in the same landmark/prop name-to-id map `Cave`, `Lake` and
+`Ocean` were already found in — see §23.6. Not a coverage mechanism, so there is nothing here
+to diverge from.
+
+§22.5/§22.8 named this brick in advance, twice: "what covers an ocean or a shoreline column
+belongs to 084." `OceanPass` (083) already answers "is this column wet"; `SurfaceMaterial`
+(075) already answers "what covers an ordinary dry column." Neither says anything about the
+columns in between — the beach a coastline, riverbank or lakeshore actually has. This brick is
+where those two meet, and it is the first pass in the project to ask a genuinely new kind of
+question: not "what is true of this column," but "what is true of this column's neighbours."
+
+```text
+is_shoreline_at(column) = not is_water_at(column)
+                           and any neighbour in {(±1,0), (0,±1)} has is_water_at(neighbour)
+
+is_water_at(column) = OceanPass.is_ocean_at(column) or OceanPass.is_river_or_lake_at(column)
+
+block_id_at(column) = SHORE_BLOCK_ID              if is_shoreline_at(column)
+                     = SurfaceMaterial.block_id_at(column)   otherwise
+```
+
+### 23.1 Adjacency, defined for the first time in this project
+
+Every field before this brick is a pure function of one column's own coordinates —
+`BiomeClassifier`, `SurfaceMaterial`, `OceanPass`, all of them answer a question about
+*this* column alone. `is_shoreline_at()` is the first to ask about a column's neighbours, and
+it picks the narrowest available reading of "immediately adjacent": the four columns sharing
+an edge (Von Neumann), not the eight sharing a corner too (Moore). Two reasons converge on
+this, not one:
+
+1. **Cost.** Each neighbour check pays for the whole `OceanPass` chain — `TerracePass`'s
+   `Continentalness` → `ElevationField` → `ErosionPass` lineage, or a channel-noise lookup for
+   a river/lake. Four calls per column is already four times the cost of any earlier
+   per-column field; eight would double that again for a case a blocky world tolerates far
+   better than a smooth one would (a missing beach block at a purely diagonal water corner).
+2. **Nothing downstream needs the wider answer yet.** No `VoxelGenerator` reads this file
+   (§23.5), so there is no measured artifact today the corner case would visibly cause.
+   Widening to eight neighbours — or to a multi-voxel band — is a local, cheap change to
+   `_NEIGHBOR_OFFSETS`/`is_shoreline_at()` alone whenever a future brick's own consumer asks
+   for it, not invented ahead of one that does.
+
+A column already wet is never a shoreline column itself, whatever its neighbours are —
+`is_water_at()` is checked first and short-circuits, the same "exclusion first" shape
+`OceanPass.is_ocean_at()` already established for its own river/lake/ocean split (§22.2).
+
+### 23.2 One fixed block, not a per-biome field
+
+`BiomeDefinition`'s own class comment (067) once grouped "water, shoreline, snowline,
+altitude bands" together as fields a later brick might add. Every water-adjacent brick since
+has landed the other way: `WaterLevel` (080) added a bare constant, `OceanPass` (083) added no
+field at all, and this brick keeps that line rather than breaking it. `SHORE_BLOCK_ID` is one
+constant (`block.sand`, already shipped by 075 for the desert biome) covering every shoreline
+column regardless of which biome's ground it interrupts — no snowy-shore/sandy-shore
+distinction, because no consumer anywhere reads one. Inventing that field now would be the
+same "record grows, nothing reads it" shape §12.3/§14.6/§15.2/§16.7 have already named four
+times; `SubsurfaceMaterial.DEEP_BLOCK_ID`'s own precedent, one layer up instead of one layer
+down. No new block either — `block.sand` already exists, so this brick touches no
+`data/blocks/` record and needs no `tools/generators` pass.
+
+### 23.3 A pure combination, `OceanPass`'s/`UndergroundMaterial`'s own shape
+
+`ShorelineMaterial` holds an `OceanPass` and a `SurfaceMaterial`, both built fresh in
+`for_world()` rather than shared — `TerracePass.for_world()`'s own recurring reason. No new
+noise layer, no new salt: `_NEIGHBOR_OFFSETS` is a fixed geometric constant, not a hashed one,
+so there is nothing for a `self_check()` to assert, the same absence `OceanPass` and
+`UndergroundMaterial` already established for a pure combinator.
+
+### 23.4 Measured at a real coastline, not claimed as a world-wide fraction
+
+Every earlier "how common is this feature" measurement (`CaveMask` §16.4, `RiverPass` §20.4,
+`LakePass` §21.3, `OceanPass` §22.4) used a sparse, wide-spaced sweep of independent columns,
+because each of those features occupies a nontrivial share of *any* large sample. A shoreline
+does not: it is a one-voxel-wide boundary, so an independent-point sweep essentially never
+lands on it by chance. A design-time sweep of 2304 columns at the same spacing every Phase D
+brick since 060 uses (`SWEEP_SIDE=48`, `SWEEP_SPACING=4093`) found exactly zero shoreline hits
+— not evidence of rarity, only evidence that this kind of measurement is the wrong tool for a
+boundary phenomenon.
+
+The right measurement is a *contiguous* patch straddling a real coastline. Over one such
+100×100-column patch on the `typed` world (found by walking a straight line between two
+sweep points whose `is_water_at()` disagreed, until the boundary itself was crossed):
+
+| | Columns | Share of the patch |
+|---|---:|---:|
+| water (`is_water_at()`) | 4760 | 47.6% |
+| shoreline (`is_shoreline_at()`) | 100 | 1.0% |
+| ordinary dry | 5140 | 51.4% |
+
+The water share lands close to `OceanPass`'s own 47.9% world-wide figure (§22.4), consistent
+with this patch being an unremarkable stretch of coast rather than a special case. The
+shoreline share is a property of *this* patch's own coastline geometry, not a world-wide
+constant — `test_a_real_coastal_patch_actually_has_shoreline_columns` asserts the qualitative
+shape (shoreline exists, water exists, shoreline is a thin fringe smaller than the water it
+borders) rather than pinning the 1.0% figure itself.
+
+### 23.5 Still nothing downstream reads a classified column, and a wet column is still unclaimed
+
+The same shape §20.1/§21.5/§22.5 already named three times: no water block, no
+`VoxelGenerator` write. `block_id_at()` never asks whether its own column is wet — a column
+`OceanPass` already calls ocean, river or lake keeps reading straight through
+`SurfaceMaterial` exactly as it did before this brick existed, because nothing yet decides
+what a wet column looks like. `test_a_wet_column_is_never_a_shoreline_column_and_is_never_
+overridden` pins this down directly: `KNOWN_WATER_COLUMN`'s `block_id_at()` equals its own
+`SurfaceMaterial.block_id_at()`, unchanged.
+
+### 23.6 Reference: the same finding, a fourth location
+
+A case-insensitive grep of `reference/CubeWorld-Reversal` for "shore" turns up nothing at all.
+"beach" turns up exactly two hits, both in the same landmark/prop name-to-id map `Cave`
+(§16.5), `Lake` (§21.6) and `Ocean` (§22.6) were already found in
+(`server/world/World.cpp`): `L"BeachUmbrella"` and `L"BeachTowel"`, furniture item names with
+no generation mechanism anywhere near them. The same "landmark/prop label, not a coverage
+computation" finding, a fourth time, for a different label pair. There is nothing here to
+diverge from.
+
+### 23.7 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `ShorelineMaterial` adds no noise
+layer, no salt, no `BiomeDefinition` field, no new block — a pure combination over two
+independently unchanged passes (`OceanPass`'s and `SurfaceMaterial`'s own tests all still
+pass; neither file was touched). The moment some later brick's `VoxelGenerator` calls
+`block_id_at()`/`block_id_at_voxel()` to fill a `VoxelBuffer`, every input both passes read
+becomes a pinned generation input, the same "first `VoxelBuffer` write" boundary
+§14.4/§15.5/§17.5/§18.4/§22.7 already named.
+
+### 23.8 Out of scope for this brick
+
+- **A water block, or any `VoxelGenerator` write.** §23.5 — still nothing in the project
+  writes a voxel; this brick only decides what covers a dry column next to one.
+- **What covers a wet column itself.** Still undecided, the same open question every
+  water-related brick since 080 has left standing.
+- **Snowline.** 085, unstarted.
+- **A wider shore band, Moore (8-neighbour) adjacency, or per-biome shore variation.** §23.1
+  and §23.2 both leave the door open for a future brick with an actual consumer to widen
+  either one; nothing here invents it ahead of time.
+- **Narrowing or otherwise changing the river/lake-into-ocean exclusion** (a river mouth's own
+  shoreline shape, say). §22.3/§22.8's own open door, unchanged by this brick.
+- **Vegetation, decoration, or any other content placed near water.** 086–088, unstarted.

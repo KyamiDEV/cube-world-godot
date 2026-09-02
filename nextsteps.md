@@ -36,23 +36,29 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–083 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 084–090 open)
-- Next task `084 — Implement shoreline rules`, dep `083` in `backlog.md`, now DONE. Not yet
-  scoped by this session beyond what `backlog.md`'s own row says. `083`'s own out-of-scope note
-  (§22.8) names the forward flag on record: what covers an ocean or a shoreline column —
-  `SurfaceMaterial`/`SubsurfaceMaterial` (075–076) still decide dry ground alone, and nothing
-  yet decides what covers a wet one. `OceanPass.is_ocean_at()`/`ocean_depth_at()` (083) are the
-  likely composition target for "is this column wet"; a shoreline is presumably the dry columns
-  immediately adjacent to a wet one (ocean, river or lake), needing some notion of adjacency or
-  distance-to-water this project has not built yet — read `world/generation/ocean_pass.gd`'s
-  class comment and §22 in full, plus `SurfaceMaterial`'s own dither mechanism (§14.1, brick
-  075) before designing, since a shoreline material is likely to want the same
-  per-column-not-per-voxel dither `SurfaceMaterial` already uses for a biome edge.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–084 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 085–090 open)
+- Next task `085 — Implement snowline rules`, dep `084` in `backlog.md`, now DONE. Not yet
+  scoped by this session beyond what `backlog.md`'s own row says. `084`'s own design
+  (`world/generation/shoreline_material.gd`, `docs/world-generation.md` §23) is the first pass
+  in the project to sample a column's *neighbours*, not just the column itself
+  (`_NEIGHBOR_OFFSETS`, Von Neumann adjacency) — read that class comment and §23.1 before
+  assuming snowline needs the same shape. Snowline reads far more naturally as a height/
+  temperature threshold at a single column (a per-column question `TemperatureField` (064)
+  and/or `ElevationField`/`TerracePass` (061/063) already answer), not an adjacency question —
+  `084`'s adjacency mechanism is very likely *not* the right starting point for `085`, and
+  assuming otherwise without checking would be the mistake to avoid. `084`'s own §23.2 argument
+  (one fixed block, not a per-biome field, because no consumer needs the distinction) is worth
+  re-checking against snowline specifically before repeating it: an alpine/tundra snow biome
+  already has its own `surface_block_id = "block.snow"` (075's mapping, §14.2), so "snowline"
+  may turn out to mean *raising the effective snow threshold on a cold column near the tree/
+  frost line* rather than introducing a second, independent snow-cover mechanism — read
+  `docs/world-generation.md` §14.2's biome/block table and `world/generation/temperature_field.
+  gd`'s own class comment before designing.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`083`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`084`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -74,7 +80,105 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
-model, 081 rivers, 082 lakes, 083 ocean/large-water areas (068–073 folded — see below).
+model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules (068–073
+folded — see below).
+
+`084` is the combination `OceanPass`'s (083, §22.5/§22.8) own class comment named in advance
+twice as belonging to someone else: one new file, `world/generation/shoreline_material.gd`
+(`ShorelineMaterial`), composing `OceanPass` (083, itself holding `LakePass`/`RiverPass`/
+`WaterLevel`) and `SurfaceMaterial` (075) into `block_id_at(column) -> String`. No change to
+either existing file, no new noise layer, no new salt, no new `BiomeDefinition` field, no new
+block.
+
+```text
+is_water_at(column)     = OceanPass.is_ocean_at(column) or OceanPass.is_river_or_lake_at(column)
+is_shoreline_at(column) = not is_water_at(column)
+                           and any neighbour in {(±1,0), (0,±1)} has is_water_at(neighbour)
+block_id_at(column)     = SHORE_BLOCK_ID ("block.sand") if is_shoreline_at(column)
+                           else SurfaceMaterial.block_id_at(column)
+```
+
+Five things worth keeping:
+
+1. **This is the first pass in the project to ask about a column's neighbours, not just the
+   column itself.** Every earlier field — `BiomeClassifier`, `SurfaceMaterial`, `OceanPass`,
+   all of them — is a pure function of one column's own coordinates. Adjacency needed a real
+   design decision with no precedent to lean on: Von Neumann (the four columns sharing an
+   edge), not Moore (the eight sharing a corner too), for two reasons that both point the same
+   way — cost (each neighbour check re-pays the whole `OceanPass`/`TerracePass` chain, so four
+   calls is already 4x any earlier per-column field's cost; eight would double that again) and
+   restraint (nothing downstream reads this file yet, so there is no measured artifact the
+   corner-case gap would visibly cause — widening `_NEIGHBOR_OFFSETS` later is cheap and local
+   whenever an actual consumer asks for it). `docs/world-generation.md` §23.1 has the full
+   argument.
+2. **One fixed block, not a per-biome field — extending a line every water-adjacent brick since
+   080 has already kept.** `BiomeDefinition`'s own 067 class comment once grouped "water,
+   shoreline, snowline, altitude bands" as fields a later brick might add; `WaterLevel` (080)
+   added a bare constant instead, `OceanPass` (083) added no field at all, and this brick
+   follows the same line: `SHORE_BLOCK_ID = "block.sand"` (already shipped by 075, no new
+   block) covers every shoreline column regardless of biome, because no consumer anywhere
+   distinguishes a snowy shore from a sandy one. Extends `SubsurfaceMaterial.DEEP_BLOCK_ID`'s
+   own precedent one layer up instead of one layer down. `docs/world-generation.md` §23.2.
+3. **A pure combinator, `OceanPass`'s/`UndergroundMaterial`'s own shape — no `self_check()`,
+   because `_NEIGHBOR_OFFSETS` is a fixed geometric constant, not a hashed one, so there is no
+   new relationship for one to assert.**
+4. **The "how common is this" measurement had to change shape, because a shoreline is a
+   1-voxel-wide boundary, not an area feature.** Every earlier rarity measurement (`CaveMask`,
+   `RiverPass`, `LakePass`, `OceanPass`) used a sparse, wide-spaced sweep of independent
+   columns; run the identical way here, it found **zero** shoreline hits across 2304 columns —
+   not evidence of rarity, only evidence that an independent-point sweep cannot see a 1-voxel
+   boundary by chance. The real measurement is a contiguous 100×100-column patch straddling an
+   actual coastline (found by walking a line between two sweep points whose `is_water_at()`
+   disagreed): 47.6% water, 1.0% shoreline, 51.4% ordinary dry — the water share lands close
+   to `OceanPass`'s own 47.9% world figure, and the shoreline share is reported as a property
+   of *this* coastline, explicitly not claimed as a world-wide constant the way `CaveMask`'s/
+   `RiverPass`'s/`LakePass`'s own fractions are. `docs/world-generation.md` §23.4 has the full
+   table and the reasoning for why the method itself had to change.
+5. **Still nothing decides what a wet column looks like, and this file is careful not to
+   accidentally start.** `block_id_at()` never checks whether its own column is wet — a river,
+   lake or ocean column keeps reading straight through `SurfaceMaterial`, unchanged from before
+   this brick existed, `OceanPass`'s own "what this brick does not do" boundary carried forward
+   rather than quietly crossed. `test_a_wet_column_is_never_a_shoreline_column_and_is_never_
+   overridden` pins this down directly.
+
+Reference: a case-insensitive grep of `reference/CubeWorld-Reversal` for "shore" finds nothing;
+"beach" finds two hits (`L"BeachUmbrella"`, `L"BeachTowel"`), both in the same landmark/prop
+name-to-id map `Cave`/`Lake`/`Ocean` were already found in (`server/world/World.cpp`) — the same
+"landmark/prop label, not a coverage mechanism" finding a fourth time. Nothing to diverge from.
+`docs/world-generation.md` §23.6; `docs/reference/traceability.md` §4 (084 added, a ninth
+instance in this shape).
+
+Not a generation version bump: no world has ever had a voxel written, and `ShorelineMaterial`
+adds no field, no salt, no block of its own — a pure combination over two independently
+unchanged passes (`OceanPass`'s and `SurfaceMaterial`'s own tests all still pass, neither file
+touched). `docs/world-generation.md` §23.7.
+
+Docs: `docs/world-generation.md` §23 (new, eight subsections); `docs/reference/
+traceability.md` §4 (084 added to the original-design list, ninth instance, fourth reference
+location). `BiomeDefinition`'s own class comment (067) still names "shoreline" among fields a
+later brick might add — worth a look by whichever brick next touches that file, to confirm 085
+(snowline) settles the same way this brick and 080/083 already did before assuming a schema
+change is needed.
+
+Tests: `tests/unit/test_shoreline_material.gd` (new, 17 tests; pins `signature()`
+`671f7833af3596ab` for `block_id_at()` over `GenerationFixtures.columns()` on the `typed`
+world — **identical to `test_surface_material.gd`'s own pinned value**, because none of the 15
+fixture columns lands within one voxel of water, so `block_id_at()` falls straight through to
+`SurfaceMaterial.block_id_at()` at every one of them, the same "small sample can't see a rare/
+thin feature" finding every brick since 077 has recorded, sharper here than anywhere before it.
+No `test_is_seed_sensitive()` for `is_shoreline_at()`/`block_id_at()` — `test_cave_mask.gd`'s
+own precedent for the same reason: a boolean derived from a 1-voxel boundary would have two
+seeds "agreeing" (all false) at any affordable sample spacing, true and uninformative rather
+than evidence of anything; `is_water_at()`'s own seed sensitivity is already exercised by
+`test_ocean_pass.gd`. `KNOWN_SHORELINE_COLUMN` (`Vector2i(-94296, -94139)`) was found by a
+design-time sweep that walked a line between two coarse sweep points whose `is_water_at()`
+disagreed; `KNOWN_INLAND_COLUMN`/`KNOWN_WATER_COLUMN` reused from `test_ocean_pass.gd`'s own
+`KNOWN_DRY_COLUMN`/`KNOWN_OCEAN_COLUMN` rather than re-swept, since the two sweeps share the
+same spacing and origin. Full suite: `files=57 tests=816 assertions=123332 failed=0`. Compile
+probe OK (120 scripts, self-excluded). Headless boot OK. Measurement used a throwaway scratch
+test (`tests/unit/test_zzz_scratch_shoreline_material.gd`, print-only, run via `tools\scripts\
+test.ps1 -File zzz_scratch -Verbose_`, then deleted — never committed), `076`'s/`080`'s/`081`'s
+exact scratch-test-file precedent rather than the probe/runner split `077`–`079`/`082` used.
 
 `083` is the combination `RiverPass`'s (§20.8) and `LakePass`'s (§21.8) own class comments both
 named in advance as belonging to someone else: one new file, `world/generation/ocean_pass.gd`

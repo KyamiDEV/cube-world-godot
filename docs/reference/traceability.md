@@ -237,8 +237,12 @@ matrix level). Two different reasons cover almost all of it:
   reference location than 077/082's shared table: the one "ocean"-labelled hit is
   `GameController_show_region_name`, a region-display-name formatter in `GameController.cpp`
   rather than `World.cpp`'s chunk-label map, but the same landmark/POI-label shape with no
-  coverage mechanism near it; `docs/world-generation.md` §22.6), and most of Phase L (257–266,
-  profiling/soak/release — process work, not behavior extracted from the binaries).
+  coverage mechanism near it; `docs/world-generation.md` §22.6), brick 084 (shoreline rules —
+  the same absence a ninth time, a fourth location: "shore" has no hits at all, and the two
+  "beach" hits are furniture item names (`L"BeachUmbrella"`, `L"BeachTowel"`) in the same
+  landmark/prop name-to-id map `Cave`/`Lake`/`Ocean` were already found in, no coverage
+  mechanism anywhere near them; `docs/world-generation.md` §23.6), and most of Phase L
+  (257–266, profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148
   respawn state, 145 knockback, 147 death state, most of 231's settings-shell scope
   beyond the two widget rows) may still have reference material — nobody has searched

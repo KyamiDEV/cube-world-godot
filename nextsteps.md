@@ -36,29 +36,23 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–084 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 085–090 open)
-- Next task `085 — Implement snowline rules`, dep `084` in `backlog.md`, now DONE. Not yet
-  scoped by this session beyond what `backlog.md`'s own row says. `084`'s own design
-  (`world/generation/shoreline_material.gd`, `docs/world-generation.md` §23) is the first pass
-  in the project to sample a column's *neighbours*, not just the column itself
-  (`_NEIGHBOR_OFFSETS`, Von Neumann adjacency) — read that class comment and §23.1 before
-  assuming snowline needs the same shape. Snowline reads far more naturally as a height/
-  temperature threshold at a single column (a per-column question `TemperatureField` (064)
-  and/or `ElevationField`/`TerracePass` (061/063) already answer), not an adjacency question —
-  `084`'s adjacency mechanism is very likely *not* the right starting point for `085`, and
-  assuming otherwise without checking would be the mistake to avoid. `084`'s own §23.2 argument
-  (one fixed block, not a per-biome field, because no consumer needs the distinction) is worth
-  re-checking against snowline specifically before repeating it: an alpine/tundra snow biome
-  already has its own `surface_block_id = "block.snow"` (075's mapping, §14.2), so "snowline"
-  may turn out to mean *raising the effective snow threshold on a cold column near the tree/
-  frost line* rather than introducing a second, independent snow-cover mechanism — read
-  `docs/world-generation.md` §14.2's biome/block table and `world/generation/temperature_field.
-  gd`'s own class comment before designing.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–085 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 086–090 open)
+- Next task `086 — Implement natural decoration masks`, dep `085` in `backlog.md`, now DONE.
+  Not yet scoped by this session beyond what `backlog.md`'s own row says. `085`'s own file
+  (`world/generation/snowline_material.gd`, `docs/world-generation.md` §24) confirmed the
+  previous session's own guess before writing any code: snowline is a single-column height/
+  temperature question, not an adjacency one, and it builds on `ShorelineMaterial` (084)
+  rather than reaching past it — read §24's class comment before assuming 086 (decoration
+  masks) needs to touch either file. One open thread `085` leaves for whoever designs
+  decoration: `is_snow_covered_at()` is a real, if narrow (7.29% of the world), boolean a
+  scatter mask could read to keep snow-capped ground bare of grass/flowers — not built here,
+  because no consumer asked for it yet, but worth checking before 086 invents its own snow
+  exclusion independently.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`084`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`085`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -80,8 +74,96 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
-model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules (068–073
-folded — see below).
+model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules, 085 snowline
+rules (068–073 folded — see below).
+
+`085` is the combination `TemperatureField`'s (064, §9.3/§9.7) own class comment named in
+advance as belonging to someone else: one new file, `world/generation/snowline_material.gd`
+(`SnowlineMaterial`), composing `ShorelineMaterial` (084, itself holding `OceanPass`/
+`SurfaceMaterial`), `TemperatureField` (064) and `TerracePass` (063) into
+`block_id_at(column) -> String`. No change to any existing file, no new noise layer, no new
+salt, no new `BiomeDefinition` field, no new block.
+
+```text
+height_above_land_base_at(column)  = max(0, TerracePass.at(column) - ElevationField.LAND_BASE_VOXELS)
+effective_temperature_at(column)   = TemperatureField.at(column)
+                                      - LAPSE_RATE_PER_VOXEL * height_above_land_base_at(column)
+is_snow_covered_at(column)         = height_above_land_base_at(column) > 0
+                                      and effective_temperature_at(column) < TEMPERATURE_COLD
+
+block_id_at(column) = ShorelineMaterial.block_id_at(column)   if wet or shoreline
+                     = SNOW_BLOCK_ID                            if is_snow_covered_at(column)
+                     = ShorelineMaterial.block_id_at(column)   otherwise
+```
+
+Five things worth keeping:
+
+1. **The lapse rate is derived, not picked.** `LAPSE_RATE_PER_VOXEL = (TemperatureField.
+   MAXIMUM - BiomeClassifier.TEMPERATURE_COLD) / ElevationField.RELIEF_AMPLITUDE_VOXELS`
+   (measured: `0.00625`), set so that the tallest a landward column's relief can ever raise
+   it above `ElevationField.LAND_BASE_VOXELS` is always snow-capped even at the hottest
+   climate the world can produce — the one guarantee a snowline is supposed to make.
+   `self_check()` asserts that boundary algebraically rather than trusting the formula,
+   `BiomeClassifier.RUGGEDNESS_MOUNTAIN`'s own precedent for a threshold derived from a
+   relationship instead of measured or guessed.
+2. **The gate at the land baseline is load-bearing, not an optimisation, and it is the
+   answer to the open question the previous session's own handoff carried forward.**
+   `is_snow_covered_at()` returns `false` outright for any column that does not clear
+   `ElevationField.LAND_BASE_VOXELS`, before ever comparing a temperature — because at or
+   below that baseline, the lapsed value collapses to the exact same raw `TemperatureField.
+   at()` reading `BiomeClassifier.classify()` already tests against the exact same
+   `TEMPERATURE_COLD` threshold. Without the gate this file would re-decide, and re-harden
+   into a hard edge, the `SNOW`/non-`SNOW` biome boundary `BiomeTransition` (074) and
+   `SurfaceMaterial` (075) already dither smoothly across — confirming the previous
+   session's own guess that "snowline" means *raising the effective threshold near the
+   frost line*, not a second independent snow-cover mechanism.
+3. **One fixed block, `ShorelineMaterial`'s own argument extended a third time.**
+   `SNOW_BLOCK_ID = "block.snow"` (shipped by 075) covers every snow-covered column
+   regardless of biome — `WaterLevel` (080), `OceanPass` (083) and `ShorelineMaterial` (084,
+   §23.2) all landed the same way, and no consumer anywhere distinguishes a snow-capped
+   mountain from a snow-capped tundra.
+4. **A pure combination over `ShorelineMaterial`, not `SurfaceMaterial` — so a wet or
+   shoreline column is excluded for free.** Building on 084 rather than reaching past it
+   means this brick never has to decide what a snowy beach or a frozen lake edge looks
+   like; `ShorelineMaterial`'s own class comment left that door open for a future brick and
+   this one does not walk through it.
+5. **Reference: a real function this time, not another "nothing to diverge from."**
+   `GAP_ANALYSIS.md`'s `terrain_surfaceColor_blend` (`0x005c56e0`, `cube/game_misc/
+   game_misc.cpp`) gates a snow-coloured blend on a normalized **height** and **slope**
+   (`height > 0.8`, `slope < 0.2`) — no moisture term anywhere in the body, despite the
+   one-line summary claiming one. Kept: snow as a height effect independent of climate,
+   arrived at first in §9.3/§9.7 before this function was read. Diverged, twice: no slope
+   gate (already `ErosionPass.ruggedness_at()`'s question, one layer upstream, at
+   `biome.mountain`'s own classification) and no discrete material at all in the original
+   (066's own §12.5 divergence carried forward).
+
+Not a generation version bump: no world has ever had a voxel written, and `SnowlineMaterial`
+adds no field, no salt, no block of its own — a pure combination over three independently
+unchanged passes (`ShorelineMaterial`'s, `TemperatureField`'s and `TerracePass`'s own tests
+all still pass, none of the three files touched). `docs/world-generation.md` §24.7.
+
+Docs: `docs/world-generation.md` §24 (new, eight subsections); `docs/reference/
+traceability.md` (085's existing `terrain-climate-blend.md` row extended with the
+`terrain_surfaceColor_blend` finding, since it falls outside that note's own scope).
+
+Tests: `tests/unit/test_snowline_material.gd` (new, 23 tests; pins `signature()`
+`671f7833af3596ab` for `block_id_at()` over `GenerationFixtures.columns()` on the `typed`
+world — **identical to `test_shoreline_material.gd`'s and `test_surface_material.gd`'s own**
+pinned value, because none of the 15 fixture columns is both above the land baseline and
+cold enough once lapsed, the same small-sample-vs-sparse-feature finding every brick since
+077 has recorded. Three hand-picked columns found by a design-time sweep of the standard
+2304-column distribution exercise the real property: a `mountain` column at height 32,
+raw temperature `0.389` (too warm for `BiomeClassifier` to call it `SNOW`), reads snow-
+covered once lapsed to `0.189`; a `mountain` column at height 40, raw temperature `0.500`,
+stays bare because lapsing only reaches `0.250`; and a `forest` column at height 24, raw
+temperature `0.224` (again too warm for the classifier), reads snow-covered once lapsed to
+`0.074`, overriding its own `block.grass` — proof the override reaches biomes other than
+`mountain`. Measured over the same 2304-column sweep: 7.29% of the world reads snow-covered,
+a real minority. Full suite: `files=58 tests=839 assertions=123455 failed=0`. Compile probe
+OK (122 scripts, self-excluded). Headless boot OK. Measurement used a throwaway scratch test
+(`tests/unit/test_zzz_scratch_snowline_material.gd`, print-only, run via `tools\scripts\
+test.ps1 -File zzz_scratch -Verbose_`, then deleted — never committed), `076`'s/`080`'s/
+`081`'s/`084`'s exact scratch-test-file precedent.
 
 `084` is the combination `OceanPass`'s (083, §22.5/§22.8) own class comment named in advance
 twice as belonging to someone else: one new file, `world/generation/shoreline_material.gd`

@@ -3188,3 +3188,158 @@ becomes a pinned generation input, the same "first `VoxelBuffer` write" boundary
 - **Narrowing or otherwise changing the river/lake-into-ocean exclusion** (a river mouth's own
   shoreline shape, say). §22.3/§22.8's own open door, unchanged by this brick.
 - **Vegetation, decoration, or any other content placed near water.** 086–088, unstarted.
+
+## 24. Snowline rules (brick 085)
+
+Implementation: `world/generation/snowline_material.gd` (`SnowlineMaterial`).
+Tests: `tests/unit/test_snowline_material.gd`.
+Reference: one real hit, `terrain_surfaceColor_blend` (`0x005c56e0`) — see §24.6.
+
+§9.3/§9.7 named this brick in advance: "cold peaks are brick 085's snowline reading this field
+[`TemperatureField`] **and** a height, not a lapse rate baked into this one." `BiomeClassifier`
+(066) already turns "cold enough" into `biome.snow` at `TEMPERATURE_COLD`, and every biome
+already agreed on its own ground (075) — including `snow`'s own `block.snow`. What neither
+answers is a column whose *climate* reads warm but whose *ground* stands high enough that a
+real mountain would still be capped in snow. This brick is where climate and height meet.
+
+```text
+height_above_land_base_at(column)  = max(0, TerracePass.at(column) - ElevationField.LAND_BASE_VOXELS)
+effective_temperature_at(column)   = TemperatureField.at(column)
+                                      - LAPSE_RATE_PER_VOXEL * height_above_land_base_at(column)
+is_snow_covered_at(column)         = height_above_land_base_at(column) > 0
+                                      and effective_temperature_at(column) < TEMPERATURE_COLD
+
+block_id_at(column) = ShorelineMaterial.block_id_at(column)   if wet or shoreline
+                     = SNOW_BLOCK_ID                            if is_snow_covered_at(column)
+                     = ShorelineMaterial.block_id_at(column)   otherwise
+```
+
+### 24.1 The lapse rate is derived, not picked
+
+`LAPSE_RATE_PER_VOXEL = (TemperatureField.MAXIMUM - BiomeClassifier.TEMPERATURE_COLD) /
+ElevationField.RELIEF_AMPLITUDE_VOXELS`. The one invariant a snowline is supposed to
+guarantee — the tallest possible peak in the world is snow-capped in *every* climate,
+including the hottest — is exactly what this ratio produces: at
+`RELIEF_AMPLITUDE_VOXELS` (128 voxels) above the baseline, even `TemperatureField.MAXIMUM`
+(1.0) lapses down to precisely `TEMPERATURE_COLD` (0.2). `self_check()` asserts this
+algebraically derived boundary rather than trusting the formula, `BiomeClassifier.
+RUGGEDNESS_MOUNTAIN`'s own precedent for a threshold derived from a relationship instead of
+measured or guessed. Measured at the shipped constants: `LAPSE_RATE_PER_VOXEL = 0.00625`.
+
+### 24.2 The gate at the land baseline, and why it has to be there
+
+Height is measured above `ElevationField.LAND_BASE_VOXELS` (061's "the height the ground
+would stand at with no relief at all"), not above the world datum, and
+`is_snow_covered_at()` returns `false` outright for any column that does not clear that
+baseline — **before** it ever compares a temperature. This is not an optimisation; it is
+load-bearing. At or below the baseline, `effective_temperature_at()` collapses to the exact
+same raw `TemperatureField.at()` value `BiomeClassifier.classify()` already tests against
+the exact same `TEMPERATURE_COLD` threshold. Without the gate, this file would re-decide —
+and re-harden into a hard edge — the `SNOW`/non-`SNOW` biome boundary `BiomeTransition`
+(074) and `SurfaceMaterial` (075) already dither smoothly across. The gate is what confines
+this brick to the question its name actually asks (altitude), leaving the biome-edge
+question (074's) untouched.
+
+The previous session's own handoff flagged this precisely before any code was written: "an
+alpine/tundra snow biome already has its own `surface_block_id = block.snow`... so
+'snowline' may turn out to mean *raising the effective snow threshold on a cold column near
+the tree/frost line* rather than introducing a second, independent snow-cover mechanism."
+The gate is that raising: it only ever activates where the biome-level answer did not
+already supply one.
+
+### 24.3 One fixed block, `ShorelineMaterial`'s own argument extended a third time
+
+`SNOW_BLOCK_ID = "block.snow"`, already shipped by 075 — no new block, no per-biome field.
+`WaterLevel` (080) added a bare constant, `OceanPass` (083) added no field at all,
+`ShorelineMaterial` (084, §23.2) followed the same line, and this brick is the third: no
+consumer distinguishes a snow-capped mountain from a snow-capped tundra, so a
+`BiomeDefinition` field naming a string every biome could already read off `surface_block_id`
+would be the "record grows, nothing reads it" shape §12.3/§14.6/§15.2/§16.7/§23.2 have now
+named six times.
+
+### 24.4 A pure combination over `ShorelineMaterial`, not `SurfaceMaterial`
+
+`SnowlineMaterial` holds a `ShorelineMaterial` (084), a `TemperatureField` (064) and a
+`TerracePass` (063), all built fresh in `for_world()` — `TerracePass.for_world()`'s own
+recurring reason. Building on `ShorelineMaterial` rather than reaching past it to
+`SurfaceMaterial` directly means a wet or shoreline column is excluded exactly the way 084
+excluded them from its own override, checked first and returned untouched. This brick never
+has to decide what a snowy beach or a frozen lake edge looks like — `ShorelineMaterial`'s own
+class comment named that as a door left open for "a narrower or wider shore band" and nothing
+else, and this brick does not walk through it.
+
+### 24.5 What the measurement found
+
+The standard 2304-column sweep (`SWEEP_SIDE=48`, `SWEEP_SPACING=4093`) reads **168 snow-
+covered columns, 7.29%** of the world — a real minority, neither vanishing (like a shoreline)
+nor dominant (like ocean). Three worked cases from the same sweep:
+
+| Column | Biome | Height above baseline | Raw temp. | Effective temp. | Covered? |
+|---|---|---:|---:|---:|:---:|
+| `(-69581, -77767)` | `mountain` | 32 | 0.389 | 0.189 | yes |
+| `(-98232, 24558)` | `mountain` | 40 | 0.500 | 0.250 | no |
+| `(-94139, 61395)` | `forest` | 24 | 0.224 | 0.074 | yes |
+
+The first and second prove altitude and climate both have to agree — a mountain alone is not
+enough, and neither is a merely-cool climate at only moderate height. The third proves the
+override reaches biomes other than `mountain`: a `forest` column whose raw temperature sits
+on the *warm* side of `TEMPERATURE_COLD` (0.224, so `BiomeClassifier` would never call it
+`SNOW`) still reads snow-covered once its 24 voxels of altitude are lapsed in, and the block
+it overrides (`block.grass`) really is the biome's own ordinary ground, not already snow by
+coincidence.
+
+`GenerationFixtures.columns()`'s 15 samples hit none of the three cases above (the same
+small-sample-vs-sparse-feature finding every brick since 077 has recorded), so seed
+sensitivity uses the wider sweep, `OceanPass`'s/`WaterLevel`'s own precedent for the identical
+reason.
+
+### 24.6 Reference: height and slope, not moisture, and no discrete material
+
+A case-insensitive grep of `reference/CubeWorld-Reversal` for "snow" turns up creature and
+item names only (`SnowGolem`, `SnowBush`, `golem-snow-*.cub`) — no generation mechanism.
+`GAP_ANALYSIS.md` lists exactly one real function: `terrain_surfaceColor_blend`
+(`0x005c56e0`, `[AUDIT] confidence: med`), whose own one-line summary claims it layers snow
+by "height+moisture." Reading the function's body (`cube/game_misc/game_misc.cpp`) tells a
+narrower story: it blends a snow-coloured noise term into terrain RGBA wherever a normalized
+`height` parameter exceeds `0.8` (a fainter blend from `0.75`) **and** `slope < 0.2` — no
+moisture term appears anywhere in it, despite the summary. Two things about that shape are
+worth keeping:
+
+- **Kept:** snow as a pure **height** effect that can occur regardless of climate — arrived
+  at independently in §9.3/§9.7, before this function was ever read, and confirmed rather
+  than contradicted by finding it. That the reference reaches the same idea by a completely
+  different route (a continuous colour blend with no climate input at all) is agreement, not
+  evidence of correctness — but it is worth recording as agreement rather than silence.
+- **Diverged, twice.** No **slope** gate: this project already has a rugged-vs-flat measure
+  (`ErosionPass.ruggedness_at()`), but it decides `biome.mountain` upstream of this file, and
+  a second, independent flatness gate here would be a second way to reach the same question
+  066 already answers. And no discrete `SNOW` id or block at all in the original — it blends
+  a colour continuously, 066's own divergence (§12.5) carried forward rather than reopened
+  here.
+
+### 24.7 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `SnowlineMaterial` adds no noise
+layer, no salt, no `BiomeDefinition` field, no new block — a pure combination over three
+independently unchanged passes (`ShorelineMaterial`'s, `TemperatureField`'s and
+`TerracePass`'s own tests all still pass; none of the three files was touched). The moment
+some later brick's `VoxelGenerator` calls `block_id_at()`/`block_id_at_voxel()` to fill a
+`VoxelBuffer`, every input this file reads — `LAPSE_RATE_PER_VOXEL` included — becomes a
+pinned generation input, the same "first `VoxelBuffer` write" boundary §14.4/§15.5/§17.5/
+§18.4/§22.7/§23.7 already named.
+
+### 24.8 Out of scope for this brick
+
+- **A water block, or any `VoxelGenerator` write.** Still nothing in the project writes a
+  voxel; this brick only decides what covers a column above the frost line.
+- **What covers a wet or shoreline column.** Untouched, deferred to `ShorelineMaterial`
+  exactly as §24.4 describes.
+- **A discrete "alpine" or "tundra" biome distinct from `snow`/`mountain`.** Not asked for by
+  this brick's backlog row, and no consumer exists to want one — the same argument §12.2/
+  §23.2 already make.
+- **Slope, aspect, or any second gate beyond height and temperature.** §24.6's own divergence
+  from the reference; `ErosionPass.ruggedness_at()` already answers the "how rugged" question
+  one layer upstream, at `biome.mountain`'s own classification.
+- **Decoration, vegetation, or any other content that would read this file.** 086–088,
+  unstarted.

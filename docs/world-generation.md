@@ -3478,3 +3478,82 @@ places a tree or a rock, `spacing` and `salt` become pinned generation inputs, t
 - **Reading `SnowlineMaterial` or `ErosionPass.ruggedness_at()`.** §25.4's own deferral.
 - **A `VoxelGenerator` write, or any voxel touched at all.** Still nothing in the project
   writes a voxel; this brick only decides which columns are candidates.
+
+## 26. Tree spawn masks (brick 087)
+
+Implementation: `world/generation/tree_mask.gd` (`TreeMask`).
+Tests: `tests/unit/test_tree_mask.gd`.
+Reference: none beyond §25.6's own `WorldInfo_scatterObjectsInArea` — this brick spends the
+density-as-content half of that function's idea that §25 explicitly left unspent.
+
+```text
+spacing_at(column) = DecorationMask.spacing_for_density(
+                          biome_registry.get_biome(SurfaceMaterial.biome_id_at(column))
+                              .vegetation_density)
+
+is_tree_at(column) = spacing_at(column) > 0
+                      and not SnowlineMaterial.is_snow_covered_at(column)
+                      and DecorationMask.is_decoration_anchor_at(
+                              column, spacing_at(column), WorldHash.SALT_TREES)
+```
+
+### 26.1 One new field, read through the same biome `SurfaceMaterial` already picked
+
+`BiomeDefinition.vegetation_density` (this brick's field) is read through
+`SurfaceMaterial.biome_id_at(column)` rather than `BiomeClassifier.at()` directly, so a
+column's tree density always agrees with whichever biome's ground `SubsurfaceMaterial` (076)
+already dithered it onto. Two independent reads of "which biome is this column" — one for the
+ground block, one for tree density — would let a column grow its neighbor's grass while
+spacing its trees by its own biome, disagreeing with itself for no reason.
+
+### 26.2 Order: the free gate first, then the two per-column reads, then the hash
+
+`is_tree_at()` checks `spacing_at(column) > 0` before either `SnowlineMaterial` or
+`DecorationMask` runs — the shipped catalog gives three of six biomes (`desert`, `mountain`,
+`snow`) `vegetation_density = 0.0`, so roughly half of every column in the world short-circuits
+before touching either. Snow cover is checked before the anchor hash for the same reason
+`CaveCarving.is_hollow_at()` (078) orders its own gates: cheapest rejection first.
+
+### 26.3 Snow cover excludes trees — the question `DecorationMask` deferred
+
+`DecorationMask`'s own class comment (§25.4/§25.8) named frost cover as a per-biome ground
+question, not an eligibility question, and left it for whichever brick first needed an answer.
+`SnowlineMaterial.is_snow_covered_at()` (085) already knows a column stands high and cold
+enough to be capped regardless of biome; checked after the density gate and before the anchor
+draw, so a snow-capped forest column never reaches `DecorationMask` at all.
+
+### 26.4 What the measurement found
+
+Sampled over a real 200x200-column patch containing both biomes on dry ground
+(`test_forest_reads_visibly_denser_than_grassland` — the shipped catalog's forest density
+`0.04` against grassland's `0.0025`), forest measured roughly 3.7% tree cover against
+grassland's roughly 0.26%, forest visibly denser as the field exists to produce. A wider
+48x48-cell sweep at spacing 4093 (`test_tree_cover_is_a_real_minority_of_the_world_not_zero_and_not_dominant`)
+put overall tree cover at a plausible low-single-digit-percent minority of the world, not zero
+and not dominant. The first version of the denser-patch test picked its 200x200 origin from
+this file's own `SWEEP_ORIGIN` fixture constant without checking what was there; that patch
+turned out to be entirely lake (`DecorationMask.is_eligible_at()` false on every column), so
+both fractions measured `0` and the property went untested. The fix was a design-time sweep
+for an origin with real dry forest and grassland in it, `docs/world-generation.md`'s own
+recurring reason (§25.5, §24.5) for measuring rather than assuming a patch is representative.
+
+### 26.5 Not a generation version bump
+
+The same boundary §25.7 states: no world has ever had a voxel written. `TreeMask` mixes no
+new salt (`WorldHash.SALT_TREES`, reserved since brick 015) and adds no new `GenerationHash`
+space — it is a pure combination over `DecorationMask`, `SurfaceMaterial` and
+`SnowlineMaterial`, three passes that already pin their own inputs. `BiomeDefinition
+.vegetation_density` becomes a pinned generation input the moment a `VoxelGenerator` reads
+`is_tree_at()` to decide whether to place a tree.
+
+### 26.6 Out of scope for this brick
+
+- **Rock/prop spawn masks.** 088, unstarted; `WorldHash.SALT_PROPS` stays reserved and unread.
+- **Ruggedness exclusion.** `ErosionPass.ruggedness_at()` is never read here — a rugged enough
+  column already routes to `biome.mountain` through the classifier, whose own shipped density
+  is `0.0`, so no second gate is needed for the case that matters. See `tree_mask.gd`'s own
+  class comment for the edge-dither case this deliberately leaves alone.
+- **Cross-pass exclusion with 088.** A tree anchor and a future rock anchor can legally land on
+  the same or adjacent columns — §25.8's deferral, unchanged.
+- **A `VoxelGenerator` write, or any voxel touched at all.** Still nothing in the project
+  writes a voxel; this brick only decides which columns are candidates.

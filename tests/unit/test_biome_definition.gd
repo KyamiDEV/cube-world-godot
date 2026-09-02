@@ -128,3 +128,35 @@ func test_the_schema_does_not_know_the_block_catalog_for_subsurface_either() -> 
 	var definition := _valid()
 	definition.subsurface_block_id = "block.does_not_exist"
 	assert_eq(definition.validate(), "")
+
+
+# ---------------------------------------------------------------------------
+# vegetation_density (brick 087)
+# ---------------------------------------------------------------------------
+
+func test_vegetation_density_defaults_to_zero() -> void:
+	# A fresh field must default to "no trees", not to some density that silently plants a
+	# forest on every biome nobody has assigned a number to yet.
+	assert_eq(BiomeDefinition.new().vegetation_density, 0.0)
+
+
+func test_a_zero_vegetation_density_validates() -> void:
+	# Three of the six shipped biomes (desert, snow, mountain) ship exactly this value —
+	# "no trees at all" must be well-formed, not a degenerate case validate() rejects.
+	var definition := _valid()
+	definition.vegetation_density = 0.0
+	assert_eq(definition.validate(), "")
+
+
+func test_a_positive_vegetation_density_validates() -> void:
+	var definition := _valid()
+	definition.vegetation_density = 0.04
+	assert_eq(definition.validate(), "")
+
+
+func test_a_negative_vegetation_density_is_rejected() -> void:
+	var definition := _valid()
+	definition.vegetation_density = -0.01
+	var problem := definition.validate()
+	assert_ne(problem, "")
+	assert_true(problem.contains("vegetation_density"), problem)

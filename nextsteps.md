@@ -36,25 +36,24 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–086 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 087–090 open)
-- Next task `087 — Implement tree/vegetation spawn masks`, dep `086` in `backlog.md`, now
-  DONE. Not yet scoped by this session beyond what `backlog.md`'s own row says. `086`'s own
-  file (`world/generation/decoration_mask.gd`, `docs/world-generation.md` §25) built the
-  shared mechanism 087 spends its own numbers on: `DecorationMask.is_eligible_at()` (dry,
-  non-shoreline ground) and `DecorationMask.is_decoration_anchor_at(column, spacing, salt)`
-  (one deterministic candidate column per `spacing x spacing` cell). 087 should call the
-  latter with `WorldHash.SALT_TREES` (already reserved, unused until now) and its own
-  `spacing_for_density()` result — read §25.1/§25.4 before assuming a tree pass needs to
-  touch `ShorelineMaterial`/`SnowlineMaterial` directly, or needs a second scatter mechanism
-  of its own. Two open threads `086` leaves for 087 (and 088 after it): whether a snow-capped
-  column (085) should carry different decoration than bare ground, and whether steep terrain
-  (`ErosionPass.ruggedness_at()`) should exclude large props — neither was decided in 086
-  because neither had a consumer yet (§25.4/§25.8).
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–087 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 088–090 open)
+- Next task `088 — Implement rock/prop spawn masks`, dep `087` in `backlog.md`, now DONE.
+  Not yet scoped by this session beyond what `backlog.md`'s own row says. `087`'s own file
+  (`world/generation/tree_mask.gd`, `docs/world-generation.md` §26) is the template to follow,
+  not a mechanism to extend: 088 spends its own `BiomeDefinition` field (density) and its own
+  reserved salt (`WorldHash.SALT_PROPS`, unused until now) the same way 087 spent
+  `vegetation_density`/`SALT_TREES`, composing `DecorationMask` (086) again rather than adding
+  anything to it. One open thread `086` left for whichever brick first needed it, and 087
+  explicitly declined to spend (`docs/world-generation.md` §26.6): whether steep terrain
+  (`ErosionPass.ruggedness_at()`) should exclude large props — 087 argued a rugged-enough
+  column already routes to `biome.mountain` (density `0.0`) through the classifier, so no
+  second gate was needed for trees; 088 should read that argument before assuming the same
+  holds for rocks, which a mountain biome plausibly wants *more* of, not fewer.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`086`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`087`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -77,7 +76,63 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
 model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules, 085 snowline
-rules, 086 natural decoration masks (068–073 folded — see below).
+rules, 086 natural decoration masks, 087 tree spawn masks (068–073 folded — see below).
+
+`087` is the biome-aware layer `086`'s own class comment left open: one new file,
+`world/generation/tree_mask.gd` (`TreeMask`), composing `DecorationMask` (086),
+`SurfaceMaterial` (075) and `SnowlineMaterial` (085) into `is_tree_at(column) -> bool`, plus
+one new field, `BiomeDefinition.vegetation_density` (shipped: forest `0.04`, wetland `0.01`,
+grassland `0.0025`, desert/mountain/snow `0.0`).
+
+```text
+spacing_at(column) = DecorationMask.spacing_for_density(
+                          biome_registry.get_biome(SurfaceMaterial.biome_id_at(column))
+                              .vegetation_density)
+
+is_tree_at(column) = spacing_at(column) > 0
+                      and not SnowlineMaterial.is_snow_covered_at(column)
+                      and DecorationMask.is_decoration_anchor_at(
+                              column, spacing_at(column), WorldHash.SALT_TREES)
+```
+
+Three things worth keeping:
+
+1. **Density is read through `SurfaceMaterial.biome_id_at()`, not `BiomeClassifier.at()`
+   directly** — the same dithered pick `SubsurfaceMaterial` (076) already reads, so a
+   column's tree density always agrees with whichever biome's ground it actually stands on,
+   including salt-and-pepper edge columns.
+2. **The zero-density gate runs before either `SnowlineMaterial` or `DecorationMask`.** Three
+   of six shipped biomes ship `vegetation_density = 0.0`; a `0` spacing short-circuits
+   `is_tree_at()` before either heavier read runs, `CaveCarving.is_hollow_at()`'s (078)
+   cheap-gate-first ordering.
+3. **Snow cover is the exclusion `086`'s own class comment named and deliberately did not
+   decide.** `SnowlineMaterial.is_snow_covered_at()` (085) is read after the density gate and
+   before the anchor hash, so a snow-capped forest column never reaches `DecorationMask` at
+   all — no wasted hash, no anchor reserved at a column this file is about to refuse anyway.
+
+Not a generation version bump: no world has ever had a voxel written, and this brick mixes no
+new salt or `GenerationHash` space of its own — `WorldHash.SALT_TREES` (reserved since brick
+015) was already the salt `DecorationMask` (086) named for this brick. `docs/world-generation
+.md` §26.5.
+
+One real bug caught before it shipped: the first version of
+`test_forest_reads_visibly_denser_than_grassland` sampled a fixed 200x200-column patch at this
+file's own `SWEEP_ORIGIN` fixture constant, unchecked. That patch turned out to be entirely
+inside a lake — `DecorationMask.is_eligible_at()` false on every column — so both fractions
+measured `0.0` and the property the test exists to check went untested, only surfacing as a
+hard `FAIL` (`forest fraction nan must exceed grassland fraction nan`) once run. Fixed by a
+design-time sweep (ASCII-mapped `biome_id_at()`/`is_eligible_at()` over a wide area) for a
+real origin with dry forest and grassland both present; `docs/world-generation.md` §26.4
+records the finding. Lesson for 088 (rock/prop masks) and any later brick that pins a sample
+coordinate: sweep and check what is actually there before trusting a "nearby" or reused
+origin constant — this world's biome/water layout dithers at column granularity and a
+sizeable fraction of the map is open water.
+
+Docs: `docs/world-generation.md` §26 (new, six subsections). Tests: `tests/unit/
+test_tree_mask.gd` (new, 19 tests, 87 assertions); `tests/unit/test_biome_definition.gd` and
+`tests/unit/test_biome_catalog.gd` extended for the new `vegetation_density` field and its
+`validate()`/ordering checks. Full suite: `files=60 tests=889 assertions=127735 failed=0`.
+Compile probe OK (126 scripts). Headless boot OK.
 
 `086` is the mechanism `matrix-world.md` §2 named in advance and left at LOW confidence: one
 new file, `world/generation/decoration_mask.gd` (`DecorationMask`), plus two small additions
@@ -3148,7 +3203,8 @@ Last run (brick 067): compile probe **OK** (97 scripts) · headless boot **OK** 
 | Generation | `world/generation/temperature_field.gd` | `TemperatureField.for_world(hash)`: the first climate axis — `at(column) = fade(noise01(column))` in `[0, 1]`, `0` coldest and `1` hottest, no unit. Cell 16384 voxels (8192 m), 2 octaves so the finest climate cell is exactly `Continentalness`' coarsest, gain 0.5, `SALT_TEMPERATURE`. `spread()` is the quintic used as a **redistribution**, not a blend: without it the raw layer piles 70% of the world into four middle deciles and reaches neither end, so no biome threshold would select anything. Reads **no** elevation — no lapse rate, that is 085 (064, `docs/world-generation.md` §9) |
 | Generation | `world/generation/humidity_field.gd` | `HumidityField.for_world(hash)`: the second climate axis and 064's mirror — `at(column) = fade(noise01(column))` in `[0, 1]`, `0` driest and `1` wettest, no unit. Same cell, octaves and gain as `TemperatureField` (written as its constants, so the two cannot drift to different scales) and `spread()` calls its curve; the **only** difference is `SALT_HUMIDITY`. Reads **no** `Continentalness` — coastal wetness would make it the first climate axis derived from another field, and 066/074 can add it visibly on top instead. Measurably independent of temperature, ground height and continentalness (`|r| < 0.05` on every fixture world) (065, `docs/world-generation.md` §10) |
 | Biomes | `world/biomes/biome_classifier.gd` | `BiomeClassifier.for_world(hash)`: which of six biomes a column is in — a six-rule decision list over `(temperature, humidity, ruggedness)`, total by construction, `at()`/`at_voxel()`/`sample_at()` and a static pure `classify()`. `IDS` is the **closed set** every catalog is checked against; `is_biome_id()` is the membership test (066, `docs/world-generation.md` §11) |
-| Biomes | `world/biomes/biome_definition.gd` | `BiomeDefinition`: the per-biome record — `id` (domain `biome`), `display_name`, `debug_color`, plus `validate()`. Three fields on purpose: materials are 075–076, vegetation 086–088, spawns 095/106–107 (§12.2). `debug_color` is an overlay swatch, **not** the terrain tint (067) |
+| Biomes | `world/biomes/biome_definition.gd` | `BiomeDefinition`: the per-biome record — `id` (domain `biome`), `display_name`, `debug_color`, `surface_block_id` (075), `subsurface_block_id` (076), `vegetation_density` (087, tree candidate density — 0.0 disables), plus `validate()`. Rock/prop density is 088, spawns 095/106–107. `debug_color` is an overlay swatch, **not** the terrain tint (067) |
+| Generation | `world/generation/tree_mask.gd` | `TreeMask.for_world(hash, biomes, blocks)`: `is_tree_at(column)`/`is_tree_at_voxel(voxel)` — combines `DecorationMask` (086), `SurfaceMaterial`'s winning biome (075) and `SnowlineMaterial` (085): the biome's own `vegetation_density` picks the candidate spacing, a snow-capped column is excluded regardless of biome, `DecorationMask` picks the one eligible anchor per cell at `WorldHash.SALT_TREES` (087, `docs/world-generation.md` §26) |
 | Biomes | `world/biomes/biome_registry.gd` | `BiomeRegistry`: typed `BiomeDefinition` catalogue over `DefinitionRegistry` — refuses an id `BiomeClassifier` cannot produce, and adds the check an open-set registry has no use for: `coverage_reason()` (the catalog holds exactly `BiomeClassifier.IDS`; `coverage_reason_for()` is the static list-taking form), `palette_reason()` (debug colours ≥ `0.25` apart), `self_check()` (067, §12.1) |
 | Biomes | `world/biomes/biome_catalog.gd`, `data/biomes/*.tres` | `BiomeCatalog.load_default()`: scans `data/biomes/*.tres`, registers each, locks, then `self_check()`s the result and logs loudly if the catalog as a whole is unusable — degrades per entry like `BlockSet`, but a *missing* biome is a broken world rather than a missing block. Six records written by `tools/generators/generate_biome_catalog.gd` (thin entry + runner, brick 052's split) (067, §12.3-12.4) |
 | Biomes | `world/biomes/biome_transition.gd` | `BiomeTransition.for_world(hash)`: how close a column sits to a different biome, and which one — `neighbor_at()`/`neighbor_weight_at()`/`blend_at()`. `nearest_boundary()` finds the neighbor by nudging one input at a time past each of `classify()`'s five thresholds and calling it again, rather than re-deriving its decision-list precedence. `TRANSITION_WIDTH = 0.15`, half of `BiomeClassifier.narrowest_climate_gap()`, shared across all five thresholds as a stated simplification. Never changes `BiomeClassifier.at()`'s answer; not a generation version bump (074, `docs/world-generation.md` §13) |

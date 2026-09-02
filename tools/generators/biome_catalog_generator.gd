@@ -17,9 +17,9 @@ extends RefCounted
 const DATA_DIR := "res://data/biomes/"
 
 
-## id -> [display_name, debug_color, surface_block_id, subsurface_block_id]. One row per
-## `BiomeClassifier.IDS` entry, no more. A method rather than a `const`, because `Color8()`
-## is a call and not a constant expression.
+## id -> [display_name, debug_color, surface_block_id, subsurface_block_id,
+## vegetation_density]. One row per `BiomeClassifier.IDS` entry, no more. A method rather
+## than a `const`, because `Color8()` is a call and not a constant expression.
 ##
 ## The surface column (brick 075) reuses `generate_block_set.gd`'s three (grass, dirt,
 ## stone) for four of the six biomes — a forest floor and a swamp are both honestly mud,
@@ -33,20 +33,28 @@ const DATA_DIR := "res://data/biomes/"
 ## down), and mountain's topsoil is the same stone its surface already is. Every biome's
 ## bedrock below that is `SubsurfaceMaterial.DEEP_BLOCK_ID`, fixed and not part of this
 ## table — `docs/world-generation.md` §15.2.
+##
+## The density column (brick 087) is candidates per column, `BiomeDefinition.
+## vegetation_density`'s own unit — `forest` thickest, `wetland`/`grassland` scattered, and
+## `desert`/`snow`/`mountain` bare (`0.0`, `DecorationMask.spacing_for_density()`'s own
+## "disabled" value). Not fitted to any reference figure — none exists,
+## `docs/world-generation.md` §26.6 — chosen only for the *ordering* a player can see from a
+## distance: a forest reads denser than a wetland, a wetland denser than open grassland,
+## and the three bare biomes read as bare.
 static func records() -> Dictionary:
 	return {
 		BiomeClassifier.GRASSLAND: ["Grassland", Color8(106, 170, 74),
-				"block.grass", "block.dirt"],
+				"block.grass", "block.dirt", 0.0025],
 		BiomeClassifier.FOREST: ["Forest", Color8(34, 82, 40),
-				"block.grass", "block.dirt"],
+				"block.grass", "block.dirt", 0.04],
 		BiomeClassifier.DESERT: ["Desert", Color8(218, 192, 122),
-				"block.sand", "block.sand"],
+				"block.sand", "block.sand", 0.0],
 		BiomeClassifier.SNOW: ["Snow", Color8(233, 240, 246),
-				"block.snow", "block.dirt"],
+				"block.snow", "block.dirt", 0.0],
 		BiomeClassifier.MOUNTAIN: ["Mountain", Color8(128, 128, 128),
-				"block.stone", "block.stone"],
+				"block.stone", "block.stone", 0.0],
 		BiomeClassifier.WETLAND: ["Wetland", Color8(48, 116, 118),
-				"block.dirt", "block.dirt"],
+				"block.dirt", "block.dirt", 0.01],
 	}
 
 
@@ -84,6 +92,7 @@ func _definition_for(id: String, row: Array) -> BiomeDefinition:
 	definition.debug_color = row[1]
 	definition.surface_block_id = row[2]
 	definition.subsurface_block_id = row[3]
+	definition.vegetation_density = row[4]
 	return definition
 
 

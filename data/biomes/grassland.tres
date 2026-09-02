@@ -9,3 +9,4 @@ display_name = "Grassland"
 debug_color = Color(0.41568628, 0.6666667, 0.2901961, 1)
 surface_block_id = "block.grass"
 subsurface_block_id = "block.dirt"
+vegetation_density = 0.0025

@@ -111,6 +111,32 @@ func test_network_indices_are_assigned_and_reversible() -> void:
 	assert_eq(registry.id_from_network_index(BiomeClassifier.IDS.size()), "")
 
 
+# ---------------------------------------------------------------------------
+# vegetation_density (brick 087)
+# ---------------------------------------------------------------------------
+
+func test_the_three_bare_biomes_ship_zero_vegetation_density() -> void:
+	# Desert, snow and mountain must read as bare — `TreeMask.spacing_at()`'s own
+	# short-circuit depends on this being exactly zero, not merely small.
+	var registry := BiomeCatalog.load_default()
+	for id in [BiomeClassifier.DESERT, BiomeClassifier.SNOW, BiomeClassifier.MOUNTAIN]:
+		assert_eq(registry.get_biome(id).vegetation_density, 0.0, "%s must be bare" % id)
+
+
+func test_vegetation_density_orders_forest_above_wetland_above_grassland() -> void:
+	# The property the whole field exists for: a forest reads visibly denser than a wetland,
+	# a wetland denser than open grassland — `biome_catalog_generator.gd`'s own stated intent,
+	# checked here rather than only claimed in a comment.
+	var registry := BiomeCatalog.load_default()
+	var forest := registry.get_biome(BiomeClassifier.FOREST).vegetation_density
+	var wetland := registry.get_biome(BiomeClassifier.WETLAND).vegetation_density
+	var grassland := registry.get_biome(BiomeClassifier.GRASSLAND).vegetation_density
+	assert_true(forest > wetland, "forest (%s) must be denser than wetland (%s)" % [forest, wetland])
+	assert_true(wetland > grassland,
+			"wetland (%s) must be denser than grassland (%s)" % [wetland, grassland])
+	assert_true(grassland > 0.0, "grassland must still grow some trees")
+
+
 func test_loading_twice_gives_the_same_content_hash() -> void:
 	# Two peers loading the same six files must agree on their indices without exchanging
 	# a table; within one process this is the cheapest check that the load is not

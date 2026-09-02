@@ -3656,3 +3656,103 @@ reads `is_rock_at()` to decide whether to place a rock.
   rock anchor can legally land on the same or adjacent columns.
 - **Reading `SnowlineMaterial` or `ErosionPass.ruggedness_at()`.** §27.2/§27.3.
 - **A `VoxelGenerator` write, or any voxel touched at all.**
+
+## 28. Structure seed selection (brick 089)
+
+Implementation: `world/structures/structure_seed.gd` (`StructureSeed`),
+`world/structures/structure_seed_field.gd` (`StructureSeedField`).
+Tests: `tests/unit/test_structure_seed.gd`, `tests/unit/test_structure_seed_field.gd`.
+Reference: `docs/reference/region-coordinate-hashing.md` (`World_generateRegionSite`,
+`matrix-world.md` §2), confidence MEDIUM — the load-bearing claims 1–3 are HIGH.
+
+```text
+seed_at(region)  -- null when not GenerationGrid.is_region_in_world(region)
+    rng          = GenerationHash.rng_region(region, WorldHash.SALT_STRUCTURES)
+    offset_x     = rng.next_int(0, REGION_SIZE_VOXELS - 1)     -- draw 1
+    offset_z     = rng.next_int(0, REGION_SIZE_VOXELS - 1)     -- draw 2
+    structure_seed = rng.next_u64()                            -- draw 3
+    anchor_column  = region_origin(region) + (offset_x, offset_z)
+    -> StructureSeed(region, anchor_column, structure_seed)
+
+seed_for_column(column) = seed_at(column_to_region(column))
+seed_for_voxel(voxel)   = seed_for_column(voxel_to_column(voxel))
+```
+
+`matrix-world.md` §2 places region-site / feature-cell placement here, confidence MEDIUM:
+the original seeded a region's content with `srand(regX + 0x108a + regZ * 0x400 +
+worldSeed * 3)` and drew from the process-global `rand()`, caching one site record per
+region on a 1024 × 1024 grid counted from a corner. This brick keeps the one shape a
+clean-room implementation reuses — **one reproducible seed per region cell** — and drops
+the linear seed and the global stream, both already resolved by `GenerationHash
+.rng_region()` (058, `region-coordinate-hashing.md` §9). It is *seed selection* only: not
+placement constraints (090), not the structure generator (091+).
+
+### 28.1 The same cell-and-hash mechanism as `DecorationMask`, one grid coarser
+
+`DecorationMask` (086) answers "one candidate column per `spacing × spacing` cell" by
+hashing the cell and letting its stream pick a column inside it. `StructureSeedField` is
+that mechanism with the cell fixed at one **region** (`GenerationGrid.REGION_SIZE_VOXELS`,
+1024 voxels) and the salt fixed at `WorldHash.SALT_STRUCTURES` — except the cell's stream
+picks not just a column but a whole `StructureSeed`: the jittered anchor column *and* the
+64-bit `structure_seed` a structure generator (091) forks its own owned stream from
+(`docs/rng.md` §5). No new `GenerationHash.Space` — `Space.REGION` and `rng_region()`
+already exist, and `rng_region()`'s own docstring already names bricks 089–090.
+
+### 28.2 Exactly one seed per region — a presence roll would be 090's decision made early
+
+Every in-world region yields exactly one `StructureSeed`, the way every `DecorationMask`
+cell yields exactly one anchor. This file rolls **no** rarity gate and reads **no**
+terrain, biome or climate. Whether a structure actually stands at the anchor — slope,
+water, biome suitability, spacing to the next structure, the falloff weighting
+`matrix-world.md` §2 records (`World::objectFalloffWeight`, `World::falloffSquared`,
+`World::findNearestFeatureCell`) — is brick 090's whole job. Folding a presence roll in
+here would be the same mistake `DecorationMask` refused when it left snow cover to 087: a
+later brick needs that decision and has the fields to make it well; this one does not, and
+090 would be left hollow.
+
+### 28.3 The anchor jitter belongs to the seed, not to 090
+
+The region grid is 1024 voxels across; a structure anchored to its region's corner would
+tile the world with a visible 512 m lattice. The jitter that breaks that lattice is drawn
+from the region's own stream, it is deterministic, and it must be fixed *before* 090 can
+ask "is the ground at the anchor buildable". So the anchor column is selected here — draws
+1 and 2 of the region stream — while whether anything is placed there is 090's.
+
+### 28.4 The draw order is part of the contract
+
+`seed_at()` draws anchor X, then anchor Z, then the sub-seed, from one region-owned
+stream — the "position-owned stream" shape `GenerationHash`'s class comment describes (a
+structure's kind, then rotation, then size). Appending a fourth draw later is free;
+inserting one in the middle moves every anchor in the world and is a generation version
+bump. `test_structure_seed_field.gd` pins a golden signature over both the anchor columns
+and the sub-seeds so that move cannot happen unnoticed.
+
+### 28.5 Out-of-grid regions have no seed
+
+`seed_at()` returns `null` for a region outside `GenerationGrid.is_region_in_world()` —
+the reference's own `INV-2` ("a region outside the grid has no content at all, rather than
+clamped or wrapped content"), and the place `region-coordinate-hashing.md` §10 said that
+check would first be *used*. A quiet `null`, not a logged error: a caller scanning the
+world edge is expected to get some. `has_seed(region)` is the named passthrough for a
+caller iterating regions.
+
+### 28.6 Not a generation version bump
+
+The boundary every Phase D brick since 062 has named: no world has ever had a voxel
+written, so nothing here can contradict one. This file mixes no new salt
+(`WorldHash.SALT_STRUCTURES`, reserved since brick 015, unread until now) and adds no new
+`GenerationHash.Space`. `SALT_STRUCTURES`, the §28.4 draw order and the region grid pitch
+all become pinned generation inputs the moment brick 091's `VoxelGenerator` reads a
+`StructureSeed` — the same "first `VoxelBuffer` write" boundary bricks 075–088 each named.
+
+### 28.7 Out of scope for this brick
+
+- **Whether a structure is actually placed** — the presence roll, terrain/slope/water
+  constraints, biome suitability, spacing and falloff. All of brick 090.
+- **What a structure is** — no kind list, no footprint, no mesh, no `VoxelGenerator`.
+  Bricks 091–094.
+- **Terrace / erosion flattening under a structure** (§7.1's "structure falloff" product
+  term). Brick 090+, when a placed structure exists to flatten ground for.
+- **More than one candidate per region.** If 090/091 need a finer grid, they subdivide it
+  deterministically from `structure_seed`; this brick fixes the region-scale seed only.
+- **A `VoxelGenerator` write, or any voxel touched at all.**

@@ -125,7 +125,7 @@
 | 086 | D | Implement natural decoration masks | 085 | Not needed by default | NO | DONE |
 | 087 | D | Implement tree/vegetation spawn masks | 086 | Not needed by default | NO | DONE |
 | 088 | D | Implement rock/prop spawn masks | 087 | Not needed by default | NO | DONE |
-| 089 | D | Implement deterministic structure seed selection | 088 | Not needed by default | NO | TODO |
+| 089 | D | Implement deterministic structure seed selection | 088 | Not needed by default | NO | DONE |
 | 090 | D | Implement structure placement constraints | 089 | Not needed by default | NO | TODO |
 | 091 | E | Implement initial structure generator | 090 | Not needed by default | YES | TODO |
 | 092 | E | Implement initial house generator | 091 | Not needed by default | YES | TODO |

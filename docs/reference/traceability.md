@@ -50,7 +50,7 @@ lowest brick number in the range.
 | 067–068 | `matrix-world.md` §2 | `WorldInfo` biome content population — **067's half closed**: opened by 067 and it yields nothing about a biome *record*, only content placement (068+, 086–088, 095) | `world/biomes/` | LOW | — |
 | 067, Phase J | `matrix-world.md` §2 | biome colour from climate noise (`Terrain_computeBiomeColor`) — the original has **no** biome catalog at all; ours is a deliberate divergence | `world/biomes/biome_definition.gd`, `docs/world-generation.md` §12.5 | LOW | — |
 | 086–088 | `matrix-world.md` §2 | `WorldInfo` decoration/object scatter | `world/generation/` | LOW | — |
-| 089–090 | `matrix-world.md` §2 | region-site & feature-cell placement (structure/POI seeding) | `world/structures/` | MEDIUM | — |
+| 089–090 | `matrix-world.md` §2 | region-site & feature-cell placement (structure/POI seeding) — **089's half done**: one reproducible `StructureSeed` (anchor + owned sub-seed) per region, the `srand(regX,regZ)` "one seed per region cell" shape kept, the linear seed / global `rand()` dropped (`region-coordinate-hashing.md` §9); the count-range / falloff / feature-tier placement rules are 090 | `world/structures/structure_seed_field.gd`, `docs/world-generation.md` §28 | MEDIUM | — |
 | 090–091 | `matrix-world.md` §2 | `WorldInfo` structure placement | `world/structures/` | LOW | — |
 
 ### Phase E — World streaming & persistence (091–105)

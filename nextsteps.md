@@ -36,22 +36,21 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–088 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 089–090 open)
-- Next task `089 — Implement deterministic structure seed selection`, dep `088` in
-  `backlog.md`, now DONE. Not yet scoped by this session beyond what `backlog.md`'s own row
-  says. This is the first Phase D brick that leaves the per-column-mask pattern (086–088)
-  and moves toward placed structures — `VoxelGeneratorMultipassCB` exists in 1.7 for
-  generation needing neighbour context (`nextsteps.md` "Technical notes"), and bricks
-  089–093 are where structures/villages land. `WorldHash.SALT_STRUCTURES` (7) is reserved
-  and unread. Read `docs/reference/matrix-world.md` for the structure/village cluster before
-  designing. The decoration-anchor mechanism (`DecorationMask`, one deterministic candidate
-  per cell by hashing the cell) is the likely template for "one structure seed per region
-  cell" too.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–089 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 090 open)
+- Next task `090 — Implement structure placement constraints`, dep `089` in `backlog.md`,
+  now DONE. 089 selects **one `StructureSeed` per region** (anchor column + owned sub-seed);
+  090 is where a structure is actually allowed or refused at that anchor — the presence
+  roll, slope/water/biome suitability, spacing to the next structure, and the falloff
+  weighting `matrix-world.md` §2 records (`World::objectFalloffWeight`, `World::falloffSquared`,
+  `World::findNearestFeatureCell`, `World_featureCountRange`, `World_featureTier`). Still not
+  a generation version bump until 091's `VoxelGenerator` writes a `VoxelBuffer`
+  (`docs/world-generation.md` §28.6). `VoxelGeneratorMultipassCB` (1.7) is the route for a
+  structure spanning chunks — 091+, not 090.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`088`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`089`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -74,8 +73,44 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
 model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules, 085 snowline
-rules, 086 natural decoration masks, 087 tree spawn masks, 088 rock/prop spawn masks
-(068–073 folded — see below).
+rules, 086 natural decoration masks, 087 tree spawn masks, 088 rock/prop spawn masks,
+089 deterministic structure seed selection (068–073 folded — see below).
+
+`089` is the `DecorationMask` cell-and-hash mechanism one grid coarser: two new files under
+`world/structures/` — `structure_seed.gd` (`StructureSeed`, a value record: `region`,
+`anchor_column`, `structure_seed`, plus `rng()` and `validate()`) and
+`structure_seed_field.gd` (`StructureSeedField.for_world(hash)` — takes only a
+`GenerationHash`, no biome/block registry). `seed_at(region)` draws from
+`GenerationHash.rng_region(region, WorldHash.SALT_STRUCTURES)` in a fixed order — anchor X
+offset, anchor Z offset, then one `next_u64()` sub-seed — and returns one `StructureSeed`
+per in-world region, `null` outside `GenerationGrid.is_region_in_world()` (the reference's
+`INV-2`, the first *use* of that check). `seed_for_column()` / `seed_for_voxel()` resolve
+the containing region.
+
+Deliberately minimal: **exactly one seed per region, no rarity gate, no terrain/biome/climate
+read.** Whether a structure actually stands at the anchor — presence, slope/water/biome
+suitability, spacing, falloff — is 090's whole job; folding a presence roll in here would be
+`DecorationMask` deciding snow cover (which it refused). The anchor *jitter* is here and not
+in 090 because a corner-anchored structure tiles the world with a 512 m lattice and the
+jitter must be fixed before 090 can ask "is this ground buildable".
+
+Reference: `docs/reference/region-coordinate-hashing.md` — the "one reproducible seed per
+region cell on a 1024×1024 grid" shape kept, the linear `srand(regX+regZ*0x400+...)` seed and
+process-global `rand()` dropped (already resolved by `rng_region()`, 058, §9 of that note).
+
+Not a generation version bump: `WorldHash.SALT_STRUCTURES` (7) reserved since brick 015 and
+unread until now; `GenerationHash.Space.REGION` and `rng_region()` already existed (its
+docstring already named bricks 089–090). The salt, the draw order and the region pitch become
+pinned generation inputs when 091's `VoxelGenerator` reads a `StructureSeed`.
+`docs/world-generation.md` §28.6.
+
+Docs: `docs/world-generation.md` §28 (new, seven subsections); `docs/reference/traceability.md`
+§2 region-site row annotated "089's half done". Tests: `tests/unit/test_structure_seed.gd`
+(new, 8 tests) and `tests/unit/test_structure_seed_field.gd` (new, 14 tests — determinism,
+seed sensitivity, anchor-in-region, jitter varies over a 256-region sweep, sub-seed
+independent of the anchor draws and of east-neighbour regions, two golden signatures over
+`GenerationFixtures.regions()`: anchor `3d68a17ff4f752f0`, sub-seed `16945661f5c05b64`).
+No scratch sweep needed — all fixtures are region coordinates, not swept columns.
 
 `088` is `TreeMask` (087) one pass over: one new file, `world/generation/rock_mask.gd`
 (`RockMask`), composing `DecorationMask` (086) and `SurfaceMaterial` (075) into
@@ -3204,7 +3239,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 088): compile probe **OK** (128 scripts) · headless boot **OK** · full suite **OK** — 61 files, 917 tests, 127 883 assertions, 0 failed. Run through the engine binary from `docs/environment.md` directly (`--headless --import`, then `--script res://tests/run_tests.gd`; `--script res://tools/probe/check_scripts.gd` for the compile probe), which is more reliable than the `.ps1` wrappers under a non-interactive shell. The full suite now takes >2 min — run it with a raised tool timeout, not the 120 s default.
+Last run (brick 089): compile probe **OK** (132 scripts) · headless boot **OK** · full suite **OK** — 63 files, 939 tests, 129 034 assertions, 0 failed. Run through the engine binary from `docs/environment.md` directly (`--headless --import`, then `--script res://tests/run_tests.gd`; `--script res://tools/probe/check_scripts.gd` for the compile probe), which is more reliable than the `.ps1` wrappers under a non-interactive shell. The runner reads filters from user args: `--script res://tests/run_tests.gd -- --test-file=<substr>` (the `--` separator is required). The full suite now takes >3 min — run it with a raised tool timeout / in the background, not the 120 s default.
 
 ## What exists now
 
@@ -3246,6 +3281,8 @@ Last run (brick 088): compile probe **OK** (128 scripts) · headless boot **OK**
 | Biomes | `world/biomes/biome_definition.gd` | `BiomeDefinition`: the per-biome record — `id` (domain `biome`), `display_name`, `debug_color`, `surface_block_id` (075), `subsurface_block_id` (076), `vegetation_density` (087, tree candidate density — 0.0 disables), `prop_density` (088, rock/prop candidate density — every shipped biome positive, mountain densest), plus `validate()`. Creature spawns 095/106–107. `debug_color` is an overlay swatch, **not** the terrain tint (067) |
 | Generation | `world/generation/tree_mask.gd` | `TreeMask.for_world(hash, biomes, blocks)`: `is_tree_at(column)`/`is_tree_at_voxel(voxel)` — combines `DecorationMask` (086), `SurfaceMaterial`'s winning biome (075) and `SnowlineMaterial` (085): the biome's own `vegetation_density` picks the candidate spacing, a snow-capped column is excluded regardless of biome, `DecorationMask` picks the one eligible anchor per cell at `WorldHash.SALT_TREES` (087, `docs/world-generation.md` §26) |
 | Generation | `world/generation/rock_mask.gd` | `RockMask.for_world(hash, biomes, blocks)`: `is_rock_at(column)`/`is_rock_at_voxel(voxel)` — `TreeMask` one pass over, at `WorldHash.SALT_PROPS` and `BiomeDefinition.prop_density`. **No** `SnowlineMaterial` (§27.2 — rocks sit on snow); `DecorationMask`'s water/shoreline exclusion still applies. Mountain ships the highest density rather than `0.0`, so ruggedness reads as "rockier" through the biome the classifier already produced, no second gate (§27.3) (088, `docs/world-generation.md` §27) |
+| Structures | `world/structures/structure_seed.gd` | `StructureSeed`: the per-region record a structure generator (091) draws from — `region`, `anchor_column` (always inside `region`), `structure_seed` (opaque 64-bit); `rng()` forks an owned stream, `validate()` guards "anchor is inside its region" (089, `docs/world-generation.md` §28) |
+| Structures | `world/structures/structure_seed_field.gd` | `StructureSeedField.for_world(hash)`: one `StructureSeed` per in-world region — `seed_at(region)` draws anchor-X, anchor-Z, then sub-seed from `GenerationHash.rng_region(region, WorldHash.SALT_STRUCTURES)` (fixed order = contract, §28.4); `null` outside `GenerationGrid.is_region_in_world()` (the reference's `INV-2`, first use); `seed_for_column`/`seed_for_voxel` resolve the region. **No** rarity gate, no terrain/biome read — presence and constraints are 090 (089, §28) |
 | Biomes | `world/biomes/biome_registry.gd` | `BiomeRegistry`: typed `BiomeDefinition` catalogue over `DefinitionRegistry` — refuses an id `BiomeClassifier` cannot produce, and adds the check an open-set registry has no use for: `coverage_reason()` (the catalog holds exactly `BiomeClassifier.IDS`; `coverage_reason_for()` is the static list-taking form), `palette_reason()` (debug colours ≥ `0.25` apart), `self_check()` (067, §12.1) |
 | Biomes | `world/biomes/biome_catalog.gd`, `data/biomes/*.tres` | `BiomeCatalog.load_default()`: scans `data/biomes/*.tres`, registers each, locks, then `self_check()`s the result and logs loudly if the catalog as a whole is unusable — degrades per entry like `BlockSet`, but a *missing* biome is a broken world rather than a missing block. Six records written by `tools/generators/generate_biome_catalog.gd` (thin entry + runner, brick 052's split) (067, §12.3-12.4) |
 | Biomes | `world/biomes/biome_transition.gd` | `BiomeTransition.for_world(hash)`: how close a column sits to a different biome, and which one — `neighbor_at()`/`neighbor_weight_at()`/`blend_at()`. `nearest_boundary()` finds the neighbor by nudging one input at a time past each of `classify()`'s five thresholds and calling it again, rather than re-deriving its decision-list precedence. `TRANSITION_WIDTH = 0.15`, half of `BiomeClassifier.narrowest_climate_gap()`, shared across all five thresholds as a stated simplification. Never changes `BiomeClassifier.at()`'s answer; not a generation version bump (074, `docs/world-generation.md` §13) |
@@ -3261,26 +3298,26 @@ Last run (brick 088): compile probe **OK** (128 scripts) · headless boot **OK**
 
 ## Next 10 actions
 
-1. `089` implement deterministic structure seed selection (next task) — dep 088, DONE.
-   First Phase D brick past the per-column-mask family (086–088). Read
-   `docs/reference/matrix-world.md`'s structure/village cluster and `docs/world-generation
-   .md` before designing. Things to carry in: **(a)** `WorldHash.SALT_STRUCTURES` (7) is
-   reserved and unread — spend it, don't add a new salt; **(b)** the `DecorationMask`
-   cell-and-hash mechanism (086: one deterministic candidate per cell, chosen by hashing
-   the cell, no visit order) is the likely template for "one structure seed per region
-   cell" — `GenerationGrid.REGION_SIZE_VOXELS` (1024) is the region grid already defined;
-   **(c)** `VoxelGeneratorMultipassCB` exists in 1.7 for generation needing neighbour
-   context (structures spanning chunks) — see "Technical notes" below, but 089 is *seed
-   selection* only, not placement (090) or the generator (091+); **(d)** still not a
-   generation version bump until a `VoxelGenerator` actually writes a `VoxelBuffer` — the
-   boundary every Phase D brick since 076 has named (`docs/world-generation.md` §14.4,
-   §27.6). The throwaway-probe habit still applies: a `tests/unit/test_zzz_scratch_*.gd`
-   file, run with `--test-file=`, deleted before the brick lands (087/088's precedent —
-   note the filter flag is `--test-file=`/`--test-filter=`, *not* `--file=`). Still open
-   and carried from Phase C: no `.tscn` exists, no player/camera to raycast from or to
-   parent the 042 `VoxelViewer` under — a Phase F question. `docs/performance-budget.md`
-   §3's benchmark is re-run against the real generator once Phase D lands (feeds 257–258);
-   generation's own row there stays empty until something is expensive enough to measure.
+1. `090` implement structure placement constraints (next task) — dep 089, DONE. `089`
+   produced `StructureSeedField` (one `StructureSeed` per region: jittered anchor column +
+   owned sub-seed) and deliberately left every "is a structure allowed here" question to
+   this brick. Things to carry in: **(a)** the presence roll lives here, not in 089 —
+   `StructureSeedField` returns a seed for *every* in-world region; 090 decides which of
+   them become real; **(b)** the reference cluster to read: `matrix-world.md` §2's
+   `World_featureCountRange`, `World_featureTier`, `World::findNearestFeatureCell`,
+   `World::objectFalloffWeight`, `World::falloffSquared` (a per-region feature count and a
+   distance-falloff weighting — MEDIUM confidence); **(c)** the terrain reads 090 may now
+   make that 089 refused — `TerracePass`/`ErosionPass.ruggedness_at()` for slope,
+   `ShorelineMaterial`/`OceanPass` for water, `BiomeClassifier`/`SurfaceMaterial` for biome
+   suitability, and spacing between one region's anchor and its neighbours'; **(d)** still
+   not a generation version bump until 091's `VoxelGenerator` writes a `VoxelBuffer`
+   (`docs/world-generation.md` §28.6, §14.4). The throwaway-probe habit still applies for
+   any swept fixture columns: a `tests/unit/test_zzz_scratch_*.gd` file, run with
+   `--test-file=` (note: `-- --test-file=`, args after `--`), deleted before the brick
+   lands. Still open and carried from Phase C: no `.tscn` exists, no player/camera — a
+   Phase F question. `docs/performance-budget.md` §3's benchmark is re-run against the real
+   generator once Phase D lands (feeds 257–258); generation's own row there stays empty
+   until something is expensive enough to measure.
 1b. Git, **resolved at 067**: `origin` is `github.com/KyamiDEV/cube-world-godot` and the
    full per-brick history is intact from brick 001 — the earlier "history is gone"
    conclusion was drawn from a working copy that had lost its `.git`, without checking

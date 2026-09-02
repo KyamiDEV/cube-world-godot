@@ -36,18 +36,19 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–079 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 080–090 open)
-- Next task `080 — Implement water level model`, deps `079` in `backlog.md`, now DONE. Not
-  yet scoped by this session beyond what `backlog.md`'s own row says — read the row's full
-  context and any earlier `docs/world-generation.md` forward flags (076/078's "caves, and
-  what lines them" notes are now closed by 079; nothing yet names a water-table forward
-  flag the way those did, so 080 likely starts from a clean slate rather than inheriting an
-  open question) before designing.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–080 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 081–090 open)
+- Next task `081 — Implement rivers`, deps `080` in `backlog.md`, now DONE. Not yet scoped
+  by this session beyond what `backlog.md`'s own row says. `080`'s own "out of scope"
+  (`docs/world-generation.md` §19.7) is the one forward flag on record: a river is a *local*
+  lowering of a column's own terrain below `WaterLevel.SEA_LEVEL_VOXELS`, which `WaterLevel`
+  itself has no business deciding — read that section, `TerracePass` (063, what a river
+  would carve into) and `ElevationField`'s continentalness-driven shore band (§6.3, the
+  coastline shape a river presumably has to reach) before designing.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`079`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`080`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -68,8 +69,70 @@ coordinate hashing, 059 deterministic generation test fixtures, 060 continentaln
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
-rules, 077 cave mask, 078 cave carving, 079 underground material rules (068–073 folded —
-see below).
+rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
+model (068–073 folded — see below).
+
+`080` is the constant `061`'s and `063`'s own class comments named in advance as its job: a
+water plane, held apart from the terraced ground so it can move without regenerating a
+column. One new file, `world/generation/water_level.gd` (`WaterLevel`), wrapping
+`TerracePass` (063) with a single `SEA_LEVEL_VOXELS = 0` constant and two comparisons
+against it — no new noise layer, no new salt, no new block.
+
+```text
+WaterLevel.is_underwater_at(column) = TerracePass.surface_y(column) < SEA_LEVEL_VOXELS
+WaterLevel.depth_at(column)         = max(0, SEA_LEVEL_VOXELS - TerracePass.surface_y(column))
+```
+
+Four things worth keeping:
+
+1. **`SEA_LEVEL_VOXELS = 0` is not arbitrary — three independent reasons converge on it.**
+   It is already `TerracePass`'s own datum, and because `TERRACE_HEIGHT_VOXELS` (8) divides
+   it, an exact terrace plane — no column's terraced surface can straddle it. It needed no
+   new number: every other vertical anchor in this project was a value chosen against
+   `WorldBounds`; `0` is the one height every earlier pass already agreed on. And it measures
+   best: over the same 2304-column sweep §6.6/§7.5/§8 use, against `TerracePass`'s *terraced*
+   output, candidates `-8`/`0`/`+8` split underwater/land `49.5/50.5`, `50.2/49.8`,
+   `51.4/48.6` — `0` is closest to even. `WaterLevel.self_check()` asserts the divisibility
+   claim rather than trusting the comment (`CaveMask`/`SubsurfaceMaterial`'s own precedent).
+2. **The reference read turned up nothing to diverge from.** `World_waterDepthField`
+   (`0x0052d990`), the one function named for water and left unread since 061, was read in
+   full for this brick: despite the name, its body computes a chunk-type-gated *temperature*
+   modulation (cosine terms over a terrain-gradient sample, folded against a "moisture" value
+   from `World_roadField`) and the decompiler recovered no return value at all — `void`,
+   guessed types throughout, `[AUDIT] confidence: low`. `World::waterProximityInfluence`
+   (`0x00522e20`), the only other water-named function it reaches, is an undecompiled
+   `GAP_ANALYSIS` stub, a per-region-grid falloff scan, not a sea-level constant. Recorded as
+   claim 10 in `docs/reference/terrain-base-height-field.md` §3, which had left this one
+   function unread since 061 (its own §1: "rated LOW, because 061 uses none of them"). 
+   `WaterLevel` is therefore a clean-room constant, the same shape
+   `OCEAN_FLOOR_VOXELS`/`LAND_BASE_VOXELS` already are, not a divergence from a reference
+   shape.
+3. **The boundary is strict, and static apart from the instance methods.** A column whose
+   terraced surface sits exactly at the plane reads dry — the waterline is shore, not water —
+   `CaveCarving.is_hollow_at()`'s own `voxel.y < surface_y(column)` convention, applied to the
+   plane instead of a voxel. `is_underwater_for(surface_y)`/`depth_for(surface_y)` are static
+   pure functions separate from the column-reading instance methods, `ElevationField.
+   shore_weight()`/`base_for()`'s own reason: a test that wants the boundary exactly at the
+   plane should not have to hunt the world for a column that happens to sit there.
+4. **Not a generation version bump.** No world has ever had a voxel written; `WaterLevel`
+   adds one constant and reads `TerracePass` unchanged (its own tests still pass, file
+   untouched). `docs/world-generation.md` §19.5.
+
+Docs: `docs/world-generation.md` §19 (new, seven subsections); `docs/reference/
+terrain-base-height-field.md` (claim 10 added to §3, a new divergence row in §8, a new test
+row in §9, header's confidence/backlog-bricks/Godot-contract lines updated); `docs/reference/
+traceability.md` §row for 061–063/080/089–090 updated with the claim-10 finding.
+
+Tests: `tests/unit/test_water_level.gd` (new, 17 tests, pins `signature()`
+`2c52ab62cf0542d2` for `depth_at()` over `GenerationFixtures.columns()` on the `typed`
+world). Seed sensitivity needed the 2304-column distribution sweep rather than
+`GenerationFixtures.columns()`'s 15 samples — `test_underground_material.gd`'s own small-
+sample finding repeated: a handful of near-origin/near-boundary columns can land dry under
+both fixture seeds by coincidence. Full suite: `files=53 tests=743 assertions=122708
+failed=0`. Land-fraction measurement used a throwaway scratch test
+(`tests/unit/test_zzz_scratch_water_level.gd`, `print()`-only, run once via `tools\scripts\
+test.ps1 -File zzz_scratch -Verbose_`, then deleted — never committed), the exact `077`/`078`
+throwaway-probe precedent applied to a unit test file instead of a `--script` entry.
 
 `079` is the combination `078`'s own class comment named in advance as its job (§17.4): one
 new file, `world/generation/underground_material.gd` (`UndergroundMaterial`), composing

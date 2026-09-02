@@ -2447,3 +2447,136 @@ material system to combine one with, so there is nothing here to diverge from ei
   needed before one can be assembled.
 - **Water, rivers, lakes, oceans.** Brick 080 onward — a column's water table is a different
   question from what lines a cave.
+
+## 19. The water level model (brick 080)
+
+Implementation: `world/generation/water_level.gd` (`WaterLevel`).
+Tests: `tests/unit/test_water_level.gd`.
+Reference: `World_waterDepthField` was read in full — see §19.4. It is not a water-level
+model, so there is nothing here to diverge from.
+
+Every field since 061 has said, in its own class comment, that it decides nothing about
+water: `y = 0` is a datum, not a sea level, and *which part of the rock is underwater* is
+"a constant applied to the same numbers" that lets this brick move the waterline without
+regenerating a column (§6.1, §6.7, §7.6). This is that constant, plus the two queries every
+later water brick actually needs:
+
+```text
+WaterLevel.is_underwater_at(column) = TerracePass.surface_y(column) < SEA_LEVEL_VOXELS
+WaterLevel.depth_at(column)         = max(0, SEA_LEVEL_VOXELS - TerracePass.surface_y(column))
+```
+
+### 19.1 A plane, not a field
+
+Every noise-backed pass so far earns its own `ValueNoise` layer because *where* the thing
+varies is the question — a coastline (`ElevationField.SHORE_MIDPOINT`/`SHORE_WIDTH`, §6.3)
+already carved that shape into continentalness. A sea level does not need a second one: one
+height for the whole world is what lets "underwater" be answered by comparing a plane
+against a surface `TerracePass` already computed, rather than inventing a second surface
+that itself needs shaping, eroding and terracing before it means anything. No new noise
+layer, no new salt — the only thing this brick adds is a number and the two comparisons
+against it.
+
+### 19.2 Why `0`
+
+Three things point at the same value:
+
+1. **It is already `TerracePass`'s own datum**, and — because `TerracePass.
+   TERRACE_HEIGHT_VOXELS` (8) divides it — already an exact terrace plane. A column's
+   terraced surface is an exact multiple of 8, so it can never straddle `y = 0`: every
+   column reads unambiguously dry or underwater, never half of one shelf on each side.
+   `WaterLevel.self_check()` asserts the divisibility rather than trusting the comment,
+   `CaveMask`'s and `SubsurfaceMaterial`'s own precedent for a derived-constant check.
+2. **It needed no new number.** Every other vertical anchor in this project
+   (`ElevationField.OCEAN_FLOOR_VOXELS`/`LAND_BASE_VOXELS`) is a value chosen against
+   `WorldBounds`; `0` is the one height every earlier pass already agreed on without being
+   asked to.
+3. **It measures best.** Over the same 2304-column sweep §6.6/§7.5/§8's own measurements use
+   (48×48 columns spaced 4093 voxels apart from origin `-98232`), against `TerracePass`'s
+   *terraced* output — the actual block-world surface, not the continuous heights those
+   sections measured — the three terrace-aligned candidates near the datum split
+   underwater/land as:
+
+   | Candidate | Underwater | Land |
+   |---:|---:|---:|
+   | `-8` | 49.5% | 50.5% |
+   | `0` | 50.2% | 49.8% |
+   | `+8` | 51.4% | 48.6% |
+
+   `0` is the closest of the three to an even split. §7.5's own finding — the erosion pass
+   alone already put 49.8% of columns below the datum, "not a statement about sea level" at
+   the time it was measured — turns out to describe almost exactly the plane this brick
+   picks. `test_the_plane_splits_the_sweep_close_to_evenly` asserts the property (with
+   headroom, `(0.4, 0.6)`) rather than pinning the exact figure.
+
+### 19.3 The strict boundary, static and separate from the instance methods
+
+`is_underwater_for(surface_y)` and `depth_for(surface_y)` are static pure functions of a
+terrace surface height; `is_underwater_at(column)`/`depth_at(column)` are the instance forms
+that read `TerracePass.surface_y(column)` and call them. The split is `ElevationField.
+shore_weight()`/`base_for()`'s own reason (§6.2's table): a test that wants to know what
+happens exactly at the plane, one voxel below it, or a whole terrace below it should not
+have to hunt the world for a column whose terraced surface happens to land there.
+
+The boundary itself is strict — `surface_y < SEA_LEVEL_VOXELS`, not `<=` — so a column whose
+ground sits exactly at the plane reads dry: the waterline itself is shore, not water. The
+same convention `CaveCarving.is_hollow_at()` draws at a column's own surface (§17.3's
+`voxel.y < surface_y(column)`), applied here to the water plane instead of a voxel.
+
+### 19.4 Reference: `World_waterDepthField` is not a water-level model
+
+`World_waterDepthField` (`0x0052d990`) was the one function named for water that claim 6 of
+`docs/reference/terrain-base-height-field.md` had left unread — "a water-depth field scales
+[relief] by `0.9 .. 1.0`" — so this brick read it in full rather than inheriting that
+description on faith. It does not compute anything resembling a depth: the body takes a
+road-field sample as a "moisture" value, folds it through two cosine terms of a
+terrain-gradient sample into a "temperature", adds a chunk-type-gated bonus when the tile
+under the query point is one of two specific types, and returns — except the decompiler
+recovered no return value at all (`void`, guessed types throughout, the `[AUDIT]` header's
+own `confidence: low`). `World::waterProximityInfluence` (`0x00522e20`), the only other
+water-named function it can reach, is a `GAP_ANALYSIS`-only stub — a per-region-grid falloff
+scan, not a sea-level constant — and its body was never decompiled. Read only far enough to
+answer this brick's one question (is there a plane to diverge from), not traced further into
+the region/chunk-type system either function sits inside, which belongs to 089–090. Claim 10
+of `terrain-base-height-field.md` §3 records the finding; §8's divergence table now carries
+the corresponding row.
+
+The upshot: `WaterLevel.SEA_LEVEL_VOXELS` is not a divergence from a reference shape — there
+was no water-level computation in the reference to diverge from — it is a clean-room
+constant, chosen the way `OCEAN_FLOOR_VOXELS`/`LAND_BASE_VOXELS` already were (§6.7).
+
+### 19.5 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `WaterLevel` adds one constant,
+no noise layer, no salt, and reads `TerracePass` unchanged (`TerracePass`'s own tests still
+pass; the file was not touched). The moment some later brick's `VoxelGenerator` calls
+`is_underwater_at()`/`depth_at()` to decide what fills a `VoxelBuffer`, `SEA_LEVEL_VOXELS`
+joins the list `docs/world-generation.md` §14.4 already opened, and changing it is a version
+bump like every other vertical anchor in this project.
+
+### 19.6 Testing a plane with no field of its own
+
+`WaterLevel` has no noise layer, so its own determinism/seed-sensitivity floor is really
+`TerracePass`'s, read through one more comparison — `test_is_deterministic` and
+`test_is_seed_sensitive` exist to catch a regression in *this* file's wiring, not to
+re-prove what `test_terrace_pass.gd` already proved. Seed sensitivity needed the 2304-column
+sweep rather than `GenerationFixtures.columns()`'s 15 samples: `test_underground_material.
+gd`'s own finding repeats here — a handful of near-origin, near-boundary columns can land dry
+under both fixture seeds by coincidence, which is not evidence the plane is seed-insensitive,
+only that the sample was too small to see it differ. The boundary itself
+(`is_underwater_for()`/`depth_for()`) is tested directly against hand-picked terrace-plane
+heights, `ElevationField.shore_weight()`'s own precedent for testing a curve without a field
+around it.
+
+### 19.7 Out of scope for this brick
+
+- **A water block, or any `VoxelGenerator` write.** Still nothing in the project writes a
+  voxel; this brick is a plane and two comparisons against it, nothing that fills a
+  `VoxelBuffer`.
+- **Rivers and lakes.** Brick 081–082 — a river or a lake is a *local* lowering of a
+  column's own terrain below this plane, which this file has no more business deciding than
+  `CaveMask` had deciding what lines a cave (§16.2's precedent).
+- **Ocean material, shoreline material.** Bricks 083–084 — "what covers a submerged column"
+  is the same shape of question `SurfaceMaterial`/`SubsurfaceMaterial` already answer for
+  dry ground, not this brick's to answer a second time.

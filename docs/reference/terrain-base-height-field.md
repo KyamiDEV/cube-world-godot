@@ -5,9 +5,9 @@
 | Subsystem | `world` |
 | Reference source | `server/world/World.cpp`, `server/GAP_ANALYSIS.md` |
 | Read on | `2026-09-02` |
-| Overall confidence | `MEDIUM` (the noise ladder and its amplitude modulation, claims 1–5, are `HIGH`; the region blend and the post-passes, claims 6, 8–9, are `MEDIUM`/`LOW`; claim 7 was **contradicted** by brick 064 and is struck through in §3) |
-| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `064` (claim 7 contradicted, `U2` closed — see `terrain-climate-blend.md`), `080`, `089`–`090` |
-| Godot contract | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `docs/world-generation.md` §6-7 |
+| Overall confidence | `MEDIUM` (the noise ladder and its amplitude modulation, claims 1–5, are `HIGH`; the region blend and the post-passes, claims 6, 8–9, are `MEDIUM`/`LOW`; claim 7 was **contradicted** by brick 064 and is struck through in §3; claim 10 (`World_waterDepthField`, read for brick 080) is `LOW` and found nothing to diverge from) |
+| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `064` (claim 7 contradicted, `U2` closed — see `terrain-climate-blend.md`), `080` (claim 10, `World_waterDepthField` read and found not to be a water-level model), `089`–`090` |
+| Godot contract | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `world/generation/water_level.gd`, `docs/world-generation.md` §6-7, §19 |
 
 ## 1. Scope
 
@@ -18,9 +18,10 @@ question of how it is stacked open as its uncertainty `U2`; this note reads
 
 It covers the noise ladder, the amplitude modulation, the region blend and the order the
 post-passes are applied in. It does **not** cover the bodies of `World_riverClimateGate`,
-`World_roadField`, `World_waterDepthField`, `World_objectFalloffWeight` or
-`World_findNearestEntityInRegion` — each is named where it is called and rated `LOW`,
-because 061 uses none of them (they belong to bricks 062, 080–083 and 089–090).
+`World_roadField`, `World_objectFalloffWeight` or `World_findNearestEntityInRegion` — each
+is named where it is called and rated `LOW`, because 061 uses none of them (they belong to
+bricks 062, 081–083 and 089–090). `World_waterDepthField` **was** read, for brick 080 —
+claim 10, §3.
 
 ## 2. Sources examined
 
@@ -106,6 +107,24 @@ because 061 uses none of them (they belong to bricks 062, 080–083 and 089–09
    a known meaning (`region-coordinate-hashing.md`, claim 1). Amplitude *ratios* transfer;
    absolute amplitudes do not.
 
+10. `LOW` — **`World_waterDepthField` (`0x0052d990`), read for brick 080, does not compute
+    a water depth.** Read in full (`World.cpp:6754–6820`). Despite the name and the `[AUDIT]`
+    header's own purpose guess ("climate/lighting factor... from noise, gradient cosine
+    terms, and water proximity"), the body takes a road-field sample as a "moisture" value,
+    folds it through two cosine terms of a terrain-gradient sample to produce a
+    "temperature", adds a chunk-type-gated falloff bonus when the tile under `(x, y)` is one
+    of two specific types, and returns — the decompiler recovered no return value at all
+    (`void`, guessed types throughout, the header's own `confidence: low`). Nothing in it
+    derives, reads, stores or returns a height, a plane or a depth. `World::
+    waterProximityInfluence` (`0x00522e20`), the one other water-named function it can reach
+    (called only when `Chunk_getColumnAt()` finds no column, `World.cpp:6734–6738`), is
+    itself a `GAP_ANALYSIS`-only stub: "scans grid region for water/feature cells (type
+    flag==1); accumulates smoothed proximity influence" — a per-region-grid falloff scan,
+    not a sea-level constant, and its own body was not decompiled. Read only far enough to
+    answer 080's one question — is there a water-level plane to diverge from here — not
+    traced further into the region/chunk-type system (`chunk[6]`'s type codes) that both
+    functions sit inside, which belongs to 089–090.
+
 ## 4. Inputs / outputs
 
 | Direction | Data | Confidence |
@@ -147,7 +166,8 @@ directly (§7).
 | land/ocean comes from the fraction of nearby regions with positive height (claim 4) | `Continentalness` (060), a field | Same reason. Theirs is quantised to a 16384-unit lattice and smoothed by the blend; ours is coherent at every scale by construction |
 | each relief tier modulated by its own squared weight field (claim 3) | **kept**, once, by brick 062: one `ValueNoise` weight layer strictly coarser than every relief octave, remapped to `[0, 1]` and squared over a floor (`ErosionPass.ruggedness_weight()`) | Kept because the squaring is what makes flat the default and rugged the exception, which is the finding worth having. Once rather than per tier, because our relief is one fBm layer with a stated range and a stated slope bound (row 1) rather than a call-site ladder — there are no separate tiers to weight separately. Floored at `0.1` because `w²` reaching zero is a mathematical plane, which their per-tier sum never produces. Brick 061 modulated by the shore weight alone and left this here (`docs/world-generation.md` §6.7, §7.2) |
 | relief is additive-upward (claim 2) | **kept** | The one shape decision this note changed in our implementation. It makes the base a genuine floor, so an ocean floor cannot be turned into a mountain by a noise sample, and it gives `MINIMUM_VOXELS` an exact value instead of a bound |
-| four flattening post-passes (claim 6) | none of the four; their *shape* is now the contract of `ErosionPass` | Rivers, roads, water depth and structure flattening are bricks 080–083 and 089–090. Brick 062 kept what was worth keeping from `INV-2` — that a post-pass multiplies relief toward the base and never adds to it — as the invariant `base_at <= at <= unshaped_at`, asserted per column. Those later bricks join the same product as further `[0, 1]` factors rather than rewriting the composition (`docs/world-generation.md` §7.1) |
+| four flattening post-passes (claim 6) | none of the four; their *shape* is now the contract of `ErosionPass` | Rivers, roads, water depth and structure flattening are bricks 081–083 and 089–090. Brick 062 kept what was worth keeping from `INV-2` — that a post-pass multiplies relief toward the base and never adds to it — as the invariant `base_at <= at <= unshaped_at`, asserted per column. Those later bricks join the same product as further `[0, 1]` factors rather than rewriting the composition (`docs/world-generation.md` §7.1) |
+| `World_waterDepthField`, a chunk-type-gated temperature/moisture modulation with no recovered return value (claim 10) | a constant sea-level plane, `WaterLevel.SEA_LEVEL_VOXELS = 0` (`world/generation/water_level.gd`) | Not a divergence from a shape the reference chose — claim 10 found no water-level computation to diverge from at all. `y = 0` is chosen clean-room, against `TerracePass`'s own datum and a measured land/water split over the same 2304-column sweep §6.6/§7.5 use (`docs/world-generation.md` §19) |
 
 ## 9. Tests
 
@@ -161,6 +181,7 @@ directly (§7).
 | a post-pass scales relief toward the base and never away from it (`INV-2`) | `tests/unit/test_erosion_pass.gd::test_the_pass_lowers_the_ground_and_never_raises_it` |
 | the flattening removes real height without deleting the extremes | `tests/unit/test_erosion_pass.gd::test_the_pass_removes_real_height`, `::test_the_shaped_world_still_spans_sea_floor_and_high_ground` |
 | the ground is walkable — a bounded step per voxel, asserted against a derived bound | `tests/unit/test_elevation_field.gd::test_a_kilometre_of_walking_is_walkable`, with `test_the_step_bound_is_a_real_constraint` proving the check can fail |
+| the water plane splits the world close to evenly, against no reference to diverge from (claim 10) | `tests/unit/test_water_level.gd::test_the_plane_splits_the_sweep_close_to_evenly` |
 
 Nothing here needs a human playtest yet. Whether the resulting landscape *reads* as Cube
 World is a question for the first brick that puts a player on it; the first

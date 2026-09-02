@@ -24,6 +24,7 @@ func _complete_biomes(block_id: String = "block.grass") -> BiomeRegistry:
 		definition.display_name = StableId.leaf_of(id).capitalize()
 		definition.debug_color = Color(step * 0.2, 1.0 - step * 0.2, 0.0)
 		definition.surface_block_id = block_id
+		definition.subsurface_block_id = "block.dirt"
 		registry.register_biome(definition)
 		step += 1
 	registry.lock()
@@ -130,6 +131,21 @@ func test_selection_agrees_with_the_blend_and_the_roll() -> void:
 			if roll < weight:
 				expected = biomes.get_biome(neighbor_id).surface_block_id
 		assert_eq(surface.block_id_at(column), expected, "column %s" % column)
+
+
+func test_biome_id_at_agrees_with_block_id_at() -> void:
+	# `biome_id_at()` (076's reason for existing) must always name the same biome whose
+	# `surface_block_id` `block_id_at()` returned — the two are not allowed to answer from
+	# two different rolls.
+	var hash := GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED)
+	var biomes := BiomeCatalog.load_default()
+	var blocks := BlockSet.load_default()
+	var surface := SurfaceMaterial.for_world(hash, biomes, blocks)
+	for column in GenerationFixtures.columns():
+		var id := surface.biome_id_at(column)
+		assert_true(biomes.has_biome(id), "column %s named unknown biome '%s'" % [column, id])
+		assert_eq(surface.block_id_at(column), biomes.get_biome(id).surface_block_id,
+				"column %s" % column)
 
 
 func test_a_voxel_reads_its_own_column() -> void:

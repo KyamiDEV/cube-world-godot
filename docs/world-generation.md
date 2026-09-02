@@ -2019,3 +2019,114 @@ and theirs was not.
 - **Real art.** The two new textures are the same deterministic speckled placeholders 038
   used, not a Blender/bpy pass (`CLAUDE.md` §10) — consistent with the backlog row's own
   "Blender MCP: not needed by default."
+
+## 15. Subsurface material rules (brick 076)
+
+Implementation: `world/generation/subsurface_material.gd` (`SubsurfaceMaterial`);
+`BiomeDefinition.subsurface_block_id` (new field on the 067/075 schema, its second and, per
+§12.2, last field from that original table); `SurfaceMaterial.biome_id_at()` (new accessor
+on the 075 file, refactored under it); updated `tools/generators/biome_catalog_generator.gd`
+(all six records regenerated with the field filled in). No new blocks — every biome's
+subsurface reuses grass/dirt/sand/stone, already on disk after 038 and 075. Tests:
+`tests/unit/test_subsurface_material.gd`; `tests/unit/test_biome_definition.gd`,
+`test_biome_registry.gd` and `test_surface_material.gd` extended for the new field and
+accessor.
+Reference: none — §15.6, the same finding as §12.5, §13.5 and §14.5, a fourth time.
+
+§14.6 named its own future reader — "subsurface layers and depth. Still 076" — three times
+over, and §12.2's original wishlist named this as the *last* field the record had no
+consumer for. This is that brick: what a column looks like under its own surface, down to
+where every column becomes the same bedrock.
+
+```text
+SurfaceMaterial.biome_id_at(column) -> winning biome id      (075's roll, reused, not re-rolled)
+        |
+        +-- TerracePass.surface_y(column) - y  <= 0                     -> "" (not this pass's question)
+        +-- 1 .. SUBSURFACE_DEPTH_VOXELS                                -> winning biome's subsurface_block_id
+        +-- deeper                                                      -> SubsurfaceMaterial.DEEP_BLOCK_ID
+```
+
+### 15.1 Reading the surface's pick, not re-dithering
+
+A column near a biome edge already dithers its surface block between the primary and the
+neighbor at the **column** level (075, §14.1) — one coin flip per column, not one per voxel.
+An independent second roll for the layer underneath would let part of the dithered band put
+a neighbor's grass over the primary's dirt: two different biomes' ground stacked in one
+column, which is not a blend, it is a seam. `SurfaceMaterial.biome_id_at()` — a new public
+accessor on the 075 file, exposing the winning id `block_id_at()` already computed rather
+than only the block it resolves to — is what 076 reads instead of re-deriving the decision.
+`block_id_at()` itself is unchanged in behavior: `test_surface_material.gd`'s pinned
+signature (`671f7833af3596ab`) still passes untouched, because the refactor moved the roll
+into a named method without changing what it returns.
+
+No new salt, for the same reason: appending one here would be a second dither stacked on the
+first, not a second decision. This is the one place this brick's design differs from every
+material-adjacent brick before it (066, 074, 075 each added their own salt or width) — the
+difference is that 076 is not deciding *which* biome a column belongs to a second time, only
+reading what 075 already decided.
+
+### 15.2 Two layers only: topsoil, then bedrock
+
+| Biome | `subsurface_block_id` | Why |
+|---|---|---|
+| `grassland` | `block.dirt` | the classic case dirt-under-grass was authored for |
+| `forest` | `block.dirt` | canopy/litter is 086–088's vegetation, not a different ground |
+| `desert` | `block.sand` | real deserts are sand for a long way down, not a thin veneer |
+| `snow` | `block.dirt` | frozen ground under a snowfield, not more snow |
+| `mountain` | `block.stone` | its own surface already reads as bare rock (075, §14.2) |
+| `wetland` | `block.dirt` | swamp mud goes deep, same texture as its own surface |
+
+No new block kinds — every id above is one 038 or 075 already shipped. Below the topsoil,
+every biome hits the same `SubsurfaceMaterial.DEEP_BLOCK_ID` (`block.stone`): a third,
+per-biome bedrock layer is exactly the kind of field nothing yet reads (067's argument, a
+third time), and `block.stone` is not invented for the purpose — it is already what a
+mountain's surface and several biomes' topsoil read as.
+
+### 15.3 The depth constant, derived from the pass it sits under
+
+`SUBSURFACE_DEPTH_VOXELS = 4` (2 m), half of `TerracePass.TERRACE_HEIGHT_VOXELS` (8, §8.1) —
+the same "half, not the whole" shape `BiomeTransition.TRANSITION_WIDTH` already used against
+a different constant (§13.2), applied here for a different reason: `TerracePass`'s own risers
+can be up to one full terrace tall (`max_riser_voxels()`, §8.3), and a topsoil layer that
+shallow means a cliff crossing a whole shelf shows bedrock beneath the soil partway down its
+face. A topsoil as deep as a full terrace would make every riser read as soil top to bottom,
+which is the less legible result. `TerracePass.TERRACE_HEIGHT_VOXELS` is a genuine constant
+reference (unlike `narrowest_climate_gap()`, a function 074 could not put in a const
+initializer), but the derivation is still asserted at runtime in
+`SubsurfaceMaterial.self_check()` rather than trusted from the comment, matching the
+project's one existing precedent for a derived width.
+
+### 15.4 The cross-domain check, extended one field
+
+`subsurface_block_reason_for(biomes, blocks)` is `SurfaceMaterial.surface_block_reason_for()`'s
+exact shape, one field over, plus one extra check the surface file did not need: every
+biome's `subsurface_block_id` must resolve, **and** the fixed `DEEP_BLOCK_ID` must resolve
+too, since nothing per-biome names it. `SubsurfaceMaterial.for_world()` delegates the
+registries'-locked/`self_check()`/`surface_block_id` checks to `SurfaceMaterial.for_world()`
+rather than re-running them, and adds only the check that is 076's own.
+
+### 15.5 Not a generation version bump — same boundary as 075's
+
+§14.4's argument, unchanged and for the same reason: no world has ever had a voxel written
+from any Phase D pass, so nothing this brick computes can contradict one. The new pieces are
+`BiomeDefinition.subsurface_block_id` (a record field, §12.6's stated exception) and
+`SUBSURFACE_DEPTH_VOXELS` (a pure constant — no hash, no salt, no noise layer). The boundary
+§14.4 opened still holds: the first later brick whose `VoxelGenerator` actually calls
+`block_id_at_voxel()` — on either file — to fill a `VoxelBuffer` is where every input both
+files read becomes a pinned generation input, not before.
+
+### 15.6 Reference: none
+
+§12.5, §13.5 and §14.5's finding, a fourth time: the original has no discrete biome and no
+discrete surface material, so it has no discrete subsurface either —
+`Terrain_computeBiomeColor` never reads more than one voxel deep in either binary. Nothing to
+diverge from, only the same divergence already on record, one layer further down.
+
+### 15.7 Out of scope for this brick
+
+- **Caves, and what lines them.** Still 077–079: this brick describes solid ground only,
+  with no cavity carved into it yet.
+- **Per-biome bedrock.** §15.2 — a field nothing reads today.
+- **An actual `VoxelGenerator` / `VoxelBuffer` write.** §15.5, unchanged from §14.4: this
+  is still a pure `(column, y) -> block id` function for whichever later brick assembles the
+  real generator.

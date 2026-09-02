@@ -8,6 +8,7 @@ func _valid() -> BiomeDefinition:
 	definition.display_name = "Grassland"
 	definition.debug_color = Color8(106, 170, 74)
 	definition.surface_block_id = "block.grass"
+	definition.subsurface_block_id = "block.dirt"
 	return definition
 
 
@@ -93,4 +94,37 @@ func test_the_schema_does_not_know_the_block_catalog() -> void:
 	# schema's — same reason `BlockDefinition.drop_item_id` (033) checks grammar only.
 	var definition := _valid()
 	definition.surface_block_id = "block.does_not_exist"
+	assert_eq(definition.validate(), "")
+
+
+# ---------------------------------------------------------------------------
+# subsurface_block_id (brick 076)
+# ---------------------------------------------------------------------------
+
+func test_the_subsurface_block_id_is_required() -> void:
+	var definition := _valid()
+	definition.subsurface_block_id = ""
+	assert_ne(definition.validate(), "")
+
+
+func test_the_subsurface_block_id_must_be_a_stable_id() -> void:
+	for bad in ["", "Block.Dirt", "block", "block..dirt", "block.9dirt"]:
+		var definition := _valid()
+		definition.subsurface_block_id = bad
+		assert_ne(definition.validate(), "", "'%s' must be rejected" % bad)
+
+
+func test_the_subsurface_block_id_must_be_in_the_block_domain() -> void:
+	var definition := _valid()
+	definition.subsurface_block_id = "biome.grassland"
+	var problem := definition.validate()
+	assert_ne(problem, "")
+	assert_true(problem.contains("'block' domain"), problem)
+
+
+func test_the_schema_does_not_know_the_block_catalog_for_subsurface_either() -> void:
+	# Same independence as `surface_block_id` above, one field over: whether the named block
+	# exists is `SubsurfaceMaterial.for_world()`'s cross-check, not this schema's.
+	var definition := _valid()
+	definition.subsurface_block_id = "block.does_not_exist"
 	assert_eq(definition.validate(), "")

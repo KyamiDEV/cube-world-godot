@@ -10,14 +10,13 @@ extends Resource
 ## is checked against it rather than defining it (`docs/world-generation.md` §12.1). This
 ## file owns the **shape** of one entry.
 ##
-## ## Four fields, and the argument for stopping there
+## ## Five fields, and the argument for stopping there
 ##
 ## Almost everything one wants to write on a biome belongs to a later brick, and a field
 ## nothing fills is worse than a record that grows:
 ##
 ## | Tempting field | Owner |
 ## |---|---|
-## | subsurface layers, depth | 076 |
 ## | trees, grass, scatter density | 086–088 |
 ## | creature spawn tables | 095, 106–107 |
 ## | water, shoreline, snowline, altitude bands | 080, 085 |
@@ -25,8 +24,12 @@ extends Resource
 ## | terrain tint, vegetation colour | Phase J, and see the note on `debug_color` |
 ##
 ## What is left is what a catalog can actually fill today, for all six entries, with
-## nothing invented: an id, a name for a human, a colour to tell one from another, and —
-## since brick 075 — which block covers the ground.
+## nothing invented: an id, a name for a human, a colour to tell one from another, which
+## block covers the ground (075) and — since brick 076 — which block lies just under it.
+## That is also the last field this table hands out before a consumer exists to want one:
+## every row left above needs vegetation (086–088), water (080/085) or a renderer (Phase J)
+## that has not been built yet, where 076's own consumer — a cliff face exposed by
+## `TerracePass`'s risers — already has.
 ##
 ## ## The reference has no catalog at all
 ##
@@ -78,6 +81,23 @@ extends Resource
 ## question this single id says nothing about.
 @export var surface_block_id: String = ""
 
+## Stable ID (domain "block") of the block kind that fills the topsoil layer just under the
+## surface, down to `SubsurfaceMaterial.SUBSURFACE_DEPTH_VOXELS` — brick 076's field, the
+## second and, per the class comment's table, last one this record grows into from the
+## original 067 wishlist. `world/generation/subsurface_material.gd` is the reader: unlike
+## `surface_block_id`, it never re-dithers this against a neighboring biome on its own —
+## it reads whichever biome `SurfaceMaterial.biome_id_at()` already picked for the column's
+## surface block, so a column's dirt always agrees with its own grass.
+##
+## Grammar and domain only, same independence as `surface_block_id` above: whether the
+## named block actually exists is `SubsurfaceMaterial.for_world()`'s cross-check against a
+## live `BlockRegistry`, not this schema's.
+##
+## Deep bedrock is explicitly **not** a field here, or anywhere on this record — every
+## biome's floor below the topsoil is the same `block.stone`, and a per-biome bedrock is a
+## field nothing yet reads (`world/generation/subsurface_material.gd`'s class comment).
+@export var subsurface_block_id: String = ""
+
 
 ## Returns an empty string when well-formed, otherwise a human-readable reason — same
 ## convention as `StableId.validate()` and `BlockDefinition.validate()`, so a bad data file
@@ -101,6 +121,12 @@ func validate() -> String:
 		return "surface_block_id: " + block_problem
 	if StableId.domain_of(surface_block_id) != "block":
 		return "surface_block_id must be in the 'block' domain, got '%s'" % surface_block_id
+	var subsurface_problem := StableId.validate(subsurface_block_id)
+	if not subsurface_problem.is_empty():
+		return "subsurface_block_id: " + subsurface_problem
+	if StableId.domain_of(subsurface_block_id) != "block":
+		return ("subsurface_block_id must be in the 'block' domain, got '%s'"
+				% subsurface_block_id)
 	return ""
 
 

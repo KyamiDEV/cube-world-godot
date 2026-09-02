@@ -218,7 +218,10 @@ matrix level). Two different reasons cover almost all of it:
   boundary to smooth in the first place; `docs/world-generation.md` §13.5), brick 075
   (surface material selection — the same finding a third time: no discrete biome means no
   discrete material either, so there is no material-selection mechanism to diverge from;
-  `docs/world-generation.md` §14.5), and most of
+  `docs/world-generation.md` §14.5), brick 076 (subsurface material rules — the same finding
+  a fourth time: `Terrain_computeBiomeColor` never reads more than one voxel deep in either
+  binary, so there is no subsurface mechanism to diverge from either;
+  `docs/world-generation.md` §15.6), and most of
   Phase L (257–266,
   profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148

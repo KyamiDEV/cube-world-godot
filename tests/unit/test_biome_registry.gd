@@ -8,6 +8,7 @@ func _definition(id: String, color: Color = Color8(10, 20, 30)) -> BiomeDefiniti
 	definition.display_name = StableId.leaf_of(id).capitalize()
 	definition.debug_color = color
 	definition.surface_block_id = "block.grass"
+	definition.subsurface_block_id = "block.dirt"
 	return definition
 
 

@@ -17,24 +17,36 @@ extends RefCounted
 const DATA_DIR := "res://data/biomes/"
 
 
-## id -> [display_name, debug_color, surface_block_id]. One row per `BiomeClassifier.IDS`
-## entry, no more. A method rather than a `const`, because `Color8()` is a call and not a
-## constant expression.
+## id -> [display_name, debug_color, surface_block_id, subsurface_block_id]. One row per
+## `BiomeClassifier.IDS` entry, no more. A method rather than a `const`, because `Color8()`
+## is a call and not a constant expression.
 ##
-## The block column (brick 075) reuses `generate_block_set.gd`'s three (grass, dirt,
+## The surface column (brick 075) reuses `generate_block_set.gd`'s three (grass, dirt,
 ## stone) for four of the six biomes — a forest floor and a swamp are both honestly mud,
 ## and bare rock is what a mountain's own ruggedness rule already means — and leans on
 ## `generate_surface_blocks.gd`'s two new ones (sand, snow) only where nothing already on
 ## disk is an honest stand-in. `docs/world-generation.md` §14.2 records the mapping and
 ## why each pairing (or sharing) was made.
+##
+## The subsurface column (brick 076) needs no new blocks at all: topsoil under grass or
+## snow is dirt, topsoil under sand is more sand (real deserts are sand for a long way
+## down), and mountain's topsoil is the same stone its surface already is. Every biome's
+## bedrock below that is `SubsurfaceMaterial.DEEP_BLOCK_ID`, fixed and not part of this
+## table — `docs/world-generation.md` §15.2.
 static func records() -> Dictionary:
 	return {
-		BiomeClassifier.GRASSLAND: ["Grassland", Color8(106, 170, 74), "block.grass"],
-		BiomeClassifier.FOREST: ["Forest", Color8(34, 82, 40), "block.grass"],
-		BiomeClassifier.DESERT: ["Desert", Color8(218, 192, 122), "block.sand"],
-		BiomeClassifier.SNOW: ["Snow", Color8(233, 240, 246), "block.snow"],
-		BiomeClassifier.MOUNTAIN: ["Mountain", Color8(128, 128, 128), "block.stone"],
-		BiomeClassifier.WETLAND: ["Wetland", Color8(48, 116, 118), "block.dirt"],
+		BiomeClassifier.GRASSLAND: ["Grassland", Color8(106, 170, 74),
+				"block.grass", "block.dirt"],
+		BiomeClassifier.FOREST: ["Forest", Color8(34, 82, 40),
+				"block.grass", "block.dirt"],
+		BiomeClassifier.DESERT: ["Desert", Color8(218, 192, 122),
+				"block.sand", "block.sand"],
+		BiomeClassifier.SNOW: ["Snow", Color8(233, 240, 246),
+				"block.snow", "block.dirt"],
+		BiomeClassifier.MOUNTAIN: ["Mountain", Color8(128, 128, 128),
+				"block.stone", "block.stone"],
+		BiomeClassifier.WETLAND: ["Wetland", Color8(48, 116, 118),
+				"block.dirt", "block.dirt"],
 	}
 
 
@@ -71,6 +83,7 @@ func _definition_for(id: String, row: Array) -> BiomeDefinition:
 	definition.display_name = row[0]
 	definition.debug_color = row[1]
 	definition.surface_block_id = row[2]
+	definition.subsurface_block_id = row[3]
 	return definition
 
 

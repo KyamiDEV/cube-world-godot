@@ -112,7 +112,7 @@
 | 073 | D | Implement aquatic/wet biome — FOLDED into 080/083 (waterline/ocean); owns no field today, §13.1 | 071 | Not needed by default | NO | FOLDED |
 | 074 | D | Implement biome transition blending | 067 (see §13.1: 068–073 folded, no longer a real dependency chain) | Not needed by default | NO | DONE |
 | 075 | D | Implement surface material selection | 073 | Not needed by default | NO | DONE |
-| 076 | D | Implement subsurface material rules | 074 | Not needed by default | NO | TODO |
+| 076 | D | Implement subsurface material rules | 074 | Not needed by default | NO | DONE |
 | 077 | D | Implement cave mask | 075 | Not needed by default | NO | TODO |
 | 078 | D | Implement cave carving | 076 | Not needed by default | NO | TODO |
 | 079 | D | Implement underground material rules | 075, 078 | Not needed by default | NO | TODO |

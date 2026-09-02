@@ -32,6 +32,11 @@ extends RefCounted
 ## also dithers near a biome edge (086's decoration masks, say) cannot correlate with this
 ## one by accident (`WorldHash`'s own salt-per-pass rule).
 ##
+## `biome_id_at()` exposes the winning side of that roll on its own, not just the block it
+## resolves to — `SubsurfaceMaterial` (076) is the reason: what lies under a column's ground
+## has to agree with what lies on top of it, so 076 reads this decision rather than rolling
+## a second, independent one.
+##
 ## ## The block mapping, and why it is not one block per biome
 ##
 ## Only three block kinds existed before this brick (038: grass, dirt, stone). Six biomes
@@ -163,26 +168,28 @@ static func surface_block_reason_for(p_biomes: BiomeRegistry, p_blocks: BlockReg
 ## built from — every id `blend_at()` can name has a record, and every record's block
 ## resolves, both checked once at construction rather than trusted per call.
 func block_id_at(column: Vector2i) -> String:
-	var blend := _transition.blend_at(column)
-	var primary: BiomeDefinition = _biomes.get_biome(blend["primary"])
-	if primary == null:
-		Log.error(Log.CH_GEN, "surface material: primary biome has no record",
-				{"id": blend["primary"], "column": column})
+	var id := biome_id_at(column)
+	var biome: BiomeDefinition = _biomes.get_biome(id)
+	if biome == null:
+		Log.error(Log.CH_GEN, "surface material: winning biome has no record",
+				{"id": id, "column": column})
 		return ""
+	return biome.surface_block_id
 
+
+## The biome id material selection settles on at `column`: the primary away from every edge,
+## the dithered neighbor near one — the same roll `block_id_at()` uses, exposed on its own
+## because it is a decision other material passes want too. `SubsurfaceMaterial` (076) reads
+## this rather than rolling its own independent dither, so a column's subsurface material
+## always agrees with whichever biome this roll already picked for the surface above it.
+func biome_id_at(column: Vector2i) -> String:
+	var blend := _transition.blend_at(column)
 	var neighbor_id: String = blend["neighbor"]
 	var weight: float = blend["neighbor_weight"]
 	if neighbor_id.is_empty() or weight <= 0.0:
-		return primary.surface_block_id
-
-	var neighbor: BiomeDefinition = _biomes.get_biome(neighbor_id)
-	if neighbor == null:
-		Log.error(Log.CH_GEN, "surface material: neighbor biome has no record",
-				{"id": neighbor_id, "column": column})
-		return primary.surface_block_id
-
+		return blend["primary"]
 	var roll := _hash.value01_column(column, WorldHash.SALT_SURFACE_MATERIAL)
-	return neighbor.surface_block_id if roll < weight else primary.surface_block_id
+	return neighbor_id if roll < weight else blend["primary"]
 
 
 ## The same answer at a voxel. Y is dropped, exactly as `BiomeTransition.blend_at_voxel()`

@@ -36,31 +36,23 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–075 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 076–090 open)
-- Next task `076 — Implement subsurface material rules` (deps: 074 in `backlog.md`, DONE).
-  075 deliberately stopped at the **top face** of a column
-  (`world/generation/surface_material.gd`, `docs/world-generation.md` §14.6) — what a column
-  looks like *under* its surface block (depth of topsoil before stone, whether a biome's
-  subsurface differs at all) is explicitly this brick's, not 075's. Three things to carry in:
-  **(a)** `BiomeDefinition` already grew once this phase (075 added `surface_block_id`); a
-  depth/subsurface field is the second and, per §12.2's table, the *last* one this record
-  needs before 086–088 (vegetation) and 080/085 (water/snowline) each want their own — regenerate
-  all six `.tres` through `tools/generators/generate_biome_catalog.gd` again, never by hand;
-  **(b)** `TerracePass.at(column)` (063) is the height a column's surface sits at — subsurface
-  rules almost certainly read down from there, the way 075 read `BiomeTransition` rather than
-  re-deriving a boundary; **(c)** 075's version-bump answer applies unchanged: nothing has
-  written a voxel yet, so nothing 076 computes contradicts a generated world either, but 076 is
-  one brick closer to whichever later brick finally does. `docs/world-generation.md` §2.1 /
-  `docs/rng.md` §3 govern the moment that changes: a change to `WorldHash`, `GenerationHash`,
-  `ValueNoise`, or the pinned constants in `Continentalness`, `ElevationField`, `ErosionPass`,
-  `TerracePass`, `TemperatureField`, `HumidityField`, `BiomeClassifier` or (as of 075)
-  `SurfaceMaterial`'s `SALT_SURFACE_MATERIAL`/mapping is a generation version bump, not a free
-  fix.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–076 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 077–090 open)
+- Next task `077 — Implement cave mask` (deps: 075 in `backlog.md`, DONE — 076 was not a
+  dependency and did not need to be waited on). Not yet scoped by this session beyond what
+  `backlog.md`'s own row says, so the next session should read `world/generation/` and
+  §7.1/§8's shaping-pass family before designing. Two things worth carrying in, both
+  verified rather than assumed: **(a)** `WorldHash.SALT_CAVES := 4` has sat reserved and
+  unused since brick 015 (`core/random/world_hash.gd`) — 076 confirmed it is still free, so
+  077 is very likely its first user, the same way 065 was `SALT_HUMIDITY`'s; **(b)** a mask
+  is a boolean/density field, not a material choice, so it almost certainly sits *between*
+  `TerracePass` (063, the solid ground) and `SubsurfaceMaterial` (076, what that ground is
+  made of) rather than reading either — 079 (underground material rules) is where the two
+  meet, per `backlog.md`'s own dependency row (`079` depends on `075, 078`).
 
 ## Completed bricks
 
-`001`–`067`, `074`–`075`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`076`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -80,7 +72,97 @@ Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
-074 biome transition blending, 075 surface material selection (068–073 folded — see below).
+074 biome transition blending, 075 surface material selection, 076 subsurface material
+rules (068–073 folded — see below).
+
+`076` is the brick that closes out `BiomeDefinition`'s original 067 wishlist (§12.2's
+table): `world/generation/subsurface_material.gd` (`SubsurfaceMaterial`), one new file;
+`BiomeDefinition.subsurface_block_id` (new field, five total now — the class comment says
+explicitly this is the last one that table hands out for free); `SurfaceMaterial.
+biome_id_at()` (new accessor on the 075 file, `block_id_at()` refactored to call it rather
+than duplicate the roll); the six `.tres` biome records regenerated through
+`generate_biome_catalog.gd` with the field filled in; no new blocks, no new salt, no change
+to `BiomeClassifier`, `BiomeTransition` or any pinned generation signature.
+
+```text
+SurfaceMaterial.biome_id_at(column) -> winning biome id        (075's roll, reused, not re-rolled)
+        |
+        +-- TerracePass.surface_y(column) - y <= 0              -> "" (not this pass's question)
+        +-- 1 .. SUBSURFACE_DEPTH_VOXELS                        -> winning biome's subsurface_block_id
+        +-- deeper                                              -> SubsurfaceMaterial.DEEP_BLOCK_ID ("block.stone")
+```
+
+Six things worth keeping:
+
+1. **The central design decision was refusing a second dither.** 076's first draft
+   considered rolling its own independent coin for the subsurface layer, the same shape
+   075's dither already has. Rejected: a column near a biome edge already picks its surface
+   block per-column, not per-voxel (075, §14.1); an independent second roll would let part
+   of that dithered band put a neighbor's grass over the primary's dirt — two biomes'
+   ground stacked in one column, which is a seam, not a blend. `SurfaceMaterial.
+   biome_id_at()` — new, exposing the winning id `block_id_at()` already computed rather
+   than only the block it resolves to — is what 076 reads instead. No new salt follows from
+   that: a second salt would only be a second dither on top of the first.
+2. **The refactor that made (1) possible left `block_id_at()`'s observable behavior
+   untouched.** `biome_id_at()` now does the roll; `block_id_at()` calls it and looks up
+   `surface_block_id`. `test_surface_material.gd`'s pinned signature (`671f7833af3596ab`)
+   still passes with no change to its own file, which is what proves the refactor is a
+   refactor and not a second change wearing 075's name.
+3. **Two layers, not three, and stone is not invented for the purpose.** Topsoil
+   (`subsurface_block_id`, per biome — grass/forest/snow/wetland→dirt, desert→sand,
+   mountain→stone) down to `SUBSURFACE_DEPTH_VOXELS`, then `DEEP_BLOCK_ID` (`block.stone`,
+   every biome, no exceptions) forever. A third, per-biome bedrock layer is exactly the
+   field-nothing-fills shape 067 already named twice; `block.stone` costs nothing new
+   because it is already what a mountain's *surface* reads as (075). `docs/world-
+   generation.md` §15.2 has the full table and reasoning per biome.
+4. **The depth is derived from `TerracePass`, and the derivation is a legibility argument,
+   not an arbitrary half.** `SUBSURFACE_DEPTH_VOXELS = 4`, half of `TERRACE_HEIGHT_VOXELS`
+   (8) — the same "half, not the whole" shape 074's `TRANSITION_WIDTH` used, for a
+   different reason here: `TerracePass` risers can be a full terrace tall
+   (`max_riser_voxels()`), and a topsoil that shallow means a cliff crossing a whole shelf
+   shows bedrock partway down its own face rather than reading as soil top to bottom. Not a
+   const expression referencing a function this time — `TerracePass.TERRACE_HEIGHT_VOXELS`
+   is a real constant — but the derivation is still asserted at runtime in
+   `SubsurfaceMaterial.self_check()` rather than trusted from the comment, matching 074's
+   precedent rather than leaning on the one case where GDScript would have allowed a const
+   expression.
+5. **A real bug in the test file's first draft, caught and fixed before it shipped:**
+   `GenerationFixtures.voxels()` was the wrong sample set for `test_is_seed_sensitive()` —
+   most of its y values sit at/near 0, and whether that is above or below a given world's
+   ground is close to a coin flip the fixture was never built to control, so two seeds
+   agreed at `""` (above the surface) on every one of the 16 samples. Fixed by sampling one
+   voxel below each column's *own* terraced surface, computed fresh from the pass under
+   test rather than baked into the sample coordinate — `tests/unit/test_subsurface_
+   material.gd`'s `_one_below_surface()` helper, reused across the determinism, seed-
+   sensitivity and signature tests. Worth remembering for any future column-plus-depth
+   pass: `voxels()`/`columns()` are the right fixture for a 2D field, not automatically for
+   one that also reads a height.
+6. **Not a generation version bump, same boundary as 075's.** No world has ever had a voxel
+   written, so nothing 076 computes contradicts one yet. The new pieces —
+   `subsurface_block_id` (a record field, §12.6's stated exception) and
+   `SUBSURFACE_DEPTH_VOXELS` (a pure constant) — join `SALT_SURFACE_MATERIAL` and every
+   `surface_block_id` on the list §14.4 already opened, effective at the same moment: the
+   first `VoxelGenerator` call that actually fills a `VoxelBuffer`, not before.
+
+Docs: `docs/world-generation.md` §15 (new, seven subsections); `docs/reference/
+traceability.md` §4 (076 added to the original-design list, same reasoning shape a fourth
+time); `docs/reference/matrix-world.md` (biome-colour row, 076 added to `Bricks`).
+
+Tests: `tests/unit/test_subsurface_material.gd` (new, pins `signature()` `58988f30d866891d`
+against the shipped catalogs on the `typed` world, sampled one voxel below each column's own
+surface); `test_biome_definition.gd` (+4, the new field's grammar/domain/independence
+checks); `test_biome_registry.gd` (`_definition()` helper updated); `test_surface_material.gd`
+(`_complete_biomes()` updated, +1 test for `biome_id_at()`). Full suite: `files=49 tests=678
+assertions=122293 failed=0`. Compile probe OK (104 scripts) — hit 074/075's exact same
+`BiomeTransition`-shaped shadowing gotcha, this time in `SubsurfaceMaterial.for_world()`:
+locals named `surface`/`terrace` shadowed the class's own `surface()`/`terrace()` accessors.
+Renamed to `bound_surface`/`bound_terrace`, matching `surface_material.gd`'s own
+`bound_transition` precedent — this is now three bricks running into the identical trap, so
+a future accessor named after a common noun (`surface`, `terrain`, `terrace`, `biome`) is
+worth naming its constructor local something else from the start rather than fixing it after
+the probe catches it. Also hit and fixed a real `integer_division` warning-as-error in
+`self_check()` (`@warning_ignore("integer_division")`, `generation_grid.gd`'s exact
+precedent). Headless boot OK.
 
 `075` is the brick `BiomeDefinition` grew into a second time: `world/generation/
 surface_material.gd` (`SurfaceMaterial`), one new file; `BiomeDefinition.surface_block_id`

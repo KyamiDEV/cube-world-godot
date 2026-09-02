@@ -81,6 +81,9 @@ const SALT_RUGGEDNESS := 11
 ## (`world/generation/surface_material.gd`, brick 075).
 const SALT_SURFACE_MATERIAL := 12
 
+## The river channel mask (`world/generation/river_pass.gd`, brick 081).
+const SALT_RIVERS := 13
+
 
 ## 64-bit hash of a 3D voxel or chunk coordinate under a world seed and pass salt.
 static func hash3(seed_value: int, x: int, y: int, z: int, salt: int = 0) -> int:

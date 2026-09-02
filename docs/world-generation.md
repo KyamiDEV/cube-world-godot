@@ -2580,3 +2580,185 @@ around it.
 - **Ocean material, shoreline material.** Bricks 083–084 — "what covers a submerged column"
   is the same shape of question `SurfaceMaterial`/`SubsurfaceMaterial` already answer for
   dry ground, not this brick's to answer a second time.
+
+## 20. Rivers (brick 081)
+
+Implementation: `world/generation/river_pass.gd` (`RiverPass`).
+Tests: `tests/unit/test_river_pass.gd`.
+Reference: `docs/reference/terrain-base-height-field.md` §3 claim 6, §8.
+
+`TerracePass` (063) and `WaterLevel` (080) both said, in their own class comments, that a
+river is a *local* lowering of a column's own terrain — not something either of them has any
+business deciding. This is that lowering: a winding channel mask, clipped to lowland ground,
+that pulls a column's already-terraced surface down by one riser where the two agree.
+
+```text
+is_river_at(column) = is_channel_at(column) and TerracePass.at(column) <= RIVER_CEILING_VOXELS
+surface_y(column)   = TerracePass.surface_y(column) - (CARVE_DEPTH_VOXELS if is_river_at else 0)
+```
+
+### 20.1 Composing over `TerracePass`, not underneath it
+
+§8.8 flagged, in advance, that rivers "belong to §7.1's product, underneath [terracing]":
+shape the continuous height, then terrace it, because a flattening term applied *after*
+quantisation would produce heights that are not terrace planes, and every consumer of
+`surface_y()` would have to re-snap them.
+
+This brick takes the concern seriously and answers it a different way instead of the one
+§8.8 anticipated. The clip here only ever subtracts a **whole** `TerracePass.
+TERRACE_HEIGHT_VOXELS`, so `surface_y()` stays exactly terrace-aligned without needing to sit
+upstream of the quantisation at all — `test_surface_y_stays_terrace_aligned` asserts it
+directly. Going upstream would have meant reaching into `ErosionPass`'s own composition and
+rebuilding `TerracePass` on top of a new intermediate pass, which is the one thing every
+Phase D brick since 074 has deliberately avoided: it would re-pin every downstream signature
+(`SurfaceMaterial`, `SubsurfaceMaterial`, `CaveCarving`, `UndergroundMaterial`, `WaterLevel`)
+for a channel that is, by construction, a small fraction of the world (§20.4). `RiverPass`
+reads `TerracePass`; it does not touch it, and nothing built before this brick changes —
+every one of those five files' own pinned signatures is untouched.
+
+One consequence worth stating plainly: nothing downstream of `TerracePass` — not
+`SurfaceMaterial`, not `WaterLevel` — reads `RiverPass` yet. A river carved here does not yet
+get a wet material or count as underwater; that wiring belongs to whichever of 082–084
+actually decides what fills a channel, the same way `CaveMask` (077) carved nothing on its
+own until `CaveCarving` (078) read it the very next brick.
+
+### 20.2 The channel is a distance from a noise contour, not a threshold on it
+
+`CaveMask` thresholds a 3D field's low tail (`density_at() < 0.25`) to get rare, blobby
+caverns (§16.4). A river needs the opposite shape: a *thin, winding, connected* band rather
+than a blob, so `RiverPass` reads a coherent 2D layer's **signed** value and asks how close
+it sits to the layer's own zero contour — `ValueNoise.value()` is already `[-1, 1]`, so no
+remap is needed:
+
+```text
+channel_distance_at(column) = |channel.value(column)|             # [0, 1]
+is_channel_at(column)       = channel_distance_at(column) < CHANNEL_HALF_WIDTH
+```
+
+A coherent field's level sets are winding curves in space — the same reason a topographic
+map's contour lines wind rather than blob, even at the field's own most common value — so
+thresholding *distance from a level* rather than the level itself is what turns a height
+field into a river network instead of a lake. Brick 082's lakes are free to threshold the
+ordinary way, on the raw value, and get blobs instead.
+
+Two octaves, deliberately restrained: the channel is a contour of this field, and every
+extra octave roughens that contour's edge — a smooth, gently winding line reads as a river, a
+jagged one does not. The cell size, `CHANNEL_CELL_SIZE_VOXELS = ElevationField.
+RELIEF_CELL_SIZE_VOXELS * 4` (4096 voxels = 2048 m), is coarser than a single hillside on
+purpose — a river system is a broader thing than the relief it crosses, the same "coarser
+than what it places" argument `ErosionPass.RUGGEDNESS_CELL_SIZE_VOXELS` makes for ruggedness
+(§7.3), applied here in the direction a winding, kilometres-long channel actually needs. Its
+own salt, `WorldHash.SALT_RIVERS` (13, appended) — a channel sharing a salt with any other
+layer would place a river exactly where that layer already peaks or dips, which is not a
+decision.
+
+### 20.3 The lowland ceiling
+
+A channel mask alone would happily cut through a mountain peak, which is not what a river
+does. `RIVER_CEILING_VOXELS` gates the clip to columns whose terraced height is already at
+or below `ElevationField.LAND_BASE_VOXELS` (64 voxels = 32 m) — the continental-plain
+baseline every other vertical anchor in this project is measured against, not a new number
+invented for this brick.
+
+`is_river_at()` checks the mask first and the ceiling second: the mask costs two octaves of
+2D noise, where the ceiling check costs the whole chain underneath `TerracePass`
+(`Continentalness`, `ElevationField`, `ErosionPass`), so the cheap half runs first and the
+expensive half only runs where it could still change the answer — `CaveCarving`'s own
+ordering argument (§17.2), with the cheap and expensive halves swapped because the cost runs
+the other way here: the *mask* is what's cheap, and the *surface height* is what's expensive,
+the reverse of `CaveCarving`'s surface-vs-cave-noise ordering.
+
+Measured over the 2304-column sweep §6.6/§7.5/§8/§19.2 all use: 70.0% of columns sit at or
+below the ceiling — most of the world is lowland enough to carry a channel, which is the
+correct shape for a baseline pitched at the continental plain rather than at the valley
+floor; the ceiling's job is excluding the minority that is genuinely mountainous, not
+restricting rivers to a sliver of the map.
+
+### 20.4 The width was measured, not guessed
+
+`CaveMask.DENSITY_THRESHOLD` is a round quarter of its field's own range because the field's
+density concentrates in a *tail* — a threshold near the mean selects almost everything, and
+`0.25` is comfortably down in the rare end. `RiverPass`'s channel distance has the opposite
+shape: it is small exactly where the underlying field sits near its own most common value
+(the middle of a bell-shaped sum, not an edge), so a small width is *more* sensitive here
+than the same-looking number would be on a tail threshold. A round guess was not safe to
+ship without measuring it.
+
+Measured over the same 2304-column sweep, for the `typed` world, at `CHANNEL_HALF_WIDTH =
+0.02`:
+
+| | Fraction |
+|---|---:|
+| in the channel (`is_channel_at()`) | 2.69% |
+| in the channel **and** under the ceiling (`is_river_at()`) | 1.65% |
+
+Both are a small minority of the world, the property `test_the_channel_covers_a_small_
+minority_of_the_world` asserts with headroom rather than pinning the exact figures — rivers
+are meant to be rare, findable features, the same "worth finding, not the majority" framing
+`CaveMask` uses for caves (§16.4), here rarer still because a river is a narrower thing than
+an underground cavern network.
+
+### 20.5 The carve is one riser, matching the world's own aesthetic
+
+Every existing riser in this world is already a sudden 4 m face — `TerracePass`'s whole point
+is that the ground is a staircase, not a ramp (§8). A channel edge that drops one more riser
+is not a new kind of discontinuity; it is the same one the rest of the terrain already has.
+`CARVE_DEPTH_VOXELS = TerracePass.TERRACE_HEIGHT_VOXELS`, no more and no less — a real river
+bed a whole riser below its banks, not a scratch on the surface. `max_riser_voxels()` states
+the consequence directly: `TerracePass.max_riser_voxels() + TERRACE_HEIGHT_VOXELS`, exactly
+one riser taller than the pass underneath, because a river column beside a dry one is the one
+new way this brick can introduce a second riser at a single step.
+
+No claim is made that a channel reaches `WaterLevel.SEA_LEVEL_VOXELS`. Whether it does
+depends on how low the surrounding lowland already sits, exactly as a real river's bed depth
+relative to the sea depends on where it flows — `test_a_channel_column_under_the_ceiling_
+carves_one_riser`'s own worked case (terraced height 56, carved to 48) stays well above the
+datum. Guaranteeing sea level would need either a flow network (explicitly out of scope,
+§7.6's "a hydraulic or thermal erosion simulation... is a different brick's problem") or a
+second, deeper clip a later brick can add once it actually needs one — not invented here for
+a case this brick's own fixture columns never asked about.
+
+### 20.6 Reference: the shape is kept, the mechanism is not
+
+`docs/reference/terrain-base-height-field.md` claim 6 names `World_riverClimateGate`
+(`min(gate · 4, 1)`, put through a cubic smoothstep and squared) as one of four post-passes
+that flatten relief toward its base, rated `MEDIUM` because the helper body itself was never
+read — out of scope for 061, and not opened here either, because the shape claim 6 already
+recorded is exactly the behavioral hypothesis this brick's channel-distance mask follows: a
+gate built from a per-column noise sample, not a flow simulation.
+
+What diverges is where the clip sits, and why. The original's gate feeds the same
+additive-upward height field claim 2 describes, with no terracing downstream of it to stay
+aligned with — it can soften relief by any continuous amount because nothing after it needs
+that height to land on a plane. Ours does: `TerracePass` already quantised the ground before
+this brick ever ran, and §20.1's whole argument is not disturbing that. Softening relief the
+way the original does would not stay terrace-aligned; cutting a whole riser after
+quantisation is the smallest change that does. `docs/reference/terrain-base-height-field.md`
+§8 records the divergence as its own row.
+
+### 20.7 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `RiverPass` adds one noise layer
+and one salt, both new; it reads `TerracePass` unchanged (`TerracePass`'s own tests still
+pass, the file was not touched, and its pinned signature is exactly what it was before this
+brick). The moment some later brick's `VoxelGenerator` calls `RiverPass.surface_y()` to
+decide what fills a `VoxelBuffer`, `CHANNEL_CELL_SIZE_VOXELS`, `CHANNEL_HALF_WIDTH`,
+`RIVER_CEILING_VOXELS` and `CARVE_DEPTH_VOXELS` join the list §14.4 already opened.
+
+### 20.8 Out of scope for this brick
+
+- **A water block, or any `VoxelGenerator` write.** Still nothing in the project writes a
+  voxel; this brick only moves where `surface_y()` reports the ground.
+- **Wiring `WaterLevel`, `SurfaceMaterial` or `SubsurfaceMaterial` to read `RiverPass`.**
+  Nothing downstream consumes this pass yet — §20.1's own note. A river channel's material
+  and whether it counts as underwater belong to 082–084, the same way `CaveCarving` (078) was
+  the brick that first read `CaveMask` (077), not `CaveMask` itself.
+- **Lakes and ocean.** Bricks 082–083. `is_channel_at()` is exposed with no ceiling applied
+  specifically so 082 can threshold the same layer a different way rather than building a
+  second one.
+- **Guaranteeing a channel reaches sea level.** §20.5. A flow network is explicitly out of
+  scope (§7.6); a deeper clip is left for whichever later brick actually needs one.
+- **Varying the carve depth, or carving more than one riser.** A deeper channel would need
+  its own bound the way `TerracePass.max_riser_voxels()` has one; one riser is what this
+  brick's own worked cases needed and no more was invented for the purpose.

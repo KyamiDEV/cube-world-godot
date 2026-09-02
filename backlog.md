@@ -117,7 +117,7 @@
 | 078 | D | Implement cave carving | 076 | Not needed by default | NO | DONE |
 | 079 | D | Implement underground material rules | 075, 078 | Not needed by default | NO | DONE |
 | 080 | D | Implement water level model | 079 | Not needed by default | NO | DONE |
-| 081 | D | Implement rivers | 080 | Not needed by default | NO | TODO |
+| 081 | D | Implement rivers | 080 | Not needed by default | NO | DONE |
 | 082 | D | Implement lakes | 081 | Not needed by default | NO | TODO |
 | 083 | D | Implement ocean/large-water areas | 081, 082 | Not needed by default | NO | TODO |
 | 084 | D | Implement shoreline rules | 083 | Not needed by default | NO | TODO |

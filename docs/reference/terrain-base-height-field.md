@@ -6,8 +6,8 @@
 | Reference source | `server/world/World.cpp`, `server/GAP_ANALYSIS.md` |
 | Read on | `2026-09-02` |
 | Overall confidence | `MEDIUM` (the noise ladder and its amplitude modulation, claims 1–5, are `HIGH`; the region blend and the post-passes, claims 6, 8–9, are `MEDIUM`/`LOW`; claim 7 was **contradicted** by brick 064 and is struck through in §3; claim 10 (`World_waterDepthField`, read for brick 080) is `LOW` and found nothing to diverge from) |
-| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `064` (claim 7 contradicted, `U2` closed — see `terrain-climate-blend.md`), `080` (claim 10, `World_waterDepthField` read and found not to be a water-level model), `089`–`090` |
-| Godot contract | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `world/generation/water_level.gd`, `docs/world-generation.md` §6-7, §19 |
+| Backlog bricks | `061` (written for), `062` (claim 3, implemented), `063`, `064` (claim 7 contradicted, `U2` closed — see `terrain-climate-blend.md`), `080` (claim 10, `World_waterDepthField` read and found not to be a water-level model), `081` (claim 6, `World_riverClimateGate`'s shape followed, its body not opened — see §8's new row), `089`–`090` |
+| Godot contract | `world/generation/elevation_field.gd`, `world/generation/erosion_pass.gd`, `world/generation/water_level.gd`, `world/generation/river_pass.gd`, `docs/world-generation.md` §6-7, §19-20 |
 
 ## 1. Scope
 
@@ -168,6 +168,7 @@ directly (§7).
 | relief is additive-upward (claim 2) | **kept** | The one shape decision this note changed in our implementation. It makes the base a genuine floor, so an ocean floor cannot be turned into a mountain by a noise sample, and it gives `MINIMUM_VOXELS` an exact value instead of a bound |
 | four flattening post-passes (claim 6) | none of the four; their *shape* is now the contract of `ErosionPass` | Rivers, roads, water depth and structure flattening are bricks 081–083 and 089–090. Brick 062 kept what was worth keeping from `INV-2` — that a post-pass multiplies relief toward the base and never adds to it — as the invariant `base_at <= at <= unshaped_at`, asserted per column. Those later bricks join the same product as further `[0, 1]` factors rather than rewriting the composition (`docs/world-generation.md` §7.1) |
 | `World_waterDepthField`, a chunk-type-gated temperature/moisture modulation with no recovered return value (claim 10) | a constant sea-level plane, `WaterLevel.SEA_LEVEL_VOXELS = 0` (`world/generation/water_level.gd`) | Not a divergence from a shape the reference chose — claim 10 found no water-level computation to diverge from at all. `y = 0` is chosen clean-room, against `TerracePass`'s own datum and a measured land/water split over the same 2304-column sweep §6.6/§7.5 use (`docs/world-generation.md` §19) |
+| `World_riverClimateGate` softens relief toward its base, feeding the same additive-upward height field before any region blend or terracing (claim 6) | `RiverPass` clips the already-terraced surface down by exactly one `TerracePass.TERRACE_HEIGHT_VOXELS`, gated to columns at or below `ElevationField.LAND_BASE_VOXELS` (`world/generation/river_pass.gd`) | The helper body itself was never opened (still `GAP_ANALYSIS`/`LOW`, unchanged by this brick) — claim 6's own shape was enough to work from: a gate built from a per-column noise sample, not a flow simulation, which is exactly what `RiverPass`'s channel-distance mask is. What diverges is where the clip sits: the original's gate has no terracing downstream of it to stay aligned with, so it only ever softens relief; ours has to stay an exact terrace multiple for every existing consumer of `TerracePass.surface_y()` to keep working, so it carves a whole riser after quantisation instead of softening relief before it (`docs/world-generation.md` §20.2) |
 
 ## 9. Tests
 
@@ -182,6 +183,7 @@ directly (§7).
 | the flattening removes real height without deleting the extremes | `tests/unit/test_erosion_pass.gd::test_the_pass_removes_real_height`, `::test_the_shaped_world_still_spans_sea_floor_and_high_ground` |
 | the ground is walkable — a bounded step per voxel, asserted against a derived bound | `tests/unit/test_elevation_field.gd::test_a_kilometre_of_walking_is_walkable`, with `test_the_step_bound_is_a_real_constraint` proving the check can fail |
 | the water plane splits the world close to evenly, against no reference to diverge from (claim 10) | `tests/unit/test_water_level.gd::test_the_plane_splits_the_sweep_close_to_evenly` |
+| the river channel is a rare, minority feature, and the clip stays terrace-aligned (claim 6, kept as a shape but not as a mechanism) | `tests/unit/test_river_pass.gd::test_the_channel_covers_a_small_minority_of_the_world`, `::test_surface_y_stays_terrace_aligned` |
 
 Nothing here needs a human playtest yet. Whether the resulting landscape *reads* as Cube
 World is a question for the first brick that puts a player on it; the first

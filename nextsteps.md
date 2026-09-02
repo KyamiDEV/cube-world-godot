@@ -36,19 +36,20 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–080 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 081–090 open)
-- Next task `081 — Implement rivers`, deps `080` in `backlog.md`, now DONE. Not yet scoped
-  by this session beyond what `backlog.md`'s own row says. `080`'s own "out of scope"
-  (`docs/world-generation.md` §19.7) is the one forward flag on record: a river is a *local*
-  lowering of a column's own terrain below `WaterLevel.SEA_LEVEL_VOXELS`, which `WaterLevel`
-  itself has no business deciding — read that section, `TerracePass` (063, what a river
-  would carve into) and `ElevationField`'s continentalness-driven shore band (§6.3, the
-  coastline shape a river presumably has to reach) before designing.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–081 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 082–090 open)
+- Next task `082 — Implement lakes`, deps `081` in `backlog.md`, now DONE. Not yet scoped by
+  this session beyond what `backlog.md`'s own row says. `081`'s own class comment names the
+  one forward flag on record: `RiverPass.is_channel_at()` is exposed with no lowland ceiling
+  applied *specifically* so 082 can threshold the same `ValueNoise` layer a different way
+  (the raw value, not the distance-from-contour this brick uses — a threshold on the raw
+  value gives blobs rather than a winding network, `docs/world-generation.md` §20.2) rather
+  than building a second layer. Read `world/generation/river_pass.gd`'s class comment and
+  §20 in full, and `082`'s own out-of-scope note in §20.8, before designing.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`080`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`081`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -70,7 +71,94 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
-model (068–073 folded — see below).
+model, 081 rivers (068–073 folded — see below).
+
+`081` is the clip both `TerracePass`'s and `WaterLevel`'s own class comments named in advance
+as belonging to someone else: a winding channel mask, clipped to lowland ground, that pulls a
+column's already-terraced surface down by one riser where the two agree. One new file,
+`world/generation/river_pass.gd` (`RiverPass`), composing `TerracePass` (063) with a new
+`ValueNoise` channel layer at a new salt (`WorldHash.SALT_RIVERS = 13`, appended). No change
+to `TerracePass`, `ErosionPass`, `ElevationField` or any other existing file.
+
+```text
+is_river_at(column) = is_channel_at(column) and TerracePass.at(column) <= RIVER_CEILING_VOXELS
+surface_y(column)   = TerracePass.surface_y(column) - (CARVE_DEPTH_VOXELS if is_river_at else 0)
+```
+
+Five things worth keeping:
+
+1. **`docs/world-generation.md` §8.8 (written when 063 was designed) predicted rivers would
+   need to sit *underneath* terracing — shape the continuous height, then terrace it — and
+   this brick deliberately did not do that.** Reaching into `ErosionPass`'s own composition
+   to insert a new intermediate pass would have re-pinned every downstream signature
+   (`SurfaceMaterial`, `SubsurfaceMaterial`, `CaveCarving`, `UndergroundMaterial`,
+   `WaterLevel`) for a channel that covers under 2% of the world — the exact thing every
+   Phase D brick since 074 has structured itself to avoid. The concern §8.8 actually raised
+   — that a post-quantisation flattening term would produce heights that are not terrace
+   planes — is answered a smaller way instead: the clip only ever subtracts a *whole*
+   `TerracePass.TERRACE_HEIGHT_VOXELS`, so `surface_y()` stays exactly terrace-aligned
+   without moving upstream at all. `TerracePass`'s own pinned signature is unchanged; so are
+   the five files listed above. `docs/world-generation.md` §20.1 has the full argument.
+2. **Nothing downstream reads `RiverPass` yet, and that is the same shape `CaveMask`/
+   `CaveCarving` already established across two bricks, here inside one.** A river carved by
+   this brick gets no wet material and does not count as underwater — `WaterLevel` still
+   reads `TerracePass` directly. That wiring is explicitly 082–084's job, not invented here
+   to make this brick feel more finished than its own scope asks for.
+3. **The channel is a distance from a noise contour, not a threshold on the noise itself —
+   the opposite shape from `CaveMask`'s.** `CaveMask` thresholds a 3D field's low tail to get
+   rare blobs; a river needs a thin winding band instead, so `RiverPass` reads `ValueNoise.
+   value()` (already signed, `[-1, 1]`, no remap needed) and asks how close a column sits to
+   its own zero contour. A coherent field's level sets are winding curves in space at *any*
+   level, including its most common one, which is what makes this read as a river network
+   rather than a scatter of patches. The consequence for tuning: because the field
+   concentrates near its own zero (the middle of a bell-shaped sum, not a tail), the
+   threshold is far more sensitive here than a same-looking number would be on a tail
+   threshold — measured rather than guessed, the same restraint `CaveMask.DENSITY_THRESHOLD`
+   used for the opposite reason. `CHANNEL_HALF_WIDTH = 0.02` measures to 2.69% of the world
+   in-channel, 1.65% actually carving once the lowland ceiling is applied.
+4. **The lowland ceiling (`RIVER_CEILING_VOXELS = ElevationField.LAND_BASE_VOXELS`) exists so
+   the mask cannot cut a channel through a mountain peak, and it is checked *after* the mask
+   rather than before, because the cost is the other way around from `CaveCarving`'s
+   ordering.** `CaveCarving` checks the cheap surface height before paying for expensive 3D
+   cave noise; here the mask is the cheap half (two octaves of 2D noise) and the surface
+   height is the expensive one (the whole `Continentalness`→`ElevationField`→`ErosionPass`→
+   `TerracePass` chain), so the order is deliberately inverted. Measured: 70% of the sweep
+   sits at or below the ceiling, which is the correct shape for a baseline pitched at the
+   continental plain — the ceiling's job is excluding genuine mountains, not restricting
+   rivers to a sliver of the map.
+5. **The brick makes no claim that a channel reaches sea level, and says so explicitly rather
+   than leaving it to be assumed.** A hand-picked worked case (`KNOWN_RIVER_COLUMN`, terraced
+   height 56, carved to 48) stays well above `WaterLevel.SEA_LEVEL_VOXELS` — carving one
+   riser only reaches the sea where the surrounding lowland already sits close to it, exactly
+   as a real river's bed depth relative to the sea depends on where it flows. Guaranteeing it
+   would need a flow network, explicitly out of scope (`docs/world-generation.md` §7.6), or a
+   second deeper clip a later brick can add once it actually needs one — not invented here to
+   answer a question this brick's own test fixtures never raised.
+
+Reference: `docs/reference/terrain-base-height-field.md` claim 6 names `World_riverClimateGate`
+as a per-column noise gate (not a flow simulation) among four flattening post-passes; its own
+helper body was never opened (still `GAP_ANALYSIS`/`LOW`, unchanged by this brick), and claim
+6's shape was enough to work from. The kept-vs-diverged split is recorded as its own row in
+§8: the original's gate softens relief with nothing downstream needing it to stay aligned;
+ours has real terracing downstream, so it carves a whole riser after quantisation instead of
+softening relief before it.
+
+Docs: `docs/world-generation.md` §20 (new, eight subsections); `docs/reference/
+terrain-base-height-field.md` (header's backlog-bricks/Godot-contract lines updated, claim 6
+divergence row added to §8, a new test row in §9); `docs/reference/traceability.md` (081
+added to the `terrain-base-height-field.md` row, same shape 080 already used).
+
+Tests: `tests/unit/test_river_pass.gd` (new, 20 tests; pins `channel_distance_at()`'s own
+signature `71d53280c3e89764` and `at()`'s signature `2af464f70e43590a` — identical to
+`TerracePass`'s own pinned value, because none of `GenerationFixtures.columns()`'s 15 samples
+lands in the ~1.65%-of-the-world channel, the same small-sample-vs-sparse-field finding every
+brick since 077 has recorded rather than re-argued; `KNOWN_RIVER_COLUMN` and `KNOWN_CHANNEL_
+ABOVE_CEILING_COLUMN`, found by a design-time sweep, are what actually exercise the clip and
+the ceiling gate). Full suite: `files=54 tests=763 assertions=122878 failed=0`. Compile probe
+OK (114 scripts). Headless boot OK. Measurement used a throwaway scratch test
+(`tests/unit/test_zzz_scratch_river_pass.gd`, print-only, run via `tools\scripts\test.ps1
+-File zzz_scratch -Verbose_`, then deleted — never committed), the exact `077`/`080`
+throwaway-probe precedent.
 
 `080` is the constant `061`'s and `063`'s own class comments named in advance as its job: a
 water plane, held apart from the terraced ground so it can move without regenerating a

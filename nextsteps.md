@@ -36,20 +36,23 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–081 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 082–090 open)
-- Next task `082 — Implement lakes`, deps `081` in `backlog.md`, now DONE. Not yet scoped by
-  this session beyond what `backlog.md`'s own row says. `081`'s own class comment names the
-  one forward flag on record: `RiverPass.is_channel_at()` is exposed with no lowland ceiling
-  applied *specifically* so 082 can threshold the same `ValueNoise` layer a different way
-  (the raw value, not the distance-from-contour this brick uses — a threshold on the raw
-  value gives blobs rather than a winding network, `docs/world-generation.md` §20.2) rather
-  than building a second layer. Read `world/generation/river_pass.gd`'s class comment and
-  §20 in full, and `082`'s own out-of-scope note in §20.8, before designing.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–082 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 083–090 open)
+- Next task `083 — Implement ocean/large-water areas`, deps `081, 082` in `backlog.md`, both
+  now DONE. Not yet scoped by this session beyond what `backlog.md`'s own row says. `082`'s
+  own out-of-scope note (§21.8) names the one forward flag on record: `LakePass` "decides
+  nothing about a large connected body of water, only isolated basins from the same channel
+  field's tail" — an ocean is a different shape (large and connected, not rare and blob-like),
+  so 083 likely needs its own mechanism rather than a third threshold on the same channel
+  layer; `WaterLevel` (080, `SEA_LEVEL_VOXELS = 0`) is the more likely composition target,
+  since "ocean" reads as "where the water plane's own coverage is large and contiguous" rather
+  than a carved local depression the way a river or lake is. Read `world/generation/water_
+  level.gd`'s class comment and `world/generation/lake_pass.gd`'s class comment, plus §19 and
+  §21 in full, before designing.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`081`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`082`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -71,7 +74,73 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
-model, 081 rivers (068–073 folded — see below).
+model, 081 rivers, 082 lakes (068–073 folded — see below).
+
+`082` is the clip `RiverPass`'s own class comment named in advance twice as its job: one new
+file, `world/generation/lake_pass.gd` (`LakePass`), composing `RiverPass` (081) — not
+`TerracePass` directly — into the same shape of clip river carving already established, with
+the opposite-tail threshold on the exact same channel layer. No change to `RiverPass`,
+`TerracePass` or any other existing file; no new noise layer, no new salt.
+
+```text
+is_lake_at(column)  = is_basin_at(column) and river.terrace().at(column) <= LAKE_CEILING_VOXELS
+surface_y(column)   = RiverPass.surface_y(column) - (CARVE_DEPTH_VOXELS if is_lake_at else 0)
+```
+
+Four things worth keeping:
+
+1. **The layer is reused, not rebuilt.** `LakePass` holds a `RiverPass` and reads
+   `channel_distance_at()` straight through it rather than constructing a second
+   `ValueNoise.layer()` with identical `(cell size, octaves, gain, salt)` arguments — the
+   exact "share, don't duplicate" instruction `RiverPass`'s own class comment left for this
+   brick. `test_uses_the_same_layer_river_pass_does` asserts the delegation directly, and
+   `channel_distance_at()`'s pinned signature over `GenerationFixtures.columns()` comes out
+   bit-identical to `RiverPass`'s own (`71d53280c3e89764`) — not a coincidence, the same
+   number for the same reason.
+2. **The threshold direction flips, and nothing else does.** A river reads *close to* the
+   channel field's own zero contour (a thin winding band, where a coherent field's level sets
+   are densest); a lake reads *far from* it (`LAKE_MIN_DISTANCE = 0.85`, the field's own rare
+   tail) — the identical "threshold a coherent field's magnitude to get a rare blob"
+   argument `CaveMask.DENSITY_THRESHOLD` already used for a 3D field, applied here to a 2D
+   one's distance-from-mean instead of a 3D one's density. Disjoint from a river column by
+   construction (`0.85 > CHANNEL_HALF_WIDTH = 0.02`), asserted in `self_check()` rather than
+   left as an accident of two numbers that happen not to collide today.
+3. **The ceiling and the carve depth are reused wholesale, not re-derived.**
+   `LAKE_CEILING_VOXELS = RiverPass.RIVER_CEILING_VOXELS` and `CARVE_DEPTH_VOXELS =
+   TerracePass.TERRACE_HEIGHT_VOXELS` — the identical constants `RiverPass` uses for the same
+   two jobs, `self_check()` asserting the first stays equal rather than only asserting its own
+   internal relationships the way `RiverPass.self_check()` does. A lake basin is bound to the
+   same continental-plain baseline a river channel is; nothing about the feature having a
+   different name changes that.
+4. **`LAKE_MIN_DISTANCE` was measured against `RiverPass`'s own river fraction, not chosen in
+   isolation.** The sweep (same 2304 columns §20.4 used) showed basin/lake fractions ranging
+   from 4.43%/3.30% (`0.80`) down to 0.52%/0.39% (`0.94`); `0.85` (2.34%/1.82%) was picked as
+   the value landing closest to `RiverPass`'s own measured river fraction (1.65%) without
+   copying it outright — lakes reading as comparably rare to rivers, not dominating or
+   vanishing next to them. `docs/world-generation.md` §21.3 has the full table.
+
+Not a generation version bump: no world has ever had a voxel written, and `LakePass` adds no
+field, no salt, no noise layer of its own — a pure clip composed over an unchanged pass
+(`RiverPass`'s own tests still pass, the file was not touched, its pinned signature is exactly
+what it was before this brick). `docs/world-generation.md` §21.7.
+
+Docs: `docs/world-generation.md` §21 (new, eight subsections); `docs/reference/
+traceability.md` §4 (082 added to the original-design list — a seventh instance of 077's own
+"one landmark-label hit, no mechanism" finding, this time for `L"Lake"` in the same
+`cube/world/World.cpp` / `server/world/World.cpp` name-to-id map).
+
+Tests: `tests/unit/test_lake_pass.gd` (new, 21 tests; pins `channel_distance_at()`'s own
+signature `71d53280c3e89764` and `at()`'s signature `2af464f70e43590a` — both bit-identical to
+`RiverPass`'s own pinned values, for the reason item 1 above states plus the same small-sample
+finding every brick since 077 has recorded: none of `GenerationFixtures.columns()`'s 15
+samples lands within `LAKE_MIN_DISTANCE` of the channel layer's own mean; `KNOWN_LAKE_COLUMN`
+and `KNOWN_LAKE_ABOVE_CEILING_COLUMN`, found by a design-time sweep, are what actually
+exercise the clip and the ceiling gate). Full suite: `files=55 tests=784 assertions=123116
+failed=0`. Compile probe OK (116 scripts). Headless boot OK. Measurement used a throwaway
+probe (`tools/probe/temp_probe_lake_pass.gd` + `_runner.gd`, thin-entry/runner split per
+brick 052 — `Log`/`GenerationHash`/`RiverPass`/`LakePass` all need autoloads registered), run
+once, read, then deleted — never committed, the exact `077`/`078`/`081` throwaway-probe
+precedent.
 
 `081` is the clip both `TerracePass`'s and `WaterLevel`'s own class comments named in advance
 as belonging to someone else: a winding channel mask, clipped to lowland ground, that pulls a

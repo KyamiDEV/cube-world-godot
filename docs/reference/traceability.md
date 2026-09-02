@@ -229,8 +229,11 @@ matrix level). Two different reasons cover almost all of it:
   in the reference at all; `docs/world-generation.md` §17), brick 079 (underground material
   rules — the same absence a sixth time: combining a carving clip with a material selection
   has nothing to diverge from when the reference has neither mechanism on its own;
-  `docs/world-generation.md` §18.6), and most of
-  Phase L (257–266,
+  `docs/world-generation.md` §18.6), brick 082 (lakes — the same absence a seventh time,
+  the identical shape to 077's own finding rather than a new one: the reference's one
+  "lake"-labelled hit is the same wide-string landmark/POI name-to-id map 077 already found
+  `L"Cave"` in, with no generation mechanism near it; `docs/world-generation.md` §21.6), and
+  most of Phase L (257–266,
   profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148
   respawn state, 145 knockback, 147 death state, most of 231's settings-shell scope

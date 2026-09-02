@@ -2762,3 +2762,160 @@ decide what fills a `VoxelBuffer`, `CHANNEL_CELL_SIZE_VOXELS`, `CHANNEL_HALF_WID
 - **Varying the carve depth, or carving more than one riser.** A deeper channel would need
   its own bound the way `TerracePass.max_riser_voxels()` has one; one riser is what this
   brick's own worked cases needed and no more was invented for the purpose.
+
+## 21. Lakes (brick 082)
+
+Implementation: `world/generation/lake_pass.gd` (`LakePass`).
+Tests: `tests/unit/test_lake_pass.gd`.
+Reference: none — §21.6.
+
+`RiverPass` (081) named this brick in advance, twice: its own class comment ("082's lakes are
+free to threshold the ordinary way, on the raw value, and get blobs instead") and its
+`channel_noise()` accessor ("for a debug probe or a later brick (082's lakes) that wants the
+same noise field thresholded a different way"). This is that different threshold: the same
+channel layer `RiverPass` already builds, read for the opposite property — far from its own
+zero contour instead of close to it — clipped to the same lowland ceiling, carving the same
+one riser.
+
+```text
+is_lake_at(column)  = is_basin_at(column) and river.terrace().at(column) <= LAKE_CEILING_VOXELS
+surface_y(column)   = RiverPass.surface_y(column) - (CARVE_DEPTH_VOXELS if is_lake_at else 0)
+```
+
+### 21.1 Composing over `RiverPass`, reusing its layer rather than building a second one
+
+`LakePass` holds a `RiverPass`, not a bare `TerracePass` and a fresh `ValueNoise` of its own.
+Three consequences follow:
+
+1. **`channel_distance_at()` reads through `RiverPass`**, so a lake and a river are provably
+   reading the same hashed corners rather than two independently-built layers that merely
+   share the same parameters — `test_uses_the_same_layer_river_pass_does` asserts the
+   delegation directly. Building a second `ValueNoise.layer()` with identical `(cell size,
+   octaves, gain, salt)` arguments would compute the same field twice for no new information —
+   `WorldHash`'s one-salt-per-pass rule exists precisely so two passes never do this by
+   accident, and here it would have been done on purpose for nothing.
+2. **`surface_y()` carves on top of `RiverPass.surface_y()`, not `TerracePass.surface_y()`
+   directly.** This is safe because of point 3, not despite it: a column `LakePass` carves was
+   never touched by `RiverPass`'s own clip to begin with, so `river.surface_y(column) ==
+   river.terrace().surface_y(column)` at every column this pass carves, and composing over the
+   pass one layer up costs nothing while keeping the dependency chain linear
+   (`TerracePass` → `RiverPass` → `LakePass`) rather than forking it.
+3. **A river and a lake are disjoint by construction, and it is asserted rather than assumed.**
+   `is_channel_at()` (081) is `distance < CHANNEL_HALF_WIDTH` (0.02); `is_basin_at()` (below) is
+   `distance > LAKE_MIN_DISTANCE` (0.85). The two conditions cannot both hold for any real
+   number, so no column can ever be both — `LakePass.self_check()` asserts `LAKE_MIN_DISTANCE >
+   RiverPass.CHANNEL_HALF_WIDTH` rather than trusting the two literals never to drift toward
+   each other, and `test_a_river_column_is_never_a_lake_basin_column` exercises the property at
+   a real in-channel column found by the same sweep §21.3 uses.
+
+### 21.2 The mask is a threshold on the raw value, the opposite tail choice from a river's
+
+`RiverPass.channel_distance_at()` is small near the field's own most common value — the middle
+of the bell-shaped two-octave sum, not an edge (§20.2) — and a river reads that band, because a
+level set of a coherent field winds through space rather than pooling into one place. A lake
+wants the opposite: an interior region, not a boundary. `LakePass` reads the same distance the
+opposite direction:
+
+```text
+is_basin_at(column) = channel_distance_at(column) > LAKE_MIN_DISTANCE
+```
+
+Far from the mean is the field's own tail, which is rare by construction — the same reason
+`CaveMask.DENSITY_THRESHOLD` selects a minority of underground space rather than most of it
+(§16.4), reused here for a 2D field's magnitude instead of a 3D field's density. A blob, not a
+band, falls out of the same field with no domain warp and no second layer: thresholding a
+level set's *distance from the mean* rather than *from a chosen level* is what turns "close to
+the mean" into a winding band (rivers) and "far from the mean" into isolated interior regions
+(lakes) — the field only has one shape; the two bricks ask two different questions of it.
+
+### 21.3 The width was measured, not guessed — a second time, the opposite direction
+
+`CHANNEL_HALF_WIDTH` needed measuring because the field's density concentrates near its own
+mean, so a round-looking width near zero is unusually sensitive (§20.4). The same caution
+applies in reverse here: a round-looking width near the tail is unusually sensitive too, for
+the same reason — the field is not uniform, so nothing round-looking is safe to ship unmeasured.
+
+Measured over the same 2304-column sweep §6.6/§7.5/§8/§19.2/§20.3/§20.4 all use, for the
+`typed` world:
+
+| `LAKE_MIN_DISTANCE` | basin (`is_basin_at()`) | lake (`is_lake_at()`) |
+|---:|---:|---:|
+| 0.80 | 4.43% | 3.30% |
+| 0.82 | 3.43% | 2.52% |
+| 0.84 | 2.73% | 2.08% |
+| **0.85** | **2.34%** | **1.82%** |
+| 0.86 | 1.95% | 1.43% |
+| 0.88 | 1.48% | 1.04% |
+| 0.90 | 1.26% | 0.87% |
+| 0.92 | 0.82% | 0.56% |
+| 0.94 | 0.52% | 0.39% |
+
+`LAKE_MIN_DISTANCE = 0.85` was chosen from this table as the value that lands closest to
+`RiverPass`'s own river fraction (1.65%) without copying it outright — lakes reading as a
+comparably rare, findable feature to rivers rather than either dominating or vanishing next to
+them. `test_the_basin_covers_a_small_minority_of_the_world` asserts a band (`0.5%`–`8%` for the
+basin, `0.3%`–`6%` for the lake) around the measured figures rather than pinning them exactly,
+`RiverPass`'s own precedent for the same reason: a future retune has room.
+
+### 21.4 The lowland ceiling and the carve depth are reused, not reinvented
+
+`LAKE_CEILING_VOXELS = RiverPass.RIVER_CEILING_VOXELS` (`ElevationField.LAND_BASE_VOXELS`, 64
+voxels = 32 m) and `CARVE_DEPTH_VOXELS = TerracePass.TERRACE_HEIGHT_VOXELS` (8 voxels = 4 m)
+are the exact constants `RiverPass` already uses for the same two jobs. A lake basin is no less
+bound to the continental-plain baseline than a river channel is — §20.3's ordering argument
+(cheap mask first, expensive surface-height chain second) and its 70%-of-the-world-is-lowland
+measurement both carry over unchanged, because the ceiling check is the same call against the
+same `TerracePass` instance, reached through `river.terrace()` rather than a second binding of
+it. A lake bed one riser below its shore is §20.5's "smallest change that stays terrace-aligned"
+argument again, not a new number invented because the feature has a different name.
+`LakePass.self_check()` asserts `LAKE_CEILING_VOXELS == RiverPass.RIVER_CEILING_VOXELS`
+directly, so the two cannot silently drift apart if a future brick ever retunes one of them.
+
+No claim is made that a lake basin reaches `WaterLevel.SEA_LEVEL_VOXELS` — `RiverPass`'s own
+disclaimer (§20.5) applies here unchanged, and `KNOWN_LAKE_COLUMN`'s own worked case (terraced
+height 0, exactly the datum) is an honest coincidence of that one column, not a guarantee.
+
+### 21.5 Still nothing downstream reads a carved basin
+
+The same shape §20.1 already named for rivers: no wet material, no "is this column
+underwater," no `VoxelGenerator` write. `LakePass` only moves where `surface_y()` reports the
+ground, the same way `RiverPass` did and `CaveMask` (077) did before `CaveCarving` (078) first
+read it. That wiring belongs to 083/084, once an actual ocean and shoreline exist to wire it
+against.
+
+### 21.6 Reference: the same finding as caves, a different label in the same table
+
+A case-insensitive grep of `reference/CubeWorld-Reversal` for "lake" turns up exactly one kind
+of hit: the wide string literal `L"Lake"` in `cube/world/World.cpp` and `server/world/World.cpp`
+— a chunk-label name-to-id map, alongside `L"Village"`, `L"Mountain"`, `L"Forest"`, `L"Cave"`
+(§16.5's own finding) and `L"Canyon"`. This is a landmark/POI display-name list, not a
+generation mechanism — the identical shape §16.5 already found for caves, here for a different
+label in the same table. There is nothing in either binary to diverge from.
+
+### 21.7 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `LakePass` adds no noise layer and
+no salt — `RiverPass`'s own layer and salt are unchanged (`RiverPass`'s own tests still pass,
+the file was not touched, and its pinned signature is exactly what it was before this brick).
+The moment some later brick's `VoxelGenerator` calls `LakePass.surface_y()` to decide what
+fills a `VoxelBuffer`, `LAKE_MIN_DISTANCE`, `LAKE_CEILING_VOXELS` and `CARVE_DEPTH_VOXELS` join
+the list §20.7 already opened.
+
+### 21.8 Out of scope for this brick
+
+- **A water block, or any `VoxelGenerator` write.** Still nothing in the project writes a
+  voxel; this brick only moves where `surface_y()` reports the ground.
+- **Wiring `WaterLevel`, `SurfaceMaterial` or `SubsurfaceMaterial` to read `LakePass`.** §21.5.
+  A lake's material and whether it counts as underwater belong to 083/084.
+- **Ocean.** Brick 083, `RiverPass`'s own §20.8 forward flag repeated: `LakePass` decides
+  nothing about a large connected body of water, only isolated basins from the same channel
+  field's tail.
+- **Guaranteeing a basin reaches sea level, or connecting a lake to a river.** §21.4. A flow
+  network remains explicitly out of scope (§7.6); nothing here attempts to make a lake drain
+  into a channel even where the two happen to sit near each other.
+- **Varying the carve depth, a deeper basin bowl, or a basin floor that flattens across its own
+  footprint.** `RiverPass`'s own restraint (§20.8) applied identically: one riser, uniformly
+  subtracted from whatever height the column already had, is what this brick's own worked
+  cases needed. A flat basin floor is a real feature a later brick can add once it has a
+  reason to.

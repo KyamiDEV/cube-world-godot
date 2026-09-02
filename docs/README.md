@@ -16,7 +16,7 @@ it. Read the contract before changing the implementation.
 | [`rng.md`](rng.md) | deterministic randomness; no engine-global RNG in simulation code | `core/random/`, `tests/unit/test_rng_discipline.gd` |
 | [`ids-and-registries.md`](ids-and-registries.md) | content identity, catalogues, aliases, network indices | `core/ids/` |
 | [`persistence.md`](persistence.md) | four version numbers, load verdicts, forward-only migrations | `core/serialization/save_version.gd` |
-| [`world-generation.md`](world-generation.md) | world identity `(seed, generation version)`, and the Phase D generation contracts as they land | `world/generation/` |
+| [`world-generation.md`](world-generation.md) | world identity `(seed, generation version)`, and the Phase D generation contracts as they land | `world/generation/`, `world/biomes/` |
 | [`protocol.md`](protocol.md) | message kinds, direction and delivery rules | `network/protocol/` |
 | [`server-authority.md`](server-authority.md) | ten authority invariants, two validation layers | `network/authority/command_gate.gd` |
 | [`logging-and-errors.md`](logging-and-errors.md) | log format and `check()` vs `invariant()` | `autoload/log.gd` |

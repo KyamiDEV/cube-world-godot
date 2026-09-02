@@ -1395,3 +1395,206 @@ ever had a voxel written from any of this. `GENERATION_VERSION` stays where it i
 - **Factoring the two climate axes.** Brick 066's call. §10.5.
 - **Rainfall in millimetres, or any unit.** §9.3's reasoning, applied to this axis.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`.
+
+## 11. The biome classifier (brick 066)
+
+Implementation: `world/biomes/biome_classifier.gd` (`BiomeClassifier`).
+Tests: `tests/unit/test_biome_classifier.gd`.
+Reference: `docs/reference/terrain-climate-blend.md` claim 5.
+
+The first Phase D pass whose answer is an **id** rather than a number, and the first
+consumer of both climate axes at once. One stable ID per column, always one of six, and
+nothing about what that biome contains: the catalog is brick 067 and the per-biome content
+is 068–073.
+
+```text
+at(column) = classify( temperature.at(column),
+                       humidity.at(column),
+                       erosion.ruggedness_noise_at(column) )
+```
+
+### 11.1 The partition
+
+A **decision list**: the first rule that matches wins, the last one matches everything.
+
+| # | Rule | Id |
+|---|---|---|
+| 1 | `ruggedness >= RUGGEDNESS_MOUNTAIN` | `biome.mountain` |
+| 2 | `temperature < TEMPERATURE_COLD` | `biome.snow` |
+| 3 | `humidity < HUMIDITY_ARID` | `biome.desert` |
+| 4 | `humidity >= HUMIDITY_WETLAND` | `biome.wetland` |
+| 5 | `humidity >= HUMIDITY_WOODED` | `biome.forest` |
+| 6 | — | `biome.grassland` |
+
+Totality is structural rather than checked: there is no input the list does not answer, so
+`GenerationFixtures.range_reason()` — which every field before this owed — has no meaning
+here, and `test_answers_only_with_ids_it_declares` is what replaces it. The digest still
+applies, and it is type-strict, so a classifier that started answering with an index rather
+than an id fails the pin instead of quietly re-keying every consumer.
+
+Every cut is **half-open at the low end**: `<` for a low cut, `>=` for a high one, so a
+column sitting exactly on a threshold belongs to the upper region. `HUMIDITY_ARID` and
+`HUMIDITY_WETLAND` are exact binary fractions and columns really do land on them, so this
+is asserted rather than left to chance.
+
+Six ids, under the `biome` domain of `core/ids/stable_id.gd` — a biome id reaches a save
+file and a log, so it obeys the same grammar as an item or a block id. `biome.wetland` is
+named for the *climate*, not for water: nothing here knows where the water is, and an
+aquatic biome (open sea, lake bed) is a height decision that belongs with the waterline in
+brick 080.
+
+### 11.2 Where the five thresholds come from
+
+None of the five was fitted to a target share. Three come from the reference, one is a
+field's own middle, and one is derived from the pass it reads.
+
+| Threshold | Value | Anchor |
+|---|---:|---|
+| `TEMPERATURE_COLD` | `0.2` | the reference's own literal (`terrain-climate-blend.md` claim 5: the original reads climate on a bare `[0, 1]` scale against `< 0.2` and `> 0.8`) |
+| `HUMIDITY_WETLAND` | `0.8` | the same claim's other literal — humidity `> 0.8` gates a second lookup in `World_generateRegionSite` |
+| `HUMIDITY_ARID` | `0.2` | written as `1 - HUMIDITY_WETLAND`: the dry mirror of that literal, so both ends of the axis are cut at the same distance from it |
+| `HUMIDITY_WOODED` | `0.5` | the field's own middle, `ElevationField.SHORE_MIDPOINT`'s neutral choice. `HumidityField.spread()` fixes `0.5`, so this cuts the temperate band in half |
+| `RUGGEDNESS_MOUNTAIN` | `1/sqrt(2)` | **derived**: the ruggedness at which `ErosionPass.ruggedness_weight()` reaches the middle of its own range |
+
+The last one is the one worth reading twice. `ruggedness_weight(r)` is
+`RUGGEDNESS_FLOOR + (1 - RUGGEDNESS_FLOOR) * r²` — how much of its 128-voxel relief
+amplitude a column keeps — and its midpoint sits at `r² = 0.5`. So rule 1 reads *"a column
+that keeps more than half the relief in the world is a mountain"*, which is a claim about
+the ground a player walks on rather than about a noise value, and it moves with
+`ErosionPass` if that pass is ever retuned. The test asserts the identity, not the number.
+
+It reads the **raw** ruggedness layer rather than `ruggedness_at()`: squaring is monotone,
+so both give the same partition, and the raw field keeps the threshold on the scale the
+number is quoted on. That is also why brick 062 left `ruggedness_noise_at()` public and
+unsquared.
+
+We cannot reuse the original's climate *mechanism* — it blends stored per-region values and
+ours is a noise layer (§9.3) — but the scale it reads the result on is exactly ours, and
+its two literals are the one piece of its classification that survived the read. Taking
+them is a cheaper and more defensible decision than inventing two numbers.
+
+### 11.3 The order of the rules is part of the design
+
+Two places in the order carry as much as the numbers do:
+
+- **Relief outranks climate.** A column rugged enough to be a mountain is a mountain in any
+  weather, because relief is the one input a player can see from a distance. A hot mountain
+  and a cold one are 072's problem and 067 can still split the id; a mountain classified as
+  a swamp because it happens to be wet is a bug you can walk into.
+  `test_relief_outranks_climate` asserts it over the whole climate square, not at one point.
+- **Cold outranks dry and wet.** Cold-and-dry is tundra and cold-and-wet is taiga; with six
+  baseline biomes and one of them named `snow`, both of those are the snow biome. Putting
+  the cold test above the humidity tests says so in one line, rather than three extra
+  thresholds saying it less clearly.
+
+### 11.4 What the classifier measures
+
+On the climate-scale sweep of §10.4 — 64 x 64 columns at a spacing of `16381` voxels from
+`−524192` — the six shares, over 12 seeds:
+
+| Biome | share of the world |
+|---|---|
+| `biome.snow` | `0.1941 .. 0.2102` |
+| `biome.grassland` | `0.1597 .. 0.1775` |
+| `biome.forest` | `0.1572 .. 0.1775` |
+| `biome.desert` | `0.1465 .. 0.1628` |
+| `biome.wetland` | `0.1479 .. 0.1589` |
+| `biome.mountain` | `0.1426 .. 0.1616` |
+
+Against an even sixth, `0.1667`. **That evenness was not aimed at**, and it is the most
+interesting measurement of the brick: it is inherited from §10.2's distribution. `spread()`
+leaves each climate axis with about a quarter of the world below `0.2` and a quarter above
+`0.8`, so cutting an axis at `0.2 / 0.5 / 0.8` cuts it into four near-equal parts; and
+`1/sqrt(2)` on the ruggedness layer happens to take about a seventh. Six rules over two
+quartered axes and one tail land within a factor of `1.5` of each other without a single
+constant chosen for balance. The test bands are `[0.12, 0.24]` — room for seed variance,
+still far tighter than what a re-ordered rule does.
+
+The sweep is the right instrument here for 065's reason (§10.4): a classifier is a climate
+consumer, and the 2304-column sweep the relief tests use resolves a 16384-voxel field only
+about 144 times. `test_the_sweep_is_wide_enough_to_measure_a_climate` carries that forward
+as geometry.
+
+One more measurement, and it is the mechanism behind the table: **mountains are not a
+climate.** Ruggedness shares no salt and no term with either climate axis, so the mountains
+of a world are as cold as the world is — the share of mountain columns below
+`TEMPERATURE_COLD` is asserted inside `[0.15, 0.35]` against a world that is cold on about
+`0.24` of its columns. If a later edit derived ruggedness from temperature, or classified
+on a height (which follows continentalness), that is where it shows up, before it shows up
+as every mountain in the world being snow-capped.
+
+### 11.5 A biome is a place, and the slivers are real
+
+On the 800 km line of §10.4 at `z = 613`, on all four fixture worlds: **123–131 runs**, mean
+run length **3.05 – 3.25 km**, and all six biomes present on every line. That is the
+consequence of classifying fields whose cells are kilometres wide — a biome is somewhere a
+player spends minutes, not a texture that changes every few steps.
+
+The honest half: the **shortest** run on those lines is `0.025 – 0.125 km`. A threshold on a
+continuous field always produces the occasional sliver where the line grazes a boundary, and
+no choice of constants removes them. So the test asserts the **mean**, not a floor: a
+minimum-run assertion would be a test of where the line happens to be rather than of the
+classifier. Smoothing the boundaries is brick 074's job, and this is the measurement it
+inherits.
+
+`minimum_climate_band_voxels()` is the derived floor on the *climatic* boundaries only:
+either climate axis needs at least `minimum_climate_span_voxels()` = 3495 voxels to cross
+its whole range (§10), and the closest two cuts on one axis are `0.3` apart, so a purely
+climatic band is at least `1048` voxels = **524 m** wide. A floor on band width, not a
+promise about the map — the mountain rule reads a field eight times finer and cuts across
+climate bands freely.
+
+### 11.6 What it refuses to read, and why
+
+- **`Continentalness`, and so coastal wetness.** Brick 065 left a coastal-wetness term to
+  066 or 074 on the condition that it be visible rather than baked into the humidity axis
+  (§10.1, decision 2). 066 declines it too, for a reason of its own: a coast is a place you
+  can only *see* once there is water in it, and the waterline is brick 080. A `biome.coast`
+  drawn on continentalness alone would put a biome boundary where nothing on the ground
+  changes. The decision stays open, and it stays cheap — the classifier reads three
+  `[0, 1]` inputs and a fourth is one rule and one field.
+- **Ground height, and so sea level.** The same argument and the same brick. `ErosionPass`
+  is held for its ruggedness layer; the classifier never calls its `at()`. Brick 072's
+  mountain biome and 080's waterline are where a height enters the picture.
+- **A rain shadow, and a lapse rate.** §9.3 and §10.7, unchanged: both couple a climate axis
+  to a height, and both belong to the brick that owns mountains and weather together (085),
+  not to a classifier.
+
+### 11.7 The two climate axes stay two files — 065's open question, answered
+
+§10.5 named brick 066 as the one entitled to decide whether `TemperatureField` and
+`HumidityField` get factored into a shared base class, on the grounds that 066 is the first
+code to see both users. It is, and the answer is **no** — now for a reason stronger than
+"not yet".
+
+The first consumer reads the two axes **by name**, not by iteration. `classify()` takes
+`temperature` and `humidity` as separate parameters and treats them asymmetrically: one cut
+on the temperature axis, three on the humidity axis, and an order between them that is the
+design (§11.3). A common base type buys nothing at that call site — there is no loop over
+climate axes to write, and nowhere the classifier would accept either field where it wants
+the other. What §10.5 coupled instead (the three constants, and `spread()` by call) is
+exactly what this file depends on, and it already holds.
+
+### 11.8 This is not a generation version bump
+
+§10.6's argument, unchanged. `BiomeClassifier` adds a new consumer: it changes no constant,
+no hash and no existing field, it appends no salt, and every pinned signature below it —
+`ElevationField` `0babd0a337dd7cab`, `ErosionPass` `cc4f0f5ecb8fa581`, `TerracePass`
+`2af464f70e43590a`, `TemperatureField` `fb91406f3e801b7f`, `HumidityField`
+`76802ec9aa907fee` — is untouched and still asserted. It pins one of its own,
+`33a42963660cb452`, over `GenerationFixtures.columns()` on the `typed` world. No world has
+ever had a voxel written from any of this. `GENERATION_VERSION` stays where it is.
+
+Its own five thresholds join the pinned set from here on: they are part of every world made
+with them, so retuning one once a world exists is a version bump, not a tuning knob (§2.1).
+
+### 11.9 Out of scope for this brick
+
+- **The biome catalog.** Brick 067. This file names six biomes and describes none of them.
+- **Per-biome content** — surface blocks, vegetation, spawns. Bricks 068–073, 075–076,
+  086–088.
+- **Biome transition blending.** Brick 074, which is what §11.5's slivers are for.
+- **A coastal or aquatic biome.** §11.6; it waits for the waterline (080).
+- **Altitude, and a snowline.** Bricks 072 and 085.
+- **Caves.** Bricks 077–078. A cave is currently in the biome of the column above it.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`.

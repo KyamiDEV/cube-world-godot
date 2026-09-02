@@ -12,9 +12,15 @@
 - Reference repo: `reference/CubeWorld-Reversal` (local, gitignored, `.gdignore`d). Read so
   far: the class-mapping pass of 021–028, plus targeted full reads for 058
   (`region-coordinate-hashing.md`), 060 (`terrain-value-noise.md`), 061
-  (`terrain-base-height-field.md`) and 064 (`terrain-climate-blend.md`, re-read by 065 and unchanged in its claims).
+  (`terrain-base-height-field.md`) and 064 (`terrain-climate-blend.md`, re-read by
+  065 and unchanged in its claims).
   `docs/reference/traceability.md` is the index.
-- Git: **no repository in this working copy** — `git rev-parse` reports "not a git repository" as of brick 065, so the per-brick commit and the `git diff` review of `CLAUDE.md` §5 could not run. Intended state is `main`, one commit per brick; restoring or re-initialising it is a decision for the user, not for a brick
+- Git: `main`, one commit per brick — **from brick 066 onward**. The repository was
+  re-initialised after brick 065 (`81100f7`, root commit): this working copy had no
+  `.git` and never had one, so bricks 001–065 are a single baseline commit rather than
+  65, and their per-brick history is gone. `reference/` and `.godot/` are untracked by
+  `.gitignore`; the `reference/` exclusion is `CLAUDE.md` §16's IP discipline, so it
+  stays untracked
 - Godot AI MCP: failed to connect this session (`CONNECTION_CLOSED`); not needed so far
 
 ## Current phase / milestone / task
@@ -23,32 +29,38 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–065 done, 066–090 open)
-- Next task `066 — Create biome classifier` (dep: 061 — DONE). Both climate axes now exist
-  (`TemperatureField` 064, `HumidityField` 065) and are **measurably independent**, so the
-  world really does have a populated climate *square* rather than a line through it —
-  `docs/world-generation.md` §10.3 has the 4×4 joint coverage 066 is entitled to rely on.
-  066 also has `ErosionPass.ruggedness_noise_at()`, which 062 left public and unsquared for
-  exactly that. Four things to carry in: **(a)** a classifier returns an **id**, not a
-  float, so `range_reason()` does not apply to it and `signature()`'s type-strict digest
-  does; **(b)** 063's finding about `variation_reason()` thresholds on the deliberately
-  nearby fixture columns (§8.4); **(c)** measure at climate scale — 065's finding, §10.4:
-  the 4093-voxel sweep the relief tests use resolves a 16384-voxel field only ~144 times
-  and its numbers move more than what they measure. Both climate test files now use a
-  64×64 sweep at spacing `16381` from `−524192`, on all four fixture worlds; a biome
-  classifier is a climate consumer and belongs on the same instrument; **(d)** 066 is the
-  brick entitled to decide whether the two climate axes get factored into a shared base
-  class (§10.5 states exactly what is coupled today and what is not) — and whether coastal
-  wetness or a rain shadow gets added *on top of* two independent axes rather than baked
-  into one (§10.1 decision 2, §10.7). **The world still has no generated content**: a
-  change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned constants in
-  `Continentalness`, `ElevationField`, `ErosionPass`, `TerracePass`, `TemperatureField` or
-  `HumidityField` is a generation version bump (`docs/rng.md` §3,
-  `docs/world-generation.md` §2.1), not a free fix. Both free fixes were taken (058, 059).
+- Phase `D — World generation` — **IN PROGRESS** (056–066 done, 067–090 open)
+- Next task `067 — Define baseline biome catalog` (deps: 065, 066 — both DONE). 066 closed
+  the classification half: `BiomeClassifier` names **six** stable ids
+  (`biome.mountain`, `biome.snow`, `biome.desert`, `biome.wetland`, `biome.forest`,
+  `biome.grassland`), guarantees one per column, and measures each at `0.14 .. 0.21` of the
+  world on every seed (`docs/world-generation.md` §11.4). 067 owns the *records* behind
+  those ids, not the ids: `BiomeClassifier.IDS` is the closed set and
+  `BiomeClassifier.is_biome_id()` is what a catalog validates against, so 067's job is to
+  assert it covers exactly that set rather than to redefine it. Five things to carry in:
+  **(a)** the project already has a catalog pattern — `core/ids/definition_registry.gd`
+  plus `Resource` definitions in `data/` written by a `tools/generators/` script, which is
+  how `BlockSet` (038) works; 067 is the brick entitled to decide whether biomes reuse it
+  or stay a plain table, and the answer probably follows how much per-biome data 068–073
+  actually need; **(b)** 067 decides *what a biome record holds*, and most of the tempting
+  fields belong to later bricks — surface/subsurface materials are 075–076, decoration and
+  scatter are 086–088, spawns are 095/106–107; a record with a field nothing fills is worse
+  than a record that grows; **(c)** do **not** invent `biome.coast` or an aquatic id: §11.6
+  refused it deliberately and it waits for the waterline (080); **(d)** a classifier's
+  tests are not a field's — `range_reason()` does not apply to an id and
+  `variation_reason()` on the fixture columns is **2** (§11.5, and 063's §8.4 one level
+  worse), so a catalog test measures on the climate-scale sweep or not at all; **(e)**
+  every open question 065 handed 066 is now closed with a reason (no shared climate base
+  class, no coastal wetness — §11.7, §11.6), so nothing is left hanging into 067. **The
+  world still has no generated content**: a change to `WorldHash`, `GenerationHash`,
+  `ValueNoise`, or the pinned constants in `Continentalness`, `ElevationField`,
+  `ErosionPass`, `TerracePass`, `TemperatureField`, `HumidityField` or now
+  `BiomeClassifier` is a generation version bump (`docs/rng.md` §3,
+  `docs/world-generation.md` §2.1), not a free fix.
 
 ## Completed bricks
 
-`001`–`065`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`066`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -64,7 +76,115 @@ baseline voxel performance budget). **Phase C complete — milestone M002 exit c
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
-064 temperature field, 065 humidity field.
+064 temperature field, 065 humidity field, 066 biome classifier.
+
+`066` is the first brick whose answer is an **id**, and the first consumer of both climate
+axes: `world/biomes/biome_classifier.gd` (`BiomeClassifier`), one new file in a directory
+that had only a `.gitkeep`, **no** change to any existing file, no new salt, no new noise
+layer, no constant touched anywhere below it.
+
+The whole classifier is a six-line decision list over three `[0, 1]` inputs:
+
+```text
+ruggedness >= 1/sqrt(2)   -> biome.mountain     # relief outranks climate
+temperature < 0.2         -> biome.snow         # cold outranks dry and wet
+humidity    < 0.2         -> biome.desert
+humidity   >= 0.8         -> biome.wetland
+humidity   >= 0.5         -> biome.forest
+otherwise                 -> biome.grassland
+```
+
+Seven things worth keeping:
+
+1. **Three of the five thresholds are the reference's own literals, and that was the
+   cheapest good decision available.** `terrain-climate-blend.md` claim 5 records the
+   original reading climate on a bare `[0, 1]` scale against `< 0.2` and `> 0.8`. We cannot
+   reuse its *mechanism* — 064 spent a full reference read establishing that it blends
+   stored per-region values — but the **scale** it reads on is exactly ours, so its idea of
+   "cold" and "very wet" transfers. `HUMIDITY_ARID` is written as `1 - HUMIDITY_WETLAND`
+   rather than as `0.2`, so the two ends of the axis cannot drift apart. This is the note's
+   one *convergence* rather than a divergence, and it is now a row in its §8 and two rows
+   in its §9.
+2. **`RUGGEDNESS_MOUNTAIN` is derived, not picked.** `1/sqrt(2)` is where
+   `ErosionPass.ruggedness_weight()` reaches the middle of its own range, so rule 1 reads
+   "a column that keeps more than half the relief in the world is a mountain" — a claim
+   about ground rather than about a noise value, and one that moves with `ErosionPass` if
+   that pass is retuned. The test asserts the *identity*, not the number. It reads the raw
+   unsquared layer 062 deliberately left public; squaring is monotone, so the partition is
+   the same and the number stays on the scale it is quoted on.
+3. **The evenness of the result was not aimed at, and it is the measurement of the brick.**
+   Over the climate-scale sweep on 12 seeds: snow `0.1941 .. 0.2102`, grassland
+   `0.1597 .. 0.1775`, forest `0.1572 .. 0.1775`, desert `0.1465 .. 0.1628`, wetland
+   `0.1479 .. 0.1589`, mountain `0.1426 .. 0.1616` — against an even sixth, `0.1667`. Six
+   rules land within a factor of `1.5` of each other with no constant chosen for balance,
+   because `spread()` already leaves each climate axis with about a quarter of the world
+   below `0.2` and a quarter above `0.8` (§10.2), so `0.2 / 0.5 / 0.8` quarters an axis.
+   Test bands `[0.12, 0.24]`, on all four fixture worlds.
+4. **The order of the rules carries as much as the numbers.** Relief above climate (a
+   mountain is a mountain in any weather — the one input visible from a distance); cold
+   above dry and wet (cold-dry is tundra, cold-wet is taiga, and with six biomes both are
+   `biome.snow`). Both are asserted across a whole axis rather than at a point, so a
+   re-ordering fails before it becomes a map with no mountains in the cold half.
+5. **A classifier owes different tests from a field.** `range_reason()` has no meaning —
+   there is no range — and `test_answers_only_with_ids_it_declares` replaces it, checking
+   `typeof() == TYPE_STRING` as well as membership, because a classifier that started
+   answering with an index would pass a naive `IDS.has()` on nothing at all. `signature()`
+   still applies and is type-strict: pinned at `33a42963660cb452`. `variation_reason()` is
+   **2**, not 8 — 063's §8.4 finding one level worse, since the fixture columns sit inside
+   about one 16384-voxel climate cell; the world-scale claim is item 3 above.
+   `classify()` being static and pure is what lets totality, rule order and the half-open
+   boundary convention be asserted exhaustively over a 21³ grid of the unit cube with no
+   world attached.
+6. **Both decisions `nextsteps` handed 066 were answered "no", and both now have reasons
+   rather than deferrals.** *Base class for the two climate axes* (§10.5's question): no —
+   the first consumer reads them **by name**, not by iteration, and treats them
+   asymmetrically (one cut on temperature, three on humidity, and an order between them),
+   so a common type buys nothing at the only call site there is. *Coastal wetness* (§10.1
+   decision 2): declined here too, for a reason of 066's own — a coast is a place you can
+   only see once there is water in it, and the waterline is brick 080; a `biome.coast`
+   drawn on continentalness alone would put a boundary where nothing on the ground changes.
+   A fourth input is one rule and one field whenever 074 or 080 wants it.
+7. **The slivers are real and the test says so.** On the 800 km line: 123–131 runs, mean
+   run **3.05 – 3.25 km**, all six biomes present on every fixture world's line — but the
+   shortest run is `0.025 – 0.125 km`. A threshold on a continuous field always grazes a
+   boundary somewhere and no constants remove that, so the test asserts the **mean**; a
+   minimum-run assertion would test where the line happens to be. That measurement is what
+   brick 074 inherits. `minimum_climate_band_voxels()` is the derived floor on the
+   *climatic* boundaries only — `1048` voxels = **524 m** — and explicitly not a promise
+   about the map, since the mountain rule reads a field eight times finer.
+
+One naming deviation, deliberate: the field accessors are `temperature_field()`,
+`humidity_field()`, `erosion_pass()`, where `ErosionPass.elevation()` and
+`TerracePass.erosion()` are bare nouns. In this file `temperature` and `humidity` are the
+names of `classify()`'s **values**, and a bare accessor shadows them — a warning under
+warnings-as-errors and a confusing read regardless.
+
+**Not a generation version bump** (§11.8): a new consumer that changes no constant, no hash
+and no existing field, appends no salt, and leaves every pinned signature below it
+(`0babd0a337dd7cab`, `cc4f0f5ecb8fa581`, `2af464f70e43590a`, `fb91406f3e801b7f`,
+`76802ec9aa907fee`) untouched and still asserted. Its own five thresholds join the pinned
+set from here on.
+
+Docs: `docs/world-generation.md` §11 (new, nine subsections);
+`docs/reference/terrain-climate-blend.md` §1 scope, §8 (two new rows: the taken literals,
+and the region-site classification we do not copy), §9 (five new test rows), header rows;
+`traceability.md` §2's `064–067` row; `docs/README.md`.
+
+Tests: `tests/unit/test_biome_classifier.gd` (new, 29 tests, ~10000 assertions). Full
+suite: `files=43 tests=579 assertions=93731 failed=0`. `check.ps1` OK (89 scripts).
+
+**Two tooling notes from this session, both cost time:**
+
+- A new `class_name` is invisible to `godot --script` probes until the project is
+  re-imported. `tools\scripts\test.ps1` does this itself (`Update-ClassCache`); a bare
+  `godot --headless --script …` does not. Run `godot --headless --import` first, or the
+  probe fails with `Identifier "X" not declared in the current scope` and then **hangs**
+  rather than exiting.
+- Invoking `tools\scripts\*.ps1` through a non-interactive PowerShell wrapper failed with
+  `Impossible d'extraire la variable $LASTEXITCODE` and swallowed the engine's output.
+  Calling the engine binary from `docs/environment.md` directly worked for every step
+  (`--import`, `--script res://tools/probe/check_scripts.gd`,
+  `--script res://tests/run_tests.gd`).
 
 `065` is 064's mirror and the second **climate** axis:
 `world/generation/humidity_field.gd` (`HumidityField`), one new file, salt
@@ -160,11 +280,16 @@ tests moved to the climate-scale sweep and to all four worlds, plus a new
 `test_the_sweep_is_wide_enough_to_measure_a_climate` guard). Full suite: `files=42
 tests=550 assertions=83696 failed=0`. `check.ps1` OK (87 scripts).
 
-**Not committed: this working copy has no `.git` directory.** `git rev-parse` reports
-"not a git repository", so the per-brick commit and the `git diff` review of §5's
-end-of-task checklist could not run for 065. `nextsteps.md` still claims `Git: main, one
-commit per brick`; that claim and this working copy disagree, and re-initialising a
-repository is not a brick's decision to make.
+**065 exposed that the repository was missing, and it was re-established after the
+brick.** `git rev-parse` reported "not a git repository" and there was no `.git`
+anywhere — not in the project, not in any parent — so the per-brick commit and the
+`git diff` review of `CLAUDE.md` §5 could not run for 065. Only the tracked-file
+markers had survived (`.gitignore`, `.gitattributes`, the `.gitkeep` placeholders),
+which is what a zip download leaves behind. Nothing was recoverable, so the history
+was **not** reconstructed: `git init -b main` plus one baseline commit (`81100f7`)
+carrying the on-disk state after 065. Bricks 001–065 are that one commit; the one-commit-
+per-brick convention resumes at 066. `reference/` stayed untracked on §16's IP
+discipline, and `.godot/` on `.gitignore`.
 
 `064` is the first **climate** field and the first brick since 061 to open the reference
 tree: `world/generation/temperature_field.gd` (`TemperatureField`), one new file, **no**
@@ -1887,7 +2012,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 064): `check.ps1` **OK** (85 scripts compiled) · `test.ps1` **OK** — 41 files, 521 tests, 83 195 assertions, 0 failed.
+Last run (brick 065): `check.ps1` **OK** (87 scripts compiled) · `test.ps1` **OK** — 42 files, 550 tests, 83 696 assertions, 0 failed.
 
 ## What exists now
 
@@ -1971,11 +2096,11 @@ Last run (brick 064): `check.ps1` **OK** (85 scripts compiled) · `test.ps1` **O
    `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
    Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
    stays empty until something is expensive enough to measure.
-1b. **This working copy is not a git repository.** `git rev-parse` reports "not a git
-   repository" and there is no `.git` directory, so brick 065 could not be committed and
-   `CLAUDE.md` §5's `git diff` review could not run. Bricks 001–065 are on disk only.
-   Restoring the repository (or `git init` + an initial commit) is the user's call and
-   should happen before the next brick, so 066 lands as a commit again.
+1b. Git, **resolved after 065**: the repository is re-established on `main` with a
+   single baseline commit `81100f7` covering bricks 001–065, because no history
+   existed in this working copy to restore. Brick 066 is the first brick to land as
+   its own commit. Nothing further is owed here — no remote is configured, and adding
+   one is the user's call.
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

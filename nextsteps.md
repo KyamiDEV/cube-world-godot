@@ -36,21 +36,27 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–089 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 090 open)
-- Next task `090 — Implement structure placement constraints`, dep `089` in `backlog.md`,
-  now DONE. 089 selects **one `StructureSeed` per region** (anchor column + owned sub-seed);
-  090 is where a structure is actually allowed or refused at that anchor — the presence
-  roll, slope/water/biome suitability, spacing to the next structure, and the falloff
-  weighting `matrix-world.md` §2 records (`World::objectFalloffWeight`, `World::falloffSquared`,
-  `World::findNearestFeatureCell`, `World_featureCountRange`, `World_featureTier`). Still not
-  a generation version bump until 091's `VoxelGenerator` writes a `VoxelBuffer`
-  (`docs/world-generation.md` §28.6). `VoxelGeneratorMultipassCB` (1.7) is the route for a
-  structure spanning chunks — 091+, not 090.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–090 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1)). **Phase D is complete** — 090 is the
+  last Phase D row; 091 opens Phase E.
+- Next task `091 — Implement initial structure generator`, dep `090` in `backlog.md`, now
+  DONE. **This is the first `HUMAN_REQUIRED` brick** and the first `VoxelGenerator`/
+  `VoxelBuffer` write in the project — the "first voxel written" boundary every Phase D
+  brick since 062 has named. Reading it pins as generation inputs: `WorldSeed`/version
+  handling aside, every constant and salt `SurfaceMaterial` (§14.4), `StructureSeedField`
+  (§28.6) and `StructurePlacement` (§29.7) named — `SALT_STRUCTURES`, the 089 draw order,
+  the 512 m region pitch, `PRESENCE_CHANCE`, `MIN_STRUCTURE_SPACING_VOXELS`, the slope
+  thresholds, the `"structure.placement.presence"` fork key. 091 reads
+  `StructurePlacement.for_world(hash, biomes, blocks).seed_at(region)` — non-null means a
+  structure stands there; `.anchor_column` is where, `.rng()` is the owned stream for its
+  kind/rotation/size. `VoxelGeneratorMultipassCB` (1.7) is the route for a structure
+  spanning chunks. The `objectFalloffWeight` relief flattening under a placed structure is
+  091's (`docs/world-generation.md` §29.3/§29.8), joining `ErosionPass`'s product as one
+  more `[0, 1]` factor (§7.1).
 
 ## Completed bricks
 
-`001`–`067`, `074`–`089`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`090`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -74,7 +80,60 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
 model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules, 085 snowline
 rules, 086 natural decoration masks, 087 tree spawn masks, 088 rock/prop spawn masks,
-089 deterministic structure seed selection (068–073 folded — see below).
+089 deterministic structure seed selection, 090 structure placement constraints
+(068–073 folded — see below). **Phase D complete.**
+
+`090` is one new file, `world/structures/structure_placement.gd` (`StructurePlacement`),
+composing `StructureSeedField` (089), `DecorationMask` (086) and `TerracePass` (063) into a
+single `is_placed_at(region) -> bool` over four gates, plus `seed_at(region)` — the 089
+record returned only where a structure is real. No new file for a value record (091 reads
+089's `StructureSeed` directly), no `BiomeDefinition` field, no new salt, no `data/` change.
+
+The four gates and the reference function each stands in for (`matrix-world.md` §2, MEDIUM,
+no helper body opened):
+
+1. **presence** (`World_featureCountRange`/`featureTier`) — 089's one candidate kept with
+   `PRESENCE_CHANCE` (0.4), rolled from `StructureSeed.rng().derive_named(
+   "structure.placement.presence")` — a fork of 089's owned sub-seed, so 089's region
+   stream stays at exactly 3 draws (§28.4) and 091's `rng()` is byte-identical whether or
+   not 090 rolled. `test_the_presence_roll_leaves_089_streams_untouched` pins it.
+2. **eligible** — `DecorationMask.is_eligible_at(anchor)`: the identical wet/shoreline
+   exclusion 087/088 reuse. Adds nothing.
+3. **slope** — `TerracePass.surface_y()` at the anchor and 8 points 16 voxels out (a 16 m
+   pad) must span ≤ one terrace (8 voxels). The *inverse* of `objectFalloffWeight` (which
+   flattens near a structure — deferred to 091, §29.3). No footprint assumed (090 has none).
+4. **spacing** (`findNearestFeatureCell`/`falloffSquared`) — refused when a higher-ranked
+   candidate in one of the 8 Moore-neighbour regions clears gates 1–3 within
+   `MIN_STRUCTURE_SPACING_VOXELS` (768 voxels = 384 m). Rank = `structure_seed` unsigned,
+   region coords as tiebreak — a total order, no visit-order dependence. The neighbour test
+   consults gates 1–3 only (never gate 4), so **no recursion**. Because 768 < `REGION_SIZE`
+   (1024) and two anchors two regions apart are ≥ 1025 voxels apart, the guarantee is
+   **world-wide**: no two placed structures are ever within 384 m. `self_check()` asserts
+   the `< REGION_SIZE` bound.
+
+**Biome suitability is deliberately not a biome-record read** — the same call 087 (§26.6)
+and 088 (§27.3) made about ruggedness: a lake is refused by gate 2, a rugged mountainside by
+gate 3, and a `BiomeDefinition.hosts_structures` flag nothing else reads would be the
+"record grows, nothing reads it" shape 067 named five times and 068–073 were folded to
+avoid. `docs/world-generation.md` §29.4.
+
+Measured (1600-region sweep, `typed`): presence keeps 0.400, eligibility 0.541, the slope
+gate 0.996 (the erosion pass makes flat the default, §7.2 — the gate is decisive only at the
+~0.4% of anchors on a genuine step; kept for those and a future retune), gates 2+3 together
+0.539, **placed 0.182** — one structure roughly every 1.35 km, a landmark density.
+
+Not a generation version bump: no world has ever had a voxel written; no new salt, no new
+`GenerationHash.Space`. `PRESENCE_CHANCE`, the probe/relief/spacing constants, the priority
+order and the fork key all become pinned generation inputs the moment 091's `VoxelGenerator`
+reads `is_placed_at()`. `docs/world-generation.md` §29.7.
+
+Docs: `docs/world-generation.md` §29 (new, eight subsections); `docs/reference/
+traceability.md` — the 089–090 row updated to "both halves done". Tests:
+`tests/unit/test_structure_placement.gd` (new, 19 tests; golden `is_placed_at` signature
+over `GenerationFixtures.regions()` on `typed`: `b9ad87009d76e75b`). A scratch measurement
+file was used to pin the §29.6 fractions, then deleted (087/088 precedent). Full suite:
+`files=64 tests=958 assertions=142073 failed=0`. Compile probe OK (134 scripts). Headless
+boot OK.
 
 `089` is the `DecorationMask` cell-and-hash mechanism one grid coarser: two new files under
 `world/structures/` — `structure_seed.gd` (`StructureSeed`, a value record: `region`,

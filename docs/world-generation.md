@@ -3756,3 +3756,116 @@ all become pinned generation inputs the moment brick 091's `VoxelGenerator` read
 - **More than one candidate per region.** If 090/091 need a finer grid, they subdivide it
   deterministically from `structure_seed`; this brick fixes the region-scale seed only.
 - **A `VoxelGenerator` write, or any voxel touched at all.**
+
+## 29. Structure placement constraints (brick 090)
+
+Implementation: `world/structures/structure_placement.gd` (`StructurePlacement`).
+Tests: `tests/unit/test_structure_placement.gd`.
+Reference: `docs/reference/matrix-world.md` §2 (`World_featureCountRange`, `World_featureTier`,
+`World::findNearestFeatureCell`, `World::objectFalloffWeight`, `World::falloffSquared`),
+`docs/reference/terrain-base-height-field.md` §3 claim 6. Confidence MEDIUM — no helper
+body was opened; the shapes are `matrix-world.md` §2's one-line index.
+
+`StructureSeedField` (089) reserves exactly one `StructureSeed` per in-world region and
+answers nothing about whether a structure stands there. This brick is that answer, a single
+`is_placed_at(region) -> bool` over four gates, plus `seed_at(region)` — the 089 record,
+returned only where a structure is real.
+
+```text
+is_placed_at(region) = passes_presence_roll_at(region)      -- 1. presence
+                        and is_ground_suitable_at(region)     -- 2. eligible + 3. slope
+                        and has_clearance_at(region)          -- 4. spacing
+```
+
+### 29.1 The presence roll forks the candidate's own stream
+
+`World_featureCountRange` / `World_featureTier` gave a region *0..N* features; 089 gives one
+candidate, and 090 keeps it with probability `PRESENCE_CHANCE` (0.4). The roll is drawn from
+`StructureSeed.rng().derive_named("structure.placement.presence")` — a fork of 089's owned
+64-bit sub-seed, **not** a draw from the region hash stream and **not** a new `WorldHash`
+salt. So 089's anchor/sub-seed and 091's `rng()` read byte-identically whether or not 090
+has rolled: `test_the_presence_roll_leaves_089_streams_untouched` pins it. A per-region
+*count range* (more than one structure per region) is 091+/subdivision territory, §28.7.
+
+### 29.2 Eligible ground reuses `DecorationMask`, adds nothing
+
+Gate 2 is `DecorationMask.is_eligible_at(anchor_column)` (086): not wet, not the beach edge
+of water — the identical exclusion trees (087) and rocks (088) already reuse. A structure
+does not stand in a lake or on a shoreline, and this brick has no more business re-deciding
+that than `TreeMask` did.
+
+### 29.3 The slope gate refuses steep ground; it does not flatten it
+
+Gate 3 probes `TerracePass.surface_y()` at the anchor and the eight points
+`SITE_PROBE_RADIUS_VOXELS` (16 voxels = 8 m) out — a 16 m pad — and refuses the anchor when
+that surface spans more than `MAX_SITE_RELIEF_VOXELS` (one terrace, 8 voxels). This is the
+*inverse* of `World::objectFalloffWeight`, which flattens relief *near* a placed structure:
+090 refuses ground too steep to build on, and the flattening `objectFalloffWeight` /
+§7.1's "structure falloff" describes is deferred to 091, when a placed structure exists to
+flatten ground for (§28.7). The pad is deliberately not "the structure's footprint" — 090
+has no footprint — but the immediate ground any structure has to sit level on.
+
+### 29.4 Biome suitability is not a biome-record read
+
+`nextsteps.md` names "slope/water/**biome** suitability" for 090, but this file reads no
+`BiomeDefinition` and adds no field to one — the same call `TreeMask` (§26.6) and `RockMask`
+(§27.3) made about ruggedness. A genuinely unbuildable place is already refused upstream: a
+lake by gate 2, a rugged mountainside by gate 3 (and a rugged column classifies to
+`biome.mountain` at the classifier, §11.1). A `BiomeDefinition.hosts_structures` flag
+nothing else reads would be the "record grows, nothing reads it" shape §12.3/§14.6/§15.2/
+§16.7/§23.2 named repeatedly and bricks 068–073 were folded to avoid (§13.1). If a later
+brick finds a biome that is dry, flat *and* buildable yet should host nothing, that brick
+adds the field with its own consumer.
+
+### 29.5 The spacing rule, and why it does not recurse
+
+Gate 4 (`World::findNearestFeatureCell`, `falloffSquared`): a candidate at region `R` is
+refused when a candidate in one of the 8 Moore-neighbour regions *both* clears its own
+gates 1–3 *and* out-ranks `R` within `MIN_STRUCTURE_SPACING_VOXELS` (768 voxels = 384 m).
+Rank is the candidate's `structure_seed` compared as unsigned 64-bit, tie-broken by region
+coordinates — a total order independent of visit order. The neighbour test consults gates
+1–3 only, never gate 4, so there is no mutual recursion: of any two too-close candidates
+exactly the lower-ranked is dropped, and both regions agree which. It is a **local,
+conservative** rule (a candidate `B` that will itself be dropped by a third region `C` can
+still suppress a lower-ranked `A`), matching the reference's own local falloff rather than
+computing a global maximal set.
+
+The 8-neighbour scan is complete because `MIN_STRUCTURE_SPACING_VOXELS` (768) is below
+`GenerationGrid.REGION_SIZE_VOXELS` (1024): two anchors in regions two cells apart are at
+least `2·1024 − 1023 = 1025` voxels apart on that axis, already past the threshold. So the
+property `is_placed_at` guarantees is **world-wide**: no two placed structures are ever
+within `MIN_STRUCTURE_SPACING_VOXELS` of each other, not merely no two in adjacent regions.
+`test_no_two_placed_structures_are_within_the_minimum_spacing` checks it across the sweep;
+`self_check()` asserts the `< REGION_SIZE` bound so a later widening cannot silently outrun
+the scan.
+
+### 29.6 What the pass measures
+
+Over a 1600-region sweep on the `typed` world: the presence roll keeps **0.400** (a clean
+Bernoulli against `PRESENCE_CHANCE`), eligibility keeps **0.541**, the slope gate keeps
+**0.996** — the erosion pass makes flat the default (§7.2), so the slope gate is decisive
+only at the ~0.4% of anchors that sit on a genuine step; it is kept for those and for a
+future erosion retune. Gates 2 and 3 together keep **0.539**, and after the spacing gate
+**0.182** of regions carry a placed structure — one roughly every 1.35 km, a landmark
+density rather than scenery.
+
+### 29.7 Not a generation version bump
+
+No world has ever had a voxel written, so nothing here can contradict one. This file mixes
+no new `WorldHash` salt and no new `GenerationHash.Space`. `PRESENCE_CHANCE`,
+`SITE_PROBE_RADIUS_VOXELS`, `MAX_SITE_RELIEF_VOXELS`, `MIN_STRUCTURE_SPACING_VOXELS`, the
+neighbour priority order and the `"structure.placement.presence"` fork key all become
+pinned generation inputs the moment brick 091's `VoxelGenerator` reads `is_placed_at()` —
+the same "first `VoxelBuffer` write" boundary bricks 075–089 each named (§14.4, §28.6).
+`test_placement_signature_is_pinned` pins `is_placed_at` over `GenerationFixtures.regions()`
+so the bump asks to be made deliberately.
+
+### 29.8 Out of scope for this brick
+
+- **What a structure is** — no kind list, no footprint, no mesh, no `VoxelGenerator`.
+  Bricks 091–094.
+- **Terrace / erosion flattening under a placed structure** (`objectFalloffWeight`, §7.1's
+  "structure falloff"). Brick 091, when the structure that flattens the ground exists.
+- **More than one structure per region**, and any finer-than-region placement grid. If 091
+  needs one it subdivides `structure_seed` deterministically; 090 decides at region scale.
+- **A `VoxelGenerator` write, or any voxel touched at all.**

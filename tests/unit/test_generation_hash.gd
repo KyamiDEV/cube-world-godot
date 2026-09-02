@@ -93,7 +93,7 @@ func test_every_space_pair_is_distinct_at_the_origin() -> void:
 	for space in [GenerationHash.Space.VOXEL, GenerationHash.Space.CHUNK]:
 		seen.append(_hash.hash3_in(space, 0, 0, 0))
 	for space in [GenerationHash.Space.COLUMN, GenerationHash.Space.CHUNK_COLUMN,
-			GenerationHash.Space.REGION]:
+			GenerationHash.Space.REGION, GenerationHash.Space.DECORATION_CELL]:
 		seen.append(_hash.hash2_in(space, 0, 0))
 	var unique := {}
 	for value in seen:
@@ -204,6 +204,17 @@ func test_a_positions_stream_is_owned_by_that_position() -> void:
 	var again := _hash.rng_region(Vector2i(2, -3), WorldHash.SALT_STRUCTURES)
 	assert_eq([again.next_int(0, 999), again.next_int(0, 999), again.next_int(0, 999)],
 			drawn)
+
+
+func test_a_decoration_cells_stream_is_owned_by_that_cell() -> void:
+	var a := _hash.rng_decoration_cell(Vector2i(2, -3), WorldHash.SALT_TREES)
+	var drawn := [a.next_int(0, 999), a.next_int(0, 999)]
+
+	var neighbour := _hash.rng_decoration_cell(Vector2i(3, -3), WorldHash.SALT_TREES)
+	neighbour.next_int(0, 999)
+
+	var again := _hash.rng_decoration_cell(Vector2i(2, -3), WorldHash.SALT_TREES)
+	assert_eq([again.next_int(0, 999), again.next_int(0, 999)], drawn)
 
 
 func test_streams_at_different_spaces_and_salts_are_independent() -> void:

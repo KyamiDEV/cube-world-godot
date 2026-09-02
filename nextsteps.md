@@ -36,23 +36,25 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–085 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 086–090 open)
-- Next task `086 — Implement natural decoration masks`, dep `085` in `backlog.md`, now DONE.
-  Not yet scoped by this session beyond what `backlog.md`'s own row says. `085`'s own file
-  (`world/generation/snowline_material.gd`, `docs/world-generation.md` §24) confirmed the
-  previous session's own guess before writing any code: snowline is a single-column height/
-  temperature question, not an adjacency one, and it builds on `ShorelineMaterial` (084)
-  rather than reaching past it — read §24's class comment before assuming 086 (decoration
-  masks) needs to touch either file. One open thread `085` leaves for whoever designs
-  decoration: `is_snow_covered_at()` is a real, if narrow (7.29% of the world), boolean a
-  scatter mask could read to keep snow-capped ground bare of grass/flowers — not built here,
-  because no consumer asked for it yet, but worth checking before 086 invents its own snow
-  exclusion independently.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–086 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 087–090 open)
+- Next task `087 — Implement tree/vegetation spawn masks`, dep `086` in `backlog.md`, now
+  DONE. Not yet scoped by this session beyond what `backlog.md`'s own row says. `086`'s own
+  file (`world/generation/decoration_mask.gd`, `docs/world-generation.md` §25) built the
+  shared mechanism 087 spends its own numbers on: `DecorationMask.is_eligible_at()` (dry,
+  non-shoreline ground) and `DecorationMask.is_decoration_anchor_at(column, spacing, salt)`
+  (one deterministic candidate column per `spacing x spacing` cell). 087 should call the
+  latter with `WorldHash.SALT_TREES` (already reserved, unused until now) and its own
+  `spacing_for_density()` result — read §25.1/§25.4 before assuming a tree pass needs to
+  touch `ShorelineMaterial`/`SnowlineMaterial` directly, or needs a second scatter mechanism
+  of its own. Two open threads `086` leaves for 087 (and 088 after it): whether a snow-capped
+  column (085) should carry different decoration than bare ground, and whether steep terrain
+  (`ErosionPass.ruggedness_at()`) should exclude large props — neither was decided in 086
+  because neither had a consumer yet (§25.4/§25.8).
 
 ## Completed bricks
 
-`001`–`067`, `074`–`085`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`086`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -75,7 +77,73 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
 model, 081 rivers, 082 lakes, 083 ocean/large-water areas, 084 shoreline rules, 085 snowline
-rules (068–073 folded — see below).
+rules, 086 natural decoration masks (068–073 folded — see below).
+
+`086` is the mechanism `matrix-world.md` §2 named in advance and left at LOW confidence: one
+new file, `world/generation/decoration_mask.gd` (`DecorationMask`), plus two small additions
+to `world/generation/generation_hash.gd` (`GenerationHash`) — a new `Space.DECORATION_CELL`
+enum entry and `rng_decoration_cell(cell, salt)`. No biome, no climate grid, no specific
+decoration content: 087 (trees) and 088 (rocks) each spend their own density and candidate
+list on top of this.
+
+```text
+is_eligible_at(column)                     = not (ShorelineMaterial.is_water_at(column)
+                                                   or ShorelineMaterial.is_shoreline_at(column))
+
+spacing_for_density(density_per_column)    = max(1, round(1 / sqrt(density_per_column)))
+cell_of(column, spacing)                   = floor(column / spacing)     -- per axis
+anchor_column_in_cell(cell, spacing, salt) = the one column the cell's own RNG stream picks
+is_anchor_at(column, spacing, salt)        = anchor_column_in_cell(cell_of(column, spacing),
+                                                   spacing, salt) == column
+
+is_decoration_anchor_at(column, spacing, salt) = is_eligible_at(column)
+                                                   and is_anchor_at(column, spacing, salt)
+```
+
+Four things worth keeping:
+
+1. **The one reference function (`WorldInfo_scatterObjectsInArea`, `0x005f56c0`) describes an
+   order-dependent, distance-rejecting scatter — `CLAUDE.md` §1 forbids exactly that for world
+   generation ("never of visit order").** Its only reusable idea is the name itself: density
+   expressed as a spacing, `1 / sqrt(density)` apart. Everything else (the dart-throwing loop,
+   `vec3_distanceSquared` neighbour checks, the per-region candidate-id list gated on sampled
+   humidity/temperature) is dropped — the last one because it is a *content* decision that
+   belongs to 087/088 once they choose what a tree or a rock actually is, not to a brick that
+   reads no climate grid and owns no field.
+2. **A fixed cell grid reproduces the same density without the dart-throwing.** A cell of side
+   `spacing` covers `spacing^2` columns per candidate, i.e. density `1 / spacing^2` — the same
+   relationship the reference name implies, reached by fixing the grid instead of rejecting
+   close neighbours. `is_anchor_at()` is then an O(1), order-free query: hash the queried
+   column's own cell, ask what column that cell's stream would have picked, compare. Verified
+   both directly (`test_exactly_one_column_in_a_cell_is_an_anchor`: scanned every column of one
+   8x8 cell, found exactly one) and statistically (`test_anchor_density_matches_the_requested_
+   spacing`: a real 400x400-column patch at spacing 8 landed within 50% of the expected count).
+3. **The anchor is a two-draw position-owned stream, not a coordinate hash or a bit-split.**
+   `anchor_column_in_cell()` draws an `x` offset then a `z` offset from `GenerationHash.
+   rng_decoration_cell(cell, salt)` — `GenerationHash`'s own "structure kind, then rotation"
+   stream shape, reused rather than inventing a second way to get two independent values from
+   one coordinate. Two passes reading the same cell at different salts
+   (`WorldHash.SALT_TREES`/`SALT_PROPS`, both reserved since brick 015 and unused until now)
+   legitimately pick different anchors — checked directly, not assumed.
+4. **Eligibility is exactly `ShorelineMaterial`'s own wet-or-shoreline exclusion (084), nothing
+   more.** No ruggedness gate, no snow exclusion (085's `SnowlineMaterial` is never touched) —
+   086's backlog row asks "can decoration exist here at all", not "what kind, where", and both
+   deferrals are named as open for 087/088 rather than silently decided here.
+
+Not a generation version bump: no world has ever had a voxel written, and this brick mixes no
+new salt of its own — every call site supplies its own (`SALT_TREES`/`SALT_PROPS`). The new
+`Space.DECORATION_CELL` tag and `rng_decoration_cell()` are additions to `GenerationHash`,
+not changes to anything it already answered — every existing `GenerationHash` test still
+passes unmodified. `docs/world-generation.md` §25.7.
+
+Docs: `docs/world-generation.md` §25 (new, eight subsections).
+
+Tests: `tests/unit/test_decoration_mask.gd` (new, 24 tests, 4167 assertions — no signature
+pinning: this brick has no world-content output to pin, only a boolean mask and a coordinate
+transform); `tests/unit/test_generation_hash.gd` (+1 test,
+`test_a_decoration_cells_stream_is_owned_by_that_cell`, plus `Space.DECORATION_CELL` added to
+the existing space-distinctness sweep). Full suite: `files=59 tests=864 assertions=127630
+failed=0`. Compile probe OK (124 scripts). Headless boot OK.
 
 `085` is the combination `TemperatureField`'s (064, §9.3/§9.7) own class comment named in
 advance as belonging to someone else: one new file, `world/generation/snowline_material.gd`

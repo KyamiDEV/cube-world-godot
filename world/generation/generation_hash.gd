@@ -42,6 +42,11 @@ enum Space {
 	CHUNK = 2,
 	CHUNK_COLUMN = 3,
 	REGION = 4,
+	## A decoration scatter's own cell grid (brick 086) — `column / spacing`, floored. Its
+	## pitch is chosen per decoration pass, so a cell coordinate here shares no meaning with
+	## a `COLUMN`-space coordinate at the same numbers; the tag is what keeps them from
+	## agreeing by coincidence.
+	DECORATION_CELL = 5,
 }
 
 ## Spacing between one space's salt block and the next. Every `WorldHash.SALT_*` constant
@@ -247,3 +252,10 @@ func rng_chunk_column(chunk_column: Vector2i, salt: int = 0) -> DeterministicRng
 ## `srand()`; `docs/reference/region-coordinate-hashing.md` §9 records why this does not.
 func rng_region(region: Vector2i, salt: int = 0) -> DeterministicRng:
 	return DeterministicRng.new(hash_region(region, salt))
+
+
+## The stream a decoration scatter cell draws its anchor point from (`DecorationMask`,
+## brick 086). One cell, one stream: two decoration passes at different salts never agree
+## about where inside a shared cell their own anchor sits.
+func rng_decoration_cell(cell: Vector2i, salt: int = 0) -> DeterministicRng:
+	return DeterministicRng.new(hash2_in(Space.DECORATION_CELL, cell.x, cell.y, salt))

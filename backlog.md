@@ -122,7 +122,7 @@
 | 083 | D | Implement ocean/large-water areas | 081, 082 | Not needed by default | NO | DONE |
 | 084 | D | Implement shoreline rules | 083 | Not needed by default | NO | DONE |
 | 085 | D | Implement snowline rules | 084 | Not needed by default | NO | DONE |
-| 086 | D | Implement natural decoration masks | 085 | Not needed by default | NO | TODO |
+| 086 | D | Implement natural decoration masks | 085 | Not needed by default | NO | DONE |
 | 087 | D | Implement tree/vegetation spawn masks | 086 | Not needed by default | NO | TODO |
 | 088 | D | Implement rock/prop spawn masks | 087 | Not needed by default | NO | TODO |
 | 089 | D | Implement deterministic structure seed selection | 088 | Not needed by default | NO | TODO |

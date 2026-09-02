@@ -3343,3 +3343,138 @@ pinned generation input, the same "first `VoxelBuffer` write" boundary §14.4/§
   one layer upstream, at `biome.mountain`'s own classification.
 - **Decoration, vegetation, or any other content that would read this file.** 086–088,
   unstarted.
+
+## 25. Natural decoration masks (brick 086)
+
+Implementation: `world/generation/decoration_mask.gd` (`DecorationMask`).
+Tests: `tests/unit/test_decoration_mask.gd`.
+Reference: one real hit, `WorldInfo_scatterObjectsInArea` (`0x005f56c0`) — see §25.6.
+
+`matrix-world.md` §2 places "`WorldInfo` decoration/object scatter" here, confidence LOW: the
+only reference evidence is a single decompiled function that samples humidity/temperature at
+a point and then scatters candidate object ids "using sqrt spacing" and a distance-checked
+placement helper. This brick is the mechanism 087 (trees) and 088 (rocks) will each spend
+their own density and content list on — not a tree, not a rock, and no biome read anywhere in
+it.
+
+```text
+is_eligible_at(column)                    = not (ShorelineMaterial.is_water_at(column)
+                                                  or ShorelineMaterial.is_shoreline_at(column))
+
+spacing_for_density(density_per_column)   = max(1, round(1 / sqrt(density_per_column)))
+cell_of(column, spacing)                  = floor(column / spacing)     -- per axis
+anchor_column_in_cell(cell, spacing, salt) = the one column the cell's own RNG stream picks
+is_anchor_at(column, spacing, salt)        = anchor_column_in_cell(cell_of(column, spacing),
+                                                  spacing, salt) == column
+
+is_decoration_anchor_at(column, spacing, salt) = is_eligible_at(column)
+                                                  and is_anchor_at(column, spacing, salt)
+```
+
+### 25.1 Two questions, kept apart on purpose
+
+Eligibility ("can anything stand here at all") and anchoring ("is this column a candidate
+point at this density") are two different methods rather than one combined check, because
+087 and 088 each need only one of them extended: a tree pass might additionally exclude bare
+rock, a rock pass might additionally *prefer* it, but both agree on the water/shoreline
+exclusion. Folding both into one method would force every future exception through the same
+function; keeping them apart means `is_eligible_at()` never has to know about spacing, and
+`is_anchor_at()` never has to know about ground. `is_decoration_anchor_at()` is the
+convenience combination for a caller that wants both at once — 087/088's own entry point,
+not a third independent concept.
+
+### 25.2 "Sqrt spacing" without the dart-throwing
+
+The reference name (and the audit's "distance checks" note against
+`vec3_distanceSquared`) describes a Poisson-disc-style algorithm: throw a candidate,
+measure its distance to every point already placed, keep it only if nothing is closer than
+the target spacing. That result depends on the order candidates are considered, which
+`CLAUDE.md` §1 forbids for world generation — a chunk must generate identically whichever
+side a player walks in from, and an order-dependent scatter cannot promise that without
+also fixing a visit order, which would make chunk generation depend on a chunk that has not
+been visited yet.
+
+This brick reaches the same density a different way: fix a `spacing x spacing` grid and let
+each cell own exactly one candidate column, chosen by hashing the cell
+(`GenerationHash.rng_decoration_cell()`, a new `Space.DECORATION_CELL` entry alongside
+`VOXEL`/`COLUMN`/`CHUNK`/`CHUNK_COLUMN`/`REGION`). A cell of side `spacing` covers
+`spacing^2` columns per candidate, i.e. a density of `1 / spacing^2` — the same relationship
+`spacing = 1 / sqrt(density)` the reference name implies — reached by fixing the grid
+instead of rejecting close neighbours. `is_anchor_at()` is then an O(1), order-free query:
+compute the queried column's own cell, ask that cell's stream which column it would have
+picked, and compare.
+
+### 25.3 The anchor is a two-draw position-owned stream, not a coordinate hash
+
+`anchor_column_in_cell()` draws an `x` offset and then a `z` offset from
+`GenerationHash.rng_decoration_cell(cell, salt)` — the same "position-owned stream" shape
+`GenerationHash`'s own class comment describes for a structure's kind, then its rotation,
+rather than splitting one hash's bits or calling `value01_2_in()` twice with swapped
+arguments (a shape this project has no other precedent for). Two different decoration
+passes reading the same cell at two different salts (`WorldHash.SALT_TREES`,
+`WorldHash.SALT_PROPS`) draw from two independent streams and can legitimately pick two
+different anchor columns inside the same cell — verified directly rather than assumed
+(`test_a_different_salt_picks_a_different_anchor_stream`).
+
+### 25.4 Eligibility reuses `ShorelineMaterial`, adds nothing else
+
+`is_eligible_at()` is exactly `ShorelineMaterial`'s own wet-or-shoreline exclusion
+(084) — no new noise layer, no ruggedness gate, no snow exclusion. Two things this brick
+deliberately leaves for 087/088 rather than deciding here: whether a snow-capped column
+(085) should carry different decoration than bare ground, and whether steep terrain
+(`ErosionPass.ruggedness_at()`) should exclude large props — neither has a consumer yet, and
+086's backlog row asks only "can decoration exist here at all", not "what kind, where".
+
+### 25.5 What the measurement found
+
+Over a real 400x400-column patch (`test_anchor_density_matches_the_requested_spacing`), a
+spacing of 8 columns (density `1/64`) produced an anchor count within 50% of the
+`side^2 / spacing^2` expectation — banded rather than pinned, `SnowlineMaterial`'s own
+precedent for a measured property. Scanning every column of one 8x8 cell directly
+(`test_exactly_one_column_in_a_cell_is_an_anchor`) confirmed the exact invariant the banded
+sweep can only approximate: precisely one anchor per cell, never zero, never two.
+
+### 25.6 Reference: one function, low confidence, kept only for its name
+
+`GAP_ANALYSIS.md` lists exactly one relevant function, `WorldInfo_scatterObjectsInArea`
+(`0x005f56c0`, confidence `med` in the audit, but the concept itself is `matrix-world.md`
+§2's own LOW — a single decompiled function is not enough to reconstruct a placement
+algorithm with confidence). Reading its body
+(`reference/CubeWorld-Reversal/cube/world/WorldInfo.cpp:7213`) shows it sampling
+`GameController_sampleHumidityGrid`/`sampleTemperatureGrid` at the point, then building a
+per-region candidate object-id list gated on those readings before calling
+`World_placeObjectWithSpacing`. Two things kept, one dropped:
+
+- **Kept:** "sqrt spacing" as the density-to-spacing relationship — §25.2.
+- **Kept:** decoration density as a function of climate is a real reference idea, but it is
+  the *content* question (which object ids are candidates at this humidity/temperature),
+  which belongs to 087/088 once they choose what a tree or a rock actually is — not to a
+  brick that owns no field on `BiomeDefinition` and reads no climate grid.
+- **Dropped:** the order-dependent, distance-rejecting placement loop itself — §25.2's own
+  reasoning.
+
+### 25.7 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `DecorationMask` adds one new
+`GenerationHash.Space` entry (`DECORATION_CELL`) and one new hash-space tag, but mixes no
+new salt of its own — every call site supplies its own (`WorldHash.SALT_TREES`,
+`WorldHash.SALT_PROPS`, both already reserved since brick 015 and unused until now). The
+moment 087 or 088 calls `is_decoration_anchor_at()` to decide whether a `VoxelGenerator`
+places a tree or a rock, `spacing` and `salt` become pinned generation inputs, the same
+"first `VoxelBuffer` write" boundary every material brick since 076 has named.
+
+### 25.8 Out of scope for this brick
+
+- **Any specific decoration content — trees, rocks, grass, flowers.** 087 and 088, both
+  unstarted; this brick places no object of any kind, only a mask.
+- **A climate- or biome-aware candidate list.** §25.6's own dropped/kept split: the
+  reference's per-region object-id list is a content decision, deferred to whichever brick
+  first needs one.
+- **A minimum-distance guarantee between two different decoration passes' own anchors** (a
+  tree anchor and a rock anchor can legally land on the same column, or adjacent ones).
+  Cross-pass exclusion, if it turns out to matter visually, is 087/088's own problem to
+  solve once both exist to conflict.
+- **Reading `SnowlineMaterial` or `ErosionPass.ruggedness_at()`.** §25.4's own deferral.
+- **A `VoxelGenerator` write, or any voxel touched at all.** Still nothing in the project
+  writes a voxel; this brick only decides which columns are candidates.

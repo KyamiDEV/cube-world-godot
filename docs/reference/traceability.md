@@ -226,7 +226,10 @@ matrix level). Two different reasons cover almost all of it:
   no generation mechanism near it; `docs/world-generation.md` §16.5), brick 078 (cave
   carving — the same absence applies unchanged: clipping a hollow field to underground
   ground has nothing to diverge from either, since 077 already found no carving mechanism
-  in the reference at all; `docs/world-generation.md` §17), and most of
+  in the reference at all; `docs/world-generation.md` §17), brick 079 (underground material
+  rules — the same absence a sixth time: combining a carving clip with a material selection
+  has nothing to diverge from when the reference has neither mechanism on its own;
+  `docs/world-generation.md` §18.6), and most of
   Phase L (257–266,
   profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148

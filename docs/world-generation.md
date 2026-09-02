@@ -2345,3 +2345,105 @@ surface, proving the clip is load-bearing rather than a pass-through.
 - **Writing to a `VoxelBuffer`.** Still no `VoxelGenerator` anywhere in the project; this
   file answers a question a future one will ask.
 - **Retuning the cave shape or threshold.** `CaveMask`'s job, unchanged by this brick.
+
+## 18. Underground material rules (brick 079)
+
+Implementation: `world/generation/underground_material.gd` (`UndergroundMaterial`).
+Tests: `tests/unit/test_underground_material.gd`.
+Reference: none — §16.5's finding applies unchanged; there is no carving mechanism and no
+discrete material system in either binary to combine one with.
+
+§17.4 named this brick's job in advance: combine `CaveCarving`'s bool with
+`SubsurfaceMaterial`'s block id into whatever a non-hollow underground voxel is actually
+made of.
+
+```text
+UndergroundMaterial.block_id_at_voxel(voxel) -> String
+        |
+        +-- CaveCarving.is_hollow_at(voxel)   -> ""   (air — the cave itself)
+        +-- otherwise                         -> SubsurfaceMaterial.block_id_at_voxel(voxel)
+                ("" at/above the surface, topsoil/bedrock below it — 076, unchanged)
+```
+
+### 18.1 A pure combination, and the restraint is the design decision
+
+`CaveCarving.is_hollow_at()` already answers hollow-or-not with everything it needs
+(`CaveMask` clipped to `TerracePass`'s surface); `SubsurfaceMaterial.block_id_at_voxel()`
+already answers what solid ground is made of. `UndergroundMaterial` adds no third opinion:
+hollow wins outright (`""`), otherwise the answer is exactly `SubsurfaceMaterial`'s, byte
+for byte. This settles the question `nextsteps.md` carried forward from 078 rather than
+assumed — whether "underground material rules" meant a genuinely new material for cave
+walls/floors specifically. It does not: the backlog row itself reads "underground material
+rules", not "cave lining material", §16.2's forward flag already named this as "combine this
+mask with `SubsurfaceMaterial` as two independent inputs", and no consumer anywhere in the
+project asks a cave wall to look different from open ground at the same depth. A field
+nothing reads is exactly the shape 067's argument has now ruled out five separate times
+(§§12.3, 14.6, 15.2, 16.7); inventing a `cave_lining_block_id` here would be a sixth. If a
+future brick wants cave walls to read differently, that is a new field added on top of this
+one, not a reason to revisit what this brick returns.
+
+### 18.2 `""` for a carved voxel — the other question `nextsteps.md` carried forward
+
+The empty-string-is-air convention is already project-wide
+(`world/terrain/block_edit_delta.gd`: "`""` means air on both sides") and already reused by
+`SurfaceMaterial`/`SubsurfaceMaterial` for "not this pass's question" in a context that also
+happens to be physically air (at or above the surface). This brick is the first to return
+`""` for a context that is air *because it was carved out*, not because nothing underground
+has started yet — deliberately the same value rather than a second one, so a future
+`VoxelGenerator` fill loop treats "no block here" as one case, not two it has to
+disambiguate. `test_an_above_ground_cave_voxel_stays_air_for_the_surface_reason_not_the_
+carving_reason` names the two different reasons `""` can come back and asserts both land on
+the same value.
+
+### 18.3 Why the two passes stay two objects
+
+`UndergroundMaterial` holds a `CaveCarving` and a `SubsurfaceMaterial`, not a merged field of
+its own — the same "each pass builds its own dependencies" shape every composing brick in
+this chain has used (`TerracePass.for_world()`'s original reason, repeated at every layer:
+both are stateless and small, and a shared instance would be a second way for two passes to
+disagree about which world they are generating). `for_world()` delegates every check to
+`SubsurfaceMaterial.for_world()` and adds none of its own, because it adds no field of its
+own — `SubsurfaceMaterial.for_world()`'s exact delegation to `SurfaceMaterial.for_world()`
+one layer further down.
+
+### 18.4 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated, and the same one 078 already
+inherited unchanged: no world has ever had a voxel written, so nothing this brick computes
+can contradict one. `UndergroundMaterial` adds no field, no salt, no constant — a pure
+combination of two independently unchanged passes (`CaveCarving`'s and
+`SubsurfaceMaterial`'s own tests both still pass; neither file was touched). The moment some
+later brick's `VoxelGenerator` calls `block_id_at_voxel()` to fill a `VoxelBuffer`, every
+input both passes read becomes a pinned generation input — the same "first `VoxelBuffer`
+write" boundary §14.4/§15.5/§17.5 already named, inherited rather than moved.
+
+### 18.5 Testing a combination built on a sparse field
+
+The same sparse-hollow finding §17.6 already recorded applies here too:
+`GenerationFixtures.voxels()` reads solid at every one of its 16 samples on the `typed`
+world, so a naive seed-sensitivity check over raw voxels would mostly compare
+`SubsurfaceMaterial` answers anyway — which is fine for *that* property but does not by
+itself exercise the hollow branch. `test_a_carved_cave_reads_as_air` and
+`test_an_above_ground_cave_voxel_stays_air_for_the_surface_reason_not_the_carving_reason`
+reuse `test_cave_carving.gd`'s own hand-picked voxels
+(`KNOWN_HOLLOW_VOXEL`/`KNOWN_ABOVE_GROUND_CAVE_VOXEL`) rather than re-sweeping for new ones,
+since the property they prove — the combination reads the hollow branch correctly — is
+identical to what 078 already needed a sweep to find. Seed sensitivity reuses 076's own fix
+for the same y-near-zero ambiguity: sampling one voxel below each column's own terraced
+surface, computed fresh from the pass under test (`_one_below_surface()`), rather than
+raw fixture voxels.
+
+### 18.6 Reference: none
+
+§16.5's finding applies unchanged: the reference has no carving mechanism and no discrete
+material system to combine one with, so there is nothing here to diverge from either.
+
+### 18.7 Out of scope for this brick
+
+- **A distinct cave-lining material.** §18.1 — not what "underground material rules" turned
+  out to mean; a field nothing reads.
+- **Writing to a `VoxelBuffer` / an actual `VoxelGenerator`.** Still nothing in the project
+  writes a voxel; this is the last pure `(voxel) -> block id` function Phase D's cave chain
+  needed before one can be assembled.
+- **Water, rivers, lakes, oceans.** Brick 080 onward — a column's water table is a different
+  question from what lines a cave.

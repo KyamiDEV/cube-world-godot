@@ -18,12 +18,16 @@
   finding: the original has **no** biome catalog at all, only a continuous colour,
   `docs/world-generation.md` §12.5).
   `docs/reference/traceability.md` is the index.
-- Git: `main`, one commit per brick — **from brick 066 onward**. The repository was
-  re-initialised after brick 065 (`81100f7`, root commit): this working copy had no
-  `.git` and never had one, so bricks 001–065 are a single baseline commit rather than
-  65, and their per-brick history is gone. `reference/` and `.godot/` are untracked by
-  `.gitignore`; the `reference/` exclusion is `CLAUDE.md` §16's IP discipline, so it
-  stays untracked
+- Git: `main`, one commit per brick, **intact from brick 001** — and the "history is
+  gone" note carried by bricks 065–067 was **wrong**. The working copy had lost its
+  `.git`, but the real per-brick history was on GitHub the whole time
+  (`github.com/KyamiDEV/cube-world-godot`, at brick 064). Brick 067's push recovered it:
+  the local single-commit baseline was discarded and bricks 065, 066 and 067 were
+  replayed on top of the remote's brick-064 head, so the published history is one commit
+  per brick with no gap. `origin` is now configured; `reference/` and `.godot/` are
+  untracked by `.gitignore`, and the `reference/` exclusion is `CLAUDE.md` §16's IP
+  discipline, so it stays untracked. **Before assuming history is missing again, fetch
+  `origin` first.**
 - Godot AI MCP: failed to connect this session (`CONNECTION_CLOSED`); not needed so far
 
 ## Current phase / milestone / task
@@ -2189,11 +2193,12 @@ Last run (brick 067): compile probe **OK** (97 scripts) · headless boot **OK** 
    The `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
    Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
    stays empty until something is expensive enough to measure.
-1b. Git, **resolved after 065**: the repository is re-established on `main` with a
-   single baseline commit `81100f7` covering bricks 001–065, because no history
-   existed in this working copy to restore. Bricks 066 and 067 are the first to land as
-   their own commits. Nothing further is owed here — no remote is configured, and adding
-   one is the user's call.
+1b. Git, **resolved at 067**: `origin` is `github.com/KyamiDEV/cube-world-godot` and the
+   full per-brick history is intact from brick 001 — the earlier "history is gone"
+   conclusion was drawn from a working copy that had lost its `.git`, without checking
+   the remote. The throwaway single-commit baseline was discarded and 065–067 replayed
+   onto the remote's brick-064 head. Push each brick as it lands; fetch `origin` before
+   ever concluding history is missing.
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
    ("will not work on export") once real imported `res://` PNGs existed to trigger it.

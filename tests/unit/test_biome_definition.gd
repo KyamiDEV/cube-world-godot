@@ -160,3 +160,35 @@ func test_a_negative_vegetation_density_is_rejected() -> void:
 	var problem := definition.validate()
 	assert_ne(problem, "")
 	assert_true(problem.contains("vegetation_density"), problem)
+
+
+# ---------------------------------------------------------------------------
+# prop_density (brick 088)
+# ---------------------------------------------------------------------------
+
+func test_prop_density_defaults_to_zero() -> void:
+	# `vegetation_density`'s exact twin: a fresh field must default to "no props", not to a
+	# density that silently scatters rocks on a biome nobody has assigned a number to yet.
+	assert_eq(BiomeDefinition.new().prop_density, 0.0)
+
+
+func test_a_zero_prop_density_validates() -> void:
+	# The shipped catalog ships every biome positive here, but `0.0` must stay a well-formed
+	# value a future biome may use — `DecorationMask.spacing_for_density()`'s disabled value.
+	var definition := _valid()
+	definition.prop_density = 0.0
+	assert_eq(definition.validate(), "")
+
+
+func test_a_positive_prop_density_validates() -> void:
+	var definition := _valid()
+	definition.prop_density = 0.03
+	assert_eq(definition.validate(), "")
+
+
+func test_a_negative_prop_density_is_rejected() -> void:
+	var definition := _valid()
+	definition.prop_density = -0.01
+	var problem := definition.validate()
+	assert_ne(problem, "")
+	assert_true(problem.contains("prop_density"), problem)

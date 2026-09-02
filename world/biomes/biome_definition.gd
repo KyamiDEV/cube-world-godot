@@ -17,7 +17,7 @@ extends Resource
 ##
 ## | Tempting field | Owner |
 ## |---|---|
-## | rock/prop scatter density | 088 |
+## | rock/prop scatter density | 088 — now `prop_density`, below |
 ## | creature spawn tables | 095, 106–107 |
 ## | water, shoreline, snowline, altitude bands | 080, 085 — decided **against**: one fixed constant covers every biome, see those bricks' own class comments |
 ## | transition width / blend weights | 074, done — `BiomeTransition` |
@@ -25,12 +25,12 @@ extends Resource
 ##
 ## What is left is what a catalog can actually fill today, for all six entries, with
 ## nothing invented: an id, a name for a human, a colour to tell one from another, which
-## block covers the ground (075), which block lies just under it (076), and — since brick
-## 087 — how densely trees stand on it. That is also the last field this table hands out
-## before a consumer exists to want one: every row left above needs prop scatter (088),
-## creature tables (095/106–107) or a renderer (Phase J) that has not been built yet, where
-## 087's own consumer — `TreeMask`, which needs six honestly different densities rather than
-## one fixed value the way 080/085 got away with — already has.
+## block covers the ground (075), which block lies just under it (076), how densely trees
+## stand on it (087), and — since brick 088 — how densely scattered rocks and props do
+## (`prop_density`). Every remaining row above needs creature tables (095/106–107) or a
+## renderer (Phase J) that has not been built yet; the two density fields are the two that
+## already have a consumer — `TreeMask` (087) and `RockMask` (088), each needing six
+## honestly different densities rather than the one fixed value 080/085 got away with.
 ##
 ## ## The reference has no catalog at all
 ##
@@ -119,6 +119,24 @@ extends Resource
 ## that plays `SurfaceMaterial.surface_block_reason_for()`'s role.
 @export var vegetation_density: float = 0.0
 
+## Candidate rock/prop density for this biome, in candidates per column — brick 088's
+## field, `vegetation_density`'s exact twin one pass over. `world/generation/rock_mask.gd`
+## is the reader: `DecorationMask.spacing_for_density()` (086) turns it into a cell pitch
+## the same way, at `WorldHash.SALT_PROPS` instead of `SALT_TREES`, so a rock anchor and a
+## tree anchor are drawn from independent streams over the same cell grid.
+##
+## Where `vegetation_density` ships three biomes at exactly `0.0` (a desert grows no
+## trees), `prop_density` ships every biome positive: a boulder or an outcrop is at home
+## on bare rock, sand and snow as much as on grass, and `biome.mountain` — the one biome a
+## rugged column already classifies into — ships the **highest** density rather than the
+## lowest, which is how "mountains are rocky" is said without a second ruggedness gate
+## (`rock_mask.gd`'s class comment, `docs/world-generation.md` §27.3). `0.0` still means
+## "no props", `DecorationMask.spacing_for_density()`'s own disabled value, and stays a
+## well-formed value a future biome may use.
+##
+## Grammar only: never negative. Same absence of a live cross-check as `vegetation_density`.
+@export var prop_density: float = 0.0
+
 
 ## Returns an empty string when well-formed, otherwise a human-readable reason — same
 ## convention as `StableId.validate()` and `BlockDefinition.validate()`, so a bad data file
@@ -150,6 +168,8 @@ func validate() -> String:
 				% subsurface_block_id)
 	if vegetation_density < 0.0:
 		return "vegetation_density must not be negative, got %s" % vegetation_density
+	if prop_density < 0.0:
+		return "prop_density must not be negative, got %s" % prop_density
 	return ""
 
 

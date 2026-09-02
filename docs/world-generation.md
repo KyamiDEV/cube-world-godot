@@ -3548,7 +3548,7 @@ space — it is a pure combination over `DecorationMask`, `SurfaceMaterial` and
 
 ### 26.6 Out of scope for this brick
 
-- **Rock/prop spawn masks.** 088, unstarted; `WorldHash.SALT_PROPS` stays reserved and unread.
+- **Rock/prop spawn masks.** 088 — see §27; `WorldHash.SALT_PROPS` is that brick's salt.
 - **Ruggedness exclusion.** `ErosionPass.ruggedness_at()` is never read here — a rugged enough
   column already routes to `biome.mountain` through the classifier, whose own shipped density
   is `0.0`, so no second gate is needed for the case that matters. See `tree_mask.gd`'s own
@@ -3557,3 +3557,102 @@ space — it is a pure combination over `DecorationMask`, `SurfaceMaterial` and
   the same or adjacent columns — §25.8's deferral, unchanged.
 - **A `VoxelGenerator` write, or any voxel touched at all.** Still nothing in the project
   writes a voxel; this brick only decides which columns are candidates.
+
+## 27. Rock / prop spawn masks (brick 088)
+
+Implementation: `world/generation/rock_mask.gd` (`RockMask`).
+Tests: `tests/unit/test_rock_mask.gd`.
+Reference: none beyond §25.6 — this brick spends the same density-as-content half of
+`WorldInfo_scatterObjectsInArea` that §26 spent for trees, one pass over.
+
+```text
+spacing_at(column) = DecorationMask.spacing_for_density(
+                          biome_registry.get_biome(SurfaceMaterial.biome_id_at(column))
+                              .prop_density)
+
+is_rock_at(column) = spacing_at(column) > 0
+                      and DecorationMask.is_decoration_anchor_at(
+                              column, spacing_at(column), WorldHash.SALT_PROPS)
+```
+
+### 27.1 `TreeMask` one pass over, one field and one salt
+
+`RockMask` is `TreeMask` (§26) with `vegetation_density` → `prop_density` and
+`WorldHash.SALT_TREES` → `WorldHash.SALT_PROPS`, composing the same `DecorationMask` (086)
+and `SurfaceMaterial` (075) rather than extending either. Density is read through
+`SurfaceMaterial.biome_id_at()` for the same reason (§26.1): a column's props agree with
+whichever biome's ground it is actually standing on, edge dither included. `SALT_PROPS`
+(reserved since brick 015, unread until now) makes the rock anchor an independent draw from
+the tree anchor over the shared cell grid — `test_a_rock_anchor_and_a_tree_anchor_are_independent`
+verifies they actually diverge rather than assuming it.
+
+### 27.2 No snow exclusion — the one place it diverges from `TreeMask`
+
+`TreeMask` reads `SnowlineMaterial.is_snow_covered_at()` and refuses a snow-capped column,
+because a real treeline stops below a cold summit. A rock line does not: boulders, scree and
+outcrops sit on and above the snow, and a snow-strewn peak is exactly the shape this pass is
+for. So `RockMask` never builds or reads `SnowlineMaterial` at all — it is a combination over
+`DecorationMask` and `SurfaceMaterial` only. `DecorationMask`'s water/shoreline exclusion
+still applies (a rock does not float), inherited exactly as `TreeMask` inherits it.
+`test_snow_cover_does_not_exclude_a_rock` pins the divergence: at a genuinely snow-covered
+column `RockMask`'s answer is fully explained by density + decoration with no altitude term,
+while `TreeMask`'s answer at the same column is `false` purely for the snow it reads.
+
+### 27.3 Ruggedness — turned up, not gated, the same shape as §26.6
+
+`ErosionPass.ruggedness_at()` is not read here either, for §26.6's reason: a genuinely
+rugged column already routes to `biome.mountain` through the classifier
+(`RUGGEDNESS_MOUNTAIN`, 066). But where trees make that a non-issue by shipping
+`mountain.vegetation_density = 0.0`, rocks are something a mountain biome wants **more** of
+(`nextsteps.md` flagged this at the brick's start). So `biome.mountain` ships the **highest**
+`prop_density` of any biome, not the lowest — the rockiness a ruggedness gate would add is
+expressed through the biome the ruggedness already produced, keeping `RockMask` a pure
+composition with no second terrain read. The salt-and-pepper edge column that dithers toward
+`mountain` without crossing the classifier threshold is left alone, exactly as §26.6 leaves
+it for trees.
+
+### 27.4 Every biome scatters props — no bare biome, so the cheap gate rarely fires
+
+`vegetation_density` ships three of six biomes at exactly `0.0`, and `TreeMask` leans on
+that: roughly half of every column short-circuits before either heavier read runs (§26.2).
+`prop_density` ships all six positive, so `is_rock_at()`'s `spacing_at(column) > 0` gate
+almost never fires with the shipped catalog. It is kept anyway — `spacing_for_density(0.0)`
+is still `0`, a future biome may ship it, and a hand-built registry in a test does
+(`test_a_disabled_biome_column_never_hosts_a_rock`) — but the ordering is defensive here,
+not the load-bearing optimisation it is for trees.
+
+### 27.5 The shipped densities
+
+Candidates per column, `BiomeDefinition.prop_density`'s own unit (`DecorationMask
+.spacing_for_density()` turns it into a cell pitch). Not fitted to any reference figure —
+none exists (§25.6) — chosen for the ordering a player sees from a distance:
+
+| Biome | `prop_density` | ~spacing | Reading |
+|---|---:|---:|---|
+| `mountain` | 0.03 | 6 | bare rock, scree, boulders — the rockiest biome |
+| `desert` | 0.012 | 9 | outcrops and rocks breaking a sand plain |
+| `grassland` | 0.005 | 14 | the odd boulder in open field |
+| `forest` | 0.004 | 16 | mossy rocks between the trees |
+| `snow` | 0.003 | 18 | rock poking through a snowfield |
+| `wetland` | 0.0015 | 26 | a rare stone in the mud |
+
+`test_mountain_reads_visibly_rockier_than_grassland` measures the top and bottom-of-the-plot
+pair actually reads that way once eligibility and the anchor draw run together, not just on
+the catalog numbers.
+
+### 27.6 Not a generation version bump
+
+The same boundary §25.7/§26.5 state: no world has ever had a voxel written. `RockMask` mixes
+no new salt (`WorldHash.SALT_PROPS`, reserved since brick 015) and adds no new
+`GenerationHash` space — it is a pure combination over `DecorationMask` and `SurfaceMaterial`.
+`BiomeDefinition.prop_density` becomes a pinned generation input the moment a `VoxelGenerator`
+reads `is_rock_at()` to decide whether to place a rock.
+
+### 27.7 Out of scope for this brick
+
+- **What a rock or a prop actually is** — no model, no mesh, no object id. Placement is
+  095/106–107; this brick decides candidate columns only.
+- **Cross-pass exclusion with `TreeMask`.** §25.8's deferral, unchanged: a tree anchor and a
+  rock anchor can legally land on the same or adjacent columns.
+- **Reading `SnowlineMaterial` or `ErosionPass.ruggedness_at()`.** §27.2/§27.3.
+- **A `VoxelGenerator` write, or any voxel touched at all.**

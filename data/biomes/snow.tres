@@ -9,3 +9,4 @@ display_name = "Snow"
 debug_color = Color(0.9137255, 0.9411765, 0.9647059, 1)
 surface_block_id = "block.snow"
 subsurface_block_id = "block.dirt"
+prop_density = 0.003

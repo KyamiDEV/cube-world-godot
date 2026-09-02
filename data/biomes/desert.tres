@@ -9,3 +9,4 @@ display_name = "Desert"
 debug_color = Color(0.85490197, 0.7529412, 0.47843137, 1)
 surface_block_id = "block.sand"
 subsurface_block_id = "block.sand"
+prop_density = 0.012

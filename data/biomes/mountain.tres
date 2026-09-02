@@ -9,3 +9,4 @@ display_name = "Mountain"
 debug_color = Color(0.5019608, 0.5019608, 0.5019608, 1)
 surface_block_id = "block.stone"
 subsurface_block_id = "block.stone"
+prop_density = 0.03

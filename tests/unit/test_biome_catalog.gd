@@ -137,6 +137,44 @@ func test_vegetation_density_orders_forest_above_wetland_above_grassland() -> vo
 	assert_true(grassland > 0.0, "grassland must still grow some trees")
 
 
+# ---------------------------------------------------------------------------
+# prop_density (brick 088)
+# ---------------------------------------------------------------------------
+
+func test_every_shipped_biome_scatters_some_props() -> void:
+	# The divergence from `vegetation_density`: no biome is bare of rocks. A boulder is at
+	# home on rock, sand and snow as much as on grass.
+	var registry := BiomeCatalog.load_default()
+	for id in BiomeClassifier.IDS:
+		assert_true(registry.get_biome(id).prop_density > 0.0, "%s must scatter props" % id)
+
+
+func test_prop_density_orders_mountain_the_densest_and_wetland_the_sparsest() -> void:
+	# `biome_catalog_generator.gd`'s own stated intent, checked here rather than only claimed
+	# in a comment: mountain > desert > grassland > forest > snow > wetland, all above zero.
+	var registry := BiomeCatalog.load_default()
+	var ordered := [BiomeClassifier.MOUNTAIN, BiomeClassifier.DESERT, BiomeClassifier.GRASSLAND,
+			BiomeClassifier.FOREST, BiomeClassifier.SNOW, BiomeClassifier.WETLAND]
+	for i in ordered.size() - 1:
+		var here := registry.get_biome(ordered[i]).prop_density
+		var next := registry.get_biome(ordered[i + 1]).prop_density
+		assert_true(here > next, "%s (%s) must be rockier than %s (%s)" % [
+				ordered[i], here, ordered[i + 1], next])
+	assert_true(registry.get_biome(BiomeClassifier.WETLAND).prop_density > 0.0)
+
+
+func test_mountain_is_the_rockiest_where_trees_leave_it_bare() -> void:
+	# The two density fields pull opposite ways for `biome.mountain`: no trees at all, but the
+	# most rocks of any biome — how "a rugged column reads rockier" is said without a second
+	# ruggedness gate (`rock_mask.gd`, `docs/world-generation.md` §27.3).
+	var registry := BiomeCatalog.load_default()
+	var mountain := registry.get_biome(BiomeClassifier.MOUNTAIN)
+	assert_eq(mountain.vegetation_density, 0.0)
+	for id in BiomeClassifier.IDS:
+		assert_true(mountain.prop_density >= registry.get_biome(id).prop_density,
+				"mountain must be at least as rocky as %s" % id)
+
+
 func test_loading_twice_gives_the_same_content_hash() -> void:
 	# Two peers loading the same six files must agree on their indices without exchanging
 	# a table; within one process this is the cheapest check that the load is not

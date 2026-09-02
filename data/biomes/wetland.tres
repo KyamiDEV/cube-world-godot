@@ -10,3 +10,4 @@ debug_color = Color(0.1882353, 0.45490196, 0.4627451, 1)
 surface_block_id = "block.dirt"
 subsurface_block_id = "block.dirt"
 vegetation_density = 0.01
+prop_density = 0.0015

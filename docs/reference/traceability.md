@@ -213,7 +213,10 @@ matrix level). Two different reasons cover almost all of it:
   harness work, not generated behavior), brick 063 (the terrace quantisation — the note
   behind §2's `061–063` row records nothing about vertical quantisation, so 063 is
   original design within the pass shape 062 established; `docs/world-generation.md` §8.6),
-  and most of Phase L (257–266,
+  brick 074 (biome transition blending — §12.5's finding already covers the ground: the
+  original blends climate into a *continuous colour* with no discrete biome and so no
+  boundary to smooth in the first place; `docs/world-generation.md` §13.5), and most of
+  Phase L (257–266,
   profiling/soak/release — process work, not behavior extracted from the binaries).
 - **Not yet cross-referenced.** A brick inside Phase D–K with no row above (e.g. 148
   respawn state, 145 knockback, 147 death state, most of 231's settings-shell scope

@@ -1747,3 +1747,149 @@ changing the partition is what §11.8 already calls a version bump. A record's
   Phase J map/UI concern (229) or its own brick, and 067 declines it explicitly rather than
   leaving the question open.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`.
+
+## 13. Biome transition blending (brick 074)
+
+Implementation: `world/biomes/biome_transition.gd` (`BiomeTransition`).
+Tests: `tests/unit/test_biome_transition.gd`.
+Reference: none — §13.5.
+
+`BiomeClassifier.at()` (066) answers one id per column, always, with no notion of a border,
+and it names its own future reader while doing it: `sample_at()`'s doc comment reads "for
+brick 074, which needs the distance to a threshold rather than the side of it." This is that
+brick — a second, presentation-facing question over the same three inputs, for 075's material
+blend and Phase J's terrain tint. It never changes which biome a column is in.
+
+```text
+neighbor_at(column)        = the second id blending in, or "" past TRANSITION_WIDTH
+neighbor_weight_at(column) = [0, 0.5], 0.5 exactly on a boundary, 0 at TRANSITION_WIDTH
+```
+
+### 13.1 068–073 are folded in here, not implemented separately
+
+Before this brick could be written, it needed a decision the backlog itself did not settle:
+`nextsteps.md` flagged, across bricks 065–067, that bricks 068–073 ("implement the grassland
+biome" through "implement the aquatic/wet biome") each own **nothing** under the current
+architecture. `BiomeDefinition` is deliberately three fields (§12.2), and every field one of
+those six bricks would plausibly add — surface/subsurface material (075–076), vegetation and
+scatter (086–088), spawn tables (095, 106–107), water and snowline (080, 085) — already
+belongs to a later brick that does not exist yet. Filling a `BiomeDefinition` field six times
+before anything reads it would be six bricks each adding a field nothing reads, which
+`nextsteps.md` named directly as worse than the alternative it also named: fold the six into
+whichever later brick actually needs the field, once it exists.
+
+So 068–073 are marked folded in `backlog.md`, each pointing at the brick that will actually
+add its content, and this brick — 074, next in the dependency chain and the one biome-related
+task that genuinely owns new work today (`BiomeClassifier.sample_at()`'s own comment says so)
+— is implemented now rather than waiting behind six empty bricks. This is a scope correction,
+not scope creep: no field was invented to give 068–073 something to do, and 075 (surface
+material selection) is still where a `BiomeDefinition` next grows, for all six entries in one
+pass, exactly as `nextsteps.md` proposed.
+
+### 13.2 Finding the neighbor: asking the real function
+
+`classify()` is a **decision list**, not five independent range checks (§11.1, §11.3), so "the
+nearest threshold" is not always the nearest *relevant* one. A column deep in `SNOW` (rule 2)
+can sit close to `HUMIDITY_WOODED` (rule 5) in raw humidity terms, but rule 2 already returned
+before rule 5 is ever tested — nudging humidity there changes nothing, because temperature is
+what is holding the answer. Re-encoding the decision list's short-circuit precedence a second
+time to know this in advance would be a second copy of `classify()` to keep in step with the
+first.
+
+`nearest_boundary()` does not re-encode it. For each of the five thresholds, it nudges that
+one input to just the other side (`_flip_low()`/`_flip_high()`, a threshold-exact value or a
+`FLIP_EPSILON` below it, whichever side is the "just crossed" one) and calls
+`BiomeClassifier.classify()` again with the other two inputs untouched. A nudge that leaves
+the answer unchanged is not a boundary this column is near, in the only sense that matters
+here — the SNOW/WOODED case above computes exactly that, correctly, with no special case for
+it. A nudge that changes the answer is exactly the neighbor 075 needs, and the smallest such
+distance across all five thresholds wins. `test_the_neighbor_is_the_biome_just_past_the_
+boundary` is the worked proof, including the case above (a cold column 0.05 from the mountain
+cut has `MOUNTAIN` as its neighbor even though a humidity cut sits closer in id order — relief
+outranks climate, §11.3, and the probe reproduces that ordering rather than assuming it).
+
+Every one of the five thresholds changes `classify()`'s answer when nudged in isolation —
+flipping ruggedness across `RUGGEDNESS_MOUNTAIN` always enters or leaves `MOUNTAIN`, and each
+of the other four always changes which temperature or humidity rule matches — so
+`nearest_boundary()` never actually returns empty. It still returns a dictionary and checks
+rather than assumes: `test_a_boundary_always_exists` covers the claim over the whole unit
+cube instead of trusting it.
+
+### 13.3 The width: half the narrowest gap, one constant for three different axes
+
+`TRANSITION_WIDTH = 0.15`, exactly half of `BiomeClassifier.narrowest_climate_gap()` (`0.3`,
+§11.5 — the humidity axis's tightest cut spacing, `HUMIDITY_ARID` to `HUMIDITY_WOODED` or
+`HUMIDITY_WOODED` to `HUMIDITY_WETLAND`). Half, not the whole gap, for the "coarser than what
+it weights" reason a weight field owes the thing it modulates (§7.3, §6.4): a column exactly
+at the midpoint of the *narrowest possible* climate band is `TRANSITION_WIDTH` from each
+neighboring cut, so both blend zones fade to zero exactly there — they **meet**, at zero,
+rather than overlapping into a three-way mix nothing asked for.
+`test_the_two_sides_of_the_narrowest_band_meet_without_overlapping` is the exact case, at the
+humidity band's own midpoint.
+
+One constant covers all five thresholds, including the ruggedness cut — an honest
+simplification, not an exact one. Temperature and humidity share a measured scale (`spread()`,
+§9.4/§10.2) that the ruggedness cut does not derive its own width from at all: it is a single
+threshold against a ceiling, not a gap between two cuts on its own axis (§11.2). Reusing the
+climate width is the least invented number available, not a measured property of the
+ruggedness layer. If the mountain edge ever needs a width of its own, that is 072's or 085's
+call, once either exists to make it — not a reason to invent a second constant here for a case
+nothing yet reads.
+
+The weight curve is `ValueNoise.fade()`, the project's one blending curve (§5.3), applied to
+`distance / TRANSITION_WIDTH` and folded so `0.5` sits at the boundary and `0.0` at the width —
+reused rather than a second `C¹`-only ramp with a slope discontinuity of its own to keep in
+step with `FADE_MAX_SLOPE`, the same reason §6.4 gives for the shore band.
+
+### 13.4 What the width measures — and what it does not
+
+Over the same dense 21³ grid `test_biome_classifier.gd` sweeps for totality, **73.5%** of the
+unit cube sits within `TRANSITION_WIDTH` of some threshold. That number is large enough to be
+worth stating plainly rather than tuning away: `HUMIDITY_ARID`, `HUMIDITY_WOODED` and
+`HUMIDITY_WETLAND` sit exactly `2 · TRANSITION_WIDTH` apart, so their three blend zones tile
+the humidity axis edge to edge from `0.05` to `0.95` — only the outer `0.05` at either end of
+the humidity axis is ever purely one biome with respect to humidity alone.
+
+**That is a property of the unit cube, not of the world**, and the two must not be conflated.
+A climate field only ever visits the cube along an 8192-metre-per-cell path (§9.4); the number
+that actually describes the *world* is §11.5's — a mean biome run of 3.05–3.25 km on an 800 km
+line, measured by `test_a_biome_is_a_place_a_player_walks_across`. A column being
+"mathematically close to a threshold" and a player being "near a biome edge" are related but
+not identical claims, because the world only samples a vanishingly thin slice of the climate
+cube at any resolution a player experiences it at. `test_most_of_the_climate_cube_is_within_
+the_transition_width` pins the cube-level number so a future change to `TRANSITION_WIDTH`
+that quietly merges two humidity cuts into one continuous smear — or narrows the width until
+blending stops doing anything — fails there, without claiming anything about how often a
+player actually sees a blend.
+
+### 13.5 Reference: none
+
+The original has no boundary to smooth, because it has no discrete biome to have one. §12.5
+already found this reading `Terrain_computeBiomeColor`: the original blends
+temperature/humidity/height noise straight into terrain and vegetation RGBA, continuously,
+with no id anywhere to draw an edge between. There is no boundary-blending *mechanism* in
+either binary to diverge from — only the same "continuous under the hood" property this
+project arrives at from the opposite direction: a discrete id for everything that needs one
+(saves, quests, logs, §12.5), and a blend weight for the one thing here that reads like the
+original after all — a tint that does not jump.
+
+### 13.6 This is not a generation version bump
+
+§12.6's argument, unchanged, and stronger here than it was there: nothing in this brick is
+generation. No hash, no salt, no noise layer, no new field is sampled — `nearest_boundary()`
+reads the same three numbers `BiomeClassifier.sample_at()` already produces, a second way.
+`BiomeClassifier.at()` is untouched and still asserted at its pinned signature
+(`33a42963660cb452`), and nothing this file computes ever feeds back into anything that
+decides where a voxel goes. `GENERATION_VERSION` stays where it is.
+
+### 13.7 Out of scope for this brick
+
+- **Per-biome content.** Still 075–076 (materials), 086–088 (vegetation), 095/106–107
+  (spawns) — §13.1 folds 068–073 into whichever of those actually needs the field, it does
+  not pull their content forward into this brick.
+- **A width specific to the mountain edge.** §13.3; the shared constant is a simplification
+  stated as one, not a claim that ruggedness and climate blend at the same true rate.
+- **Blending the actual terrain colour or material.** Still Phase J and 075 — this brick
+  produces the weight they would blend with, not the blend itself.
+- **A coastal or aquatic biome, and its own edge.** §11.6, unchanged: waits for the
+  waterline (080).

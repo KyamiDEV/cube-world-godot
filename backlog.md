@@ -8,6 +8,13 @@
 - `HUMAN_REQUIRED` means the user must run the game and report behavior; screenshots are not required.
 - Reverse-engineering tasks must record evidence + confidence in `docs/reference/*.md`.
 - Prefer filesystem/CLI over MCP; use MCP only when editor/runtime state is genuinely required.
+- `FOLDED` status: the brick's premise no longer names real, ownable work under the
+  architecture the dependencies it waited on actually produced — the fields it would add all
+  belong to a later brick that does not exist yet. Rather than implement a hollow version to
+  close it, its content is folded into whichever later brick genuinely needs the field, once
+  that brick exists (`CLAUDE.md` §6's "avoid silently expanding scope" cuts both ways: adding
+  a field nothing reads is scope expansion too). The brick row states where its content went.
+  Bricks 068–073 are the first case, `docs/world-generation.md` §13.1.
 
 ## Phase map
 
@@ -97,13 +104,13 @@
 | 065 | D | Create humidity field | 061 | Not needed by default | NO | DONE |
 | 066 | D | Create biome classifier | 061 | Not needed by default | NO | DONE |
 | 067 | D | Define baseline biome catalog | 065, 066 | Not needed by default | NO | DONE |
-| 068 | D | Implement grassland biome | 064, 067 | Not needed by default | NO | TODO |
-| 069 | D | Implement forest biome | 068 | Not needed by default | NO | TODO |
-| 070 | D | Implement desert biome | 069 | Not needed by default | NO | TODO |
-| 071 | D | Implement snow biome | 069 | Not needed by default | NO | TODO |
-| 072 | D | Implement mountain biome | 070 | Not needed by default | NO | TODO |
-| 073 | D | Implement aquatic/wet biome | 071 | Not needed by default | NO | TODO |
-| 074 | D | Implement biome transition blending | 072 | Not needed by default | NO | TODO |
+| 068 | D | Implement grassland biome — FOLDED into 075 (surface material); owns no field today, `docs/world-generation.md` §13.1 | 064, 067 | Not needed by default | NO | FOLDED |
+| 069 | D | Implement forest biome — FOLDED into 075/086-088 (material/vegetation); owns no field today, §13.1 | 068 | Not needed by default | NO | FOLDED |
+| 070 | D | Implement desert biome — FOLDED into 075/086-088; owns no field today, §13.1 | 069 | Not needed by default | NO | FOLDED |
+| 071 | D | Implement snow biome — FOLDED into 075/085 (snowline); owns no field today, §13.1 | 069 | Not needed by default | NO | FOLDED |
+| 072 | D | Implement mountain biome — FOLDED into 075/085; owns no field today, §13.1 | 070 | Not needed by default | NO | FOLDED |
+| 073 | D | Implement aquatic/wet biome — FOLDED into 080/083 (waterline/ocean); owns no field today, §13.1 | 071 | Not needed by default | NO | FOLDED |
+| 074 | D | Implement biome transition blending | 067 (see §13.1: 068–073 folded, no longer a real dependency chain) | Not needed by default | NO | DONE |
 | 075 | D | Implement surface material selection | 073 | Not needed by default | NO | TODO |
 | 076 | D | Implement subsurface material rules | 074 | Not needed by default | NO | TODO |
 | 077 | D | Implement cave mask | 075 | Not needed by default | NO | TODO |

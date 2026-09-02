@@ -7,7 +7,8 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: world generation in progress (Phase D).** Bricks 001–067 of 266 are done —
+> **Status: world generation in progress (Phase D).** Bricks 001–067 and 074–087 of 266 are
+> done (81 bricks; 068–073 folded into later ones rather than left owning nothing) —
 > verified toolchain, project skeleton, test harness, the core contracts (scale, time,
 > RNG, IDs, saves, protocol, authority), the reverse-engineering reference mapping
 > (Phase B), a complete voxel edit pipeline (Phase C: block schema/registry, a generated
@@ -16,11 +17,15 @@ Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 > gameplay validation, undo/delta representation, SQLite-backed save/load proven by an
 > integration test, world bounds/authority policy, chunk profiling hooks, the
 > `mesh_block_size` 16-vs-32 benchmarks and a baseline voxel performance budget
-> ([`docs/performance-budget.md`](docs/performance-budget.md))), and the first twelve
-> passes of procedural generation (Phase D: world seed, generation versioning, coordinate
+> ([`docs/performance-budget.md`](docs/performance-budget.md))), and 26 passes of
+> procedural generation so far (Phase D: world seed, generation versioning, coordinate
 > hashing and grids, shared determinism fixtures, a value-noise primitive, the
-> continentalness → elevation → erosion → terrace chain, two independent climate axes,
-> a six-biome classifier over them, and the biome catalog behind those ids,
+> continentalness → elevation → erosion → terrace chain, two independent climate axes, a
+> six-biome classifier over them, the biome catalog behind those ids, biome-edge blending,
+> per-biome surface/subsurface material selection, a 3D cave mask with carving and
+> underground material rules, a water-level model with rivers/lakes/oceans carved into it,
+> shoreline and altitude-driven snowline surface rules, and a density-driven decoration
+> mechanism spent so far on biome-aware tree spawn masks,
 > [`docs/world-generation.md`](docs/world-generation.md)). There is no playable world yet —
 > nothing is written to a `VoxelBuffer` and the main scene prints a boot report. Progress
 > is tracked in [`backlog.md`](backlog.md) and [`nextsteps.md`](nextsteps.md).
@@ -63,7 +68,7 @@ tools\scripts\godot.ps1 -e   # open the editor
 `check.ps1` is the pre-commit gate. `test.ps1` takes `-File`, `-Filter`, `-Verbose_` and
 `-NoImport`.
 
-Current state: **46 test files, 618 tests, ~93 984 assertions, 0 failures.**
+Current state: **60 test files, 889 tests, ~127 735 assertions, 0 failures.**
 
 ## What is implemented
 
@@ -87,7 +92,13 @@ Current state: **46 test files, 618 tests, ~93 984 assertions, 0 failures.**
 | Generation | `world/generation/continentalness.gd`, `elevation_field.gd`, `erosion_pass.gd`, `terrace_pass.gd` | the world-shape chain: a land/ocean macro field → signed ground height on a datum → a ruggedness/valley erosion pass that only ever lowers → 4 m terracing that makes it a block world |
 | Generation | `world/generation/temperature_field.gd`, `humidity_field.gd` | two independent climate axes on the coarsest cells in the world, each a redistributed noise layer reading no elevation — no lapse rate and no rain shadow, which are a later brick's, on top, where they can be seen |
 | Biomes | `world/biomes/biome_classifier.gd` | which of six biomes a column is in: a six-rule decision list over temperature, humidity and ruggedness, total by construction, with three thresholds taken from the reference's own literals and one derived from the erosion pass |
-| Biomes | `world/biomes/biome_definition.gd`, `biome_registry.gd`, `biome_catalog.gd`, `data/biomes/*.tres` | the records behind those ids — a validated, network-indexed catalogue that is checked for covering *exactly* the closed set the classifier can answer with, because a biome with no record is a world with columns that resolve to nothing |
+| Biomes | `world/biomes/biome_definition.gd`, `biome_registry.gd`, `biome_catalog.gd`, `data/biomes/*.tres` | the records behind those ids — a validated, network-indexed catalogue that is checked for covering *exactly* the closed set the classifier can answer with, because a biome with no record is a world with columns that resolve to nothing. Fields grew one brick at a time: `surface_block_id` (075), `subsurface_block_id` (076), `vegetation_density` (087) |
+| Biomes | `world/biomes/biome_transition.gd` | how close a column sits to a biome edge and which neighbour it is nearing, found by nudging the classifier's own thresholds rather than re-deriving its decision-list precedence |
+| Generation | `world/generation/surface_material.gd`, `subsurface_material.gd` | per-biome ground/subsoil block selection, blended across biome edges by `BiomeTransition`'s own weight |
+| Generation | `world/generation/cave_mask.gd`, `cave_carving.gd`, `underground_material.gd` | a 3D value-noise cavity mask, which of those cavities are actually carved, and the material rules for the surfaces that carving exposes |
+| Generation | `world/generation/water_level.gd`, `river_pass.gd`, `lake_pass.gd`, `ocean_pass.gd` | a sea-level model, then rivers, lakes and large open oceans carved into the terrain on top of it |
+| Generation | `world/generation/shoreline_material.gd`, `snowline_material.gd` | beach-edge block rules where land meets `WaterLevel`, and altitude-driven snow cover derived from a lapse rate over `TerracePass` |
+| Generation | `world/generation/decoration_mask.gd`, `tree_mask.gd` | an order-free eligibility + one-anchor-per-cell mechanism for natural decoration, and its first real content — biome-density tree spawn masks that exclude wet, shoreline and snow-capped ground |
 | Tests | `tests/fixtures/generation_fixtures.gd` | the shared determinism floor every generation pass is tested against: pinned named worlds, coordinate samples chosen for negative axes/cell boundaries/world corners, repeatability + order-independence + seed-sensitivity + range + variation checks, and golden signatures |
 | Profiling | `world/terrain/voxel_terrain_metrics.gd`, `tools/benchmarks/` | typed access to Voxel Tools' own debug counters; a `mesh_block_size` (16 vs 32) benchmark harness |
 | Tooling | `tools/` | engine verification, whole-tree compile check, test runner, content generators, benchmarks |

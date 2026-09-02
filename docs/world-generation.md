@@ -1145,25 +1145,37 @@ what makes "you walk into a climate" checkable rather than intended.
 
 ### 9.5 What the field measures
 
-Over the same 2304-column sweep §6.6, §7.5 and §8.5 use, in tenths of the range:
+> **Corrected by brick 065 (§10.4).** The numbers below were measured on the 2304-column
+> sweep §6.6, §7.5 and §8.5 use — a spacing of 4093 voxels, a quarter of one climate cell,
+> so about **144 independent climate cells** — on the `typed` world alone. They are what
+> that sweep says, and that sweep cannot resolve this field: three of the four fixture
+> worlds fail the decile band stated here, and the "almost flat" reading is an artifact of
+> a sample too small to find the field's tails. §10.4 has the corrected measurement, on a
+> climate-scale sweep and on every fixture world. Kept rather than deleted, per
+> `docs/reference/confidence.md` §4: the conclusion of the section — that the raw layer
+> crowds its middle and that one application of the curve fixes it — survives the
+> correction, and only the shape of the fixed distribution changes.
+
+Over the 2304-column sweep, in tenths of the range:
 
 | | 0–.1 | .1–.2 | .2–.3 | .3–.4 | .4–.5 | .5–.6 | .6–.7 | .7–.8 | .8–.9 | .9–1 | sd |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | raw layer | 0.3 | 3.7 | 8.1 | 16.3 | 19.0 | 17.9 | 16.6 | 13.0 | 4.3 | 0.8 | 0.181 |
 | `at()` | 7.3 | 7.9 | 11.0 | 10.6 | 10.6 | 9.4 | 10.3 | 11.0 | 11.2 | 10.8 | **0.280** |
 
-A uniform field has a standard deviation of `1/sqrt(12)` = `0.289`, so one application of
-the curve takes the field from visibly peaked to almost flat, and the sweep now spans
-`0.0000 .. 0.9999`. The test pins the property rather than the histogram: **no decile holds
-less than 5% or more than 16% of the world**, which is what brick 066 needs in order for a
-threshold anywhere in the range to select a real share of it.
+~~A uniform field has a standard deviation of `1/sqrt(12)` = `0.289`, so one application of
+the curve takes the field from visibly peaked to almost flat~~ — see §10.4; the field is
+mildly **U-shaped**, at sd `0.316`, and the sweep above understates its tails. The test
+pins the property rather than the histogram: no decile of the range holds a negligible or a
+dominating share of the world, which is what brick 066 needs in order for a threshold
+anywhere in the range to select a real share of it.
 
 One application, not two, and no linear stretch first. Both were measured, and both
 overshoot: `fade(fade(x))` puts 20.6% of the world in the bottom decile and 27.0% in the
-top, i.e. a **bimodal** climate with a fifth of the map pinned at each extreme and the
-temperate middle emptied out. Three octaves instead of two also measurably peaks the
-histogram (4.9% in the bottom decile against 7.3%), because a narrower raw distribution
-gives the curve less to work with.
+top (27–31% on the corrected sweep), i.e. a **bimodal** climate with a fifth of the map
+pinned at each extreme and the temperate middle emptied out. Three octaves instead of two
+also measurably peaks the histogram (4.9% in the bottom decile against 7.3%), because a
+narrower raw distribution gives the curve less to work with.
 
 Walking, on a 400 km east–west line at `z = 613` sampled every 50 voxels: the **worst**
 kilometre anywhere on it moves the temperature by `0.301` — a real gradient, comfortably
@@ -1183,10 +1195,9 @@ is.
 
 ### 9.7 Out of scope for this brick
 
-- **Humidity.** Brick 065. It will want the same shape and probably the same constants, but
-  it gets its own file and its own salt (`SALT_HUMIDITY`), because a second axis that
-  inherited this one's parameters would be a second axis that could not be retuned on its
-  own. If 065 lands identical, factoring the two is 066's call, not a guess made here.
+- **Humidity.** Brick 065 — **done**, §10. It landed with the same constants, measured
+  rather than assumed, in its own file with its own salt (`SALT_HUMIDITY`). The two were
+  not factored into a shared base class: see §10.5.
 - **Biome classification and the catalog.** Bricks 066–067. This field says how warm a
   column is and nothing about what grows there — the same separation §5.5 keeps between
   continentalness and the coastline.
@@ -1198,4 +1209,189 @@ is.
   flat world, not a band structure. If a world with poles is ever wanted it is a term added
   to this field with its own brick and its own version bump.
 - **The structure warming pass** (`terrain-climate-blend.md` §3 claim 6). Bricks 089–090.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`.
+
+## 10. The humidity field (brick 065)
+
+Implementation: `world/generation/humidity_field.gd` (`HumidityField`).
+Tests: `tests/unit/test_humidity_field.gd`.
+Reference: `docs/reference/terrain-climate-blend.md`.
+
+The second climate axis, and 064's mirror: one number per column, `0.0` the driest place in
+the world and `1.0` the wettest, with no unit in between. It classifies nothing on its own.
+Together with §9 it completes the pair brick 066 will classify on.
+
+```text
+at(column) = fade( noise01(column) )
+```
+
+| Constant | Value | Same as §9? |
+|---|---|---|
+| `CELL_SIZE_VOXELS` | `16384` = 8192 m | yes — written as `TemperatureField.CELL_SIZE_VOXELS` |
+| `OCTAVES` | `2` | yes |
+| `GAIN` | `0.5` | yes |
+| salt | `WorldHash.SALT_HUMIDITY` = `3` | **no**, and that is the whole difference |
+| curve | `TemperatureField.spread()` | yes, by call rather than by copy |
+
+Nothing is appended to `docs/rng.md` §4's salt list: `SALT_HUMIDITY` has been in it since
+brick 015 with no user, and this is its user.
+
+### 10.1 The brick is three decisions, and all three were "no"
+
+`nextsteps.md` handed 065 three open questions. The answers, in the order they were asked:
+
+1. **Are its constants really 064's?** Yes — but re-measured on its own layer rather than
+   inherited on the argument that the distribution transfers (§10.2). The measurement is
+   what made the answer worth something: it also corrected §9.5.
+2. **Should humidity read `Continentalness`?** No. Real coasts are wetter than continental
+   interiors, and it is a tempting term — but the reference offers no support for it
+   (`terrain-climate-blend.md` claim 1: humidity is the same per-region blend temperature
+   is, with no continentalness term), and taking it would make humidity the first climate
+   axis derived from another field, which §9.3 spent a full reference read establishing
+   climate is not. A coastal-wetness term is a decision brick 066 or 074 can still make,
+   *visibly*, on top of two independent axes; baked in here it would be invisible and
+   unremovable. The test measures the consequence: `|r| < 0.05` against `Continentalness`
+   on every fixture world.
+3. **Do the two axes get factored into a shared base class?** No — §9.7's rule, and §10.5
+   says what was coupled instead and why that is not the same thing.
+
+`terrain-climate-blend.md` `U1` — which region field the original's humidity actually
+blends, lost with its value accumulator — was checked before designing and **does not gate
+this brick**: our humidity is a noise layer, not a region blend, so which word of a region
+record the original read cannot change anything here. It stays open for 089–090.
+
+### 10.2 The constants were re-measured, not inherited
+
+Run on the layer at `SALT_HUMIDITY`, over the climate-scale sweep of §10.4, on 12 seeds and
+both climate salts (24 layers):
+
+| | end deciles | middle four deciles | sd | span |
+|---|---:|---:|---:|---|
+| raw layer | `0.018 .. 0.028` each | `0.577 .. 0.609` | `0.212 .. 0.218` | reaches both ends on ~0.1% of columns |
+| `at()` | `0.0713 .. 0.1584` (every decile) | — | `0.312 .. 0.320` | `0.0000 .. 1.0000` |
+
+So the answer to "does 064's distribution transfer" is yes, and the two axes are
+statistically the same field with different values — which is exactly what the reference
+describes (`terrain-climate-blend.md` `INV-3`: same window, same warp, same weight, a
+different region word).
+
+The alternatives fail the same way they failed for temperature, and the wider sweep makes
+the failure sharper: **no curve** leaves under 3% of the world in each end decile, so brick
+066 could put a desert threshold nowhere; **two applications** puts 27–31% in each end
+decile, a bimodal climate with the temperate middle emptied out. One application it is.
+
+One thing the wider sweep changed: the field is **not** near-uniform. Every decile holds
+between 7% and 16% of the world, with the ends the fattest — a mild U, at sd `0.316`
+against a uniform field's `0.289`. `fade()` moves mass outward from the middle faster than
+it thins the middle, and over 4096 independent cells the tails are populated enough to see.
+That is a better climate field than a flat one, not a worse one: the extremes brick 066
+needs are the ones that are hardest to reach.
+
+### 10.3 Independence is the property, and it is measured on every axis
+
+Two climate axes are only worth two fields if they are independent — otherwise the world has
+a line through the climate square rather than the square itself, and half the catalog brick
+067 writes describes places that do not exist. Measured over the climate-scale sweep, on all
+four fixture worlds:
+
+| Pair | worst `abs(r)` |
+|---|---:|
+| humidity x temperature | `0.023` |
+| humidity x ground height (`ErosionPass`) | `0.021` |
+| humidity x continentalness | `0.013` |
+
+And the same statement in the form 066 will use it, over a 4x4 grid of the climate square on
+12 seeds: **every one of the 16 cells holds between 3.9% and 9.3% of the world**, against an
+even 6.25%. The corners — hot desert, hot swamp, cold desert, tundra — are the fattest cells
+rather than the empty ones, because both axes are U-shaped. On a single 800 km line the two
+axes are `0.94` apart at their widest: a hot desert is a place a player can walk to, not an
+average of two middling fields.
+
+### 10.4 The sweep was wrong, and that is 065's finding
+
+Every Phase D field before this one is measured on a 2304-column sweep at a spacing of 4093
+voxels (§6.6, §7.5, §8.5, and §9.5). For a relief field, whose coarsest cell is 1024 voxels,
+that is four independent samples per cell and an excellent instrument. For a **climate**
+field, whose coarsest cell is 16384 voxels, it is a quarter of one cell: those 2304 columns
+are about **144 independent climate cells**, and everything measured on them moves by more
+than the thing being measured when the seed changes.
+
+The evidence, all on that sweep:
+
+| Measurement | `zero` | `typed` | `numeric` | `negative` |
+|---|---:|---:|---:|---:|
+| temperature, smallest decile | 0.045 | **0.072** | 0.037 | 0.043 |
+| temperature, sd | 0.262 | **0.280** | 0.251 | 0.260 |
+| `r`(humidity, temperature) | −0.042 | **−0.148** | −0.126 | +0.019 |
+| `r`(temperature, ground) | +0.016 | **+0.008** | +0.077 | −0.029 |
+
+§9.5's test asserted `0.05 <= decile <= 0.16` and `sd > 0.26` on the `typed` column alone.
+Three of the four worlds fail it. And a correlation of `−0.148` between two fields that
+share no salt, no lattice offset and no term is not a coupling — it is the standard error of
+a correlation over ~144 independent samples, which is about `0.08`.
+
+The correction, and it is a test and documentation correction only — no constant, hash, salt
+or field changed, and `TemperatureField`'s signature `fb91406f3e801b7f` is the one 064
+pinned:
+
+- a **climate-scale sweep** — 64 x 64 columns at a spacing of `16381` voxels from `−524192`,
+  spanning 1032003 of the world's 1048576 voxels on each axis and staying inside
+  `WorldBounds` at both ends. 16381 is prime and just under the cell edge, so consecutive
+  samples walk the phase of the lattice rather than landing on the same corner of every
+  cell;
+- every distributional and correlational test in **both** climate files runs on it, and on
+  **all four fixture worlds** rather than one;
+- the bands are the 24-layer measurement with room for seed variance: every decile in
+  `[0.055, 0.18]`, sd in `[0.30, 0.33]`, every joint 4x4 cell in `[0.03, 0.11]`. They still
+  catch both ways the curve can be got wrong, by a factor of about two at each end.
+
+One claim did not survive the wider sweep and was withdrawn rather than re-tuned. §9.5 said
+the raw layer "reaches neither end" (`0.016 .. 0.983`); over 4096 cells it reaches
+`0.004 .. 0.994`. Reaching an end on 0.1% of the world is not the same as having a decile
+there, so the assertion is now distributional — each end decile under 3% — which is both
+true and the thing that actually mattered.
+
+The general rule, for brick 066 and everything after it: **a field is measured at its own
+scale.** A sweep whose spacing is a fraction of the coarsest cell of the field under test
+measures the same cell repeatedly and reports the result as if it were a sample of the
+world. The fine sweep is still the right instrument for §6–§8; it is the wrong one here.
+
+### 10.5 What was coupled, and why it is not a base class
+
+§9.7 said the two axes stay two files, and they do. But three lines of this file name
+`TemperatureField`, and the distinction is worth stating:
+
+| Coupled | Not coupled |
+|---|---|
+| `CELL_SIZE_VOXELS`, `OCTAVES` and `GAIN` are written as `TemperatureField`'s, so the two axes cannot silently end up at different scales | either file may change its own line; the test asserts the equality, so such a change is answered rather than absorbed |
+| `spread()` calls `TemperatureField.spread()`, so the redistribution *decision* has one home | neither field inherits from the other; there is no shared constructor, no shared configuration and no third class |
+
+The difference between this and a base class is what happens when brick 066 wants to retune
+one axis. Here that is a one-line edit in one file, and a test failure that asks whether the
+other axis meant to follow. With a `ClimateField(cell, octaves, gain, salt)` base it is a
+new configuration argument, a decision about defaults, and two callers to re-check — and
+brick 066 is the first code that will actually see both users, so it is the brick entitled
+to make that call.
+
+### 10.6 This is not a generation version bump
+
+§9.6's argument, unchanged. `HumidityField` adds a new field: it changes no constant, no
+hash and no existing layer, it appends no salt, and every pinned signature below it —
+`Continentalness`, `ElevationField` `0babd0a337dd7cab`, `ErosionPass` `cc4f0f5ecb8fa581`,
+`TerracePass` `2af464f70e43590a`, `TemperatureField` `fb91406f3e801b7f` — is untouched and
+still asserted. The §10.4 correction touches test files and this document only. No world has
+ever had a voxel written from any of this. `GENERATION_VERSION` stays where it is.
+
+### 10.7 Out of scope for this brick
+
+- **Biome classification and the catalog.** Bricks 066–067. This field says how wet a column
+  is and nothing about what grows there.
+- **Coastal wetness.** §10.1, decision 2: available to 066 or 074 on top of two independent
+  axes, deliberately not baked in here.
+- **Rain shadow.** The same argument as the lapse rate (§9.3): it would couple humidity to a
+  height, and it belongs to whichever brick owns mountains and weather together, not to the
+  field.
+- **Biome transition blending.** Brick 074, reading both axes.
+- **Factoring the two climate axes.** Brick 066's call. §10.5.
+- **Rainfall in millimetres, or any unit.** §9.3's reasoning, applied to this axis.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`.

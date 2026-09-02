@@ -6,8 +6,8 @@
 | Reference source | `server/world/World.cpp`, `server/world/World.h`, `server/GAP_ANALYSIS.md` |
 | Read on | `2026-09-02` |
 | Overall confidence | `MEDIUM` (claims 1, 2, 5 and 7 are `HIGH`; claim 3's "in practice a Voronoi field" is `MEDIUM` and is load-bearing for §8's second divergence) |
-| Backlog bricks | `064` (written for), `065`, `066`–`067`, `074`, `085`, `089`–`090` |
-| Godot contract | `world/generation/temperature_field.gd`, `docs/world-generation.md` §9 |
+| Backlog bricks | `064` (written for), `065` (implemented from it), `066`–`067`, `074`, `085`, `089`–`090` |
+| Godot contract | `world/generation/temperature_field.gd`, `world/generation/humidity_field.gd`, `docs/world-generation.md` §9–§10 |
 
 ## 1. Scope
 
@@ -131,14 +131,15 @@ with the same consequence: our climate cannot copy the mechanism, only the shape
 
 | # | Unknown | How it could be resolved | Impact if wrong |
 |---|---|---|---|
-| U1 | Which region field humidity blends (claim 4) — its value accumulator did not survive decompilation | reading the region writer, or the client's copy of the same function | None for 064–065, which use a noise field rather than region storage. It matters for 089–090 if the region record is ever modelled |
-| U2 | Whether the stored per-region climate values are drawn uniformly, and so what distribution the blend has | reading the region writer (same read as `U1`) | None: brick 064 settled the distribution question by **measuring** its own field against a uniform one instead of importing a target (`docs/world-generation.md` §9.5) |
+| U1 | Which region field humidity blends (claim 4) — its value accumulator did not survive decompilation | reading the region writer, or the client's copy of the same function | None for 064–065, which use a noise field rather than region storage. **Checked by brick 065 before designing and confirmed not to gate it**: which word of a region record the original read cannot change a field that is a noise layer. It matters for 089–090 if the region record is ever modelled |
+| U2 | Whether the stored per-region climate values are drawn uniformly, and so what distribution the blend has | reading the region writer (same read as `U1`) | None: brick 064 settled the distribution question by **measuring** its own field instead of importing a target, and brick 065 re-measured it at the right scale — the field is mildly U-shaped rather than uniform, and the property the tests pin is that no decile of the range is empty (`docs/world-generation.md` §10.2, §10.4) |
 | U3 | Which structure the `tile[6] == 3` tag in the warming post-pass names (claim 6) | reading `World_getTileAtCoords`' record layout and the region-site writer | None until 089–090; we do not implement the pass |
 
 ## 8. Godot contract
 
 `world/generation/temperature_field.gd` (`TemperatureField`), brick 064, and
-`docs/world-generation.md` §9. Brick 065 mirrors it for humidity; brick 066 consumes both.
+`docs/world-generation.md` §9; `world/generation/humidity_field.gd` (`HumidityField`),
+brick 065, and §10. Brick 066 consumes both.
 
 | Concern | Decision |
 |---|---|
@@ -151,19 +152,27 @@ Deliberate divergences:
 
 | Reference | Ours | Why |
 |---|---|---|
-| a nearest-region-site blend over stored per-region values (claims 1, 3) | one `ValueNoise` layer, cell 16384 voxels, 2 octaves, `SALT_TEMPERATURE` | their region array is world *state*; ours has to be a pure function of `(seed, column)` (`docs/rng.md` §2), because server and client both generate. A Voronoi climate would also need the region pass (089–090) to exist first, which is what would have blocked 064 behind it |
-| a near-hard Voronoi edge between climate cells (claim 3) | a continuous, `C²` field | whether biome boundaries are hard or blended is brick 074's decision, and a field with a built-in discontinuity takes that decision away from it. Our transition is wide by construction — `TemperatureField.minimum_climate_span_voxels()` — and 074 can still threshold it sharply |
-| the per-region value distribution is unknown (claim 3, `U2`) | a noise layer put through `ValueNoise.fade()` until the sweep is near-uniform | the reference cannot supply a target here, so the target is a *measurement*: every tenth of the range has to hold a workable share of the world, or brick 066's thresholds select nothing (`docs/world-generation.md` §9.5) |
+| a nearest-region-site blend over stored per-region values (claims 1, 3) | one `ValueNoise` layer per axis, cell 16384 voxels, 2 octaves, `SALT_TEMPERATURE` / `SALT_HUMIDITY` | their region array is world *state*; ours has to be a pure function of `(seed, column)` (`docs/rng.md` §2), because server and client both generate. A Voronoi climate would also need the region pass (089–090) to exist first, which is what would have blocked 064 behind it |
+| a near-hard Voronoi edge between climate cells (claim 3) | a continuous, `C²` field | whether biome boundaries are hard or blended is brick 074's decision, and a field with a built-in discontinuity takes that decision away from it. Our transition is wide by construction — `minimum_climate_span_voxels()` on either axis — and 074 can still threshold it sharply |
+| the per-region value distribution is unknown (claim 3, `U2`) | a noise layer put through `ValueNoise.fade()` until every decile of the range holds a workable share of the world | the reference cannot supply a target here, so the target is a *measurement*: every tenth of the range has to hold a real share of the world, or brick 066's thresholds select nothing. Measured over 24 climate layers at `7.1% .. 15.8%` per decile (`docs/world-generation.md` §10.2; §9.5's "near-uniform" reading was an artifact of too small a sweep — §10.4) |
+| the two axes are identical but for which region word they read (`INV-3`) | the same: identical constants, different salt, and the equality is asserted rather than left to two files that happen to agree | measured rather than assumed — 065 re-ran the distribution on its own layer instead of inheriting 064's (`docs/world-generation.md` §10.2). Not factored into a shared base class: §10.5 |
+| humidity carries no continentalness term (claim 1) | the same | real coasts are wetter than continental interiors, and it was the one tempting divergence 065 could have taken. Refused: it would make humidity the first climate axis derived from another field, and 066 or 074 can still add coastal wetness *visibly* on top of two independent axes (`docs/world-generation.md` §10.1) |
 | a structure warms cold ground below `0.2` (claim 6) | not implemented | it is a structure-placement effect, and structures are 089–090. Recorded so that brick can pick it up |
-| climate is read on a `[0, 1]` scale (claim 5) | the same | kept, and it is why `at()` has no unit. A degree scale would be a number we could not check against anything, and it would invite a lapse rate — which belongs to brick 085, reading this field *and* a height, not to this field |
-| climate has no altitude term anywhere in the blend (claims 1, 7) | the same | the finding, kept: cold peaks are 085's snowline, not a lapse rate baked in here |
+| climate is read on a `[0, 1]` scale (claim 5) | the same, on both axes | kept, and it is why `at()` has no unit. A degree scale — or millimetres of rainfall — would be a number we could not check against anything, and it would invite a lapse rate, which belongs to brick 085, reading a climate field *and* a height |
+| climate has no altitude term anywhere in the blend (claims 1, 7) | the same | the finding, kept: cold peaks are 085's snowline, not a lapse rate baked in here; and a rain shadow is the same argument on the other axis |
 
 ## 9. Tests
 
 | Test | Asserts |
 |---|---|
-| `test_temperature_field.gd::test_climate_is_a_separate_axis_from_the_ground` | claim 7 as a measurement: `\|r\| < 0.05` against both ground height and continentalness over the 2304-column sweep |
+| `test_temperature_field.gd::test_climate_is_a_separate_axis_from_the_ground` | claim 7 as a measurement: `\|r\| < 0.05` against both ground height and continentalness, on every fixture world, over the climate-scale sweep |
 | `test_temperature_field.gd::test_the_temperature_salt_is_nobody_elses` | the mechanism behind it — climate cannot be a relabelling of a field it shares a salt with |
-| `test_temperature_field.gd::test_no_tenth_of_the_climate_range_is_empty` | the `U2` divergence: every decile of the range holds between 5% and 16% of the world |
+| `test_temperature_field.gd::test_no_tenth_of_the_climate_range_is_empty` | the `U2` divergence: every decile of the range holds between 5.5% and 18% of the world, on every fixture world |
 | `test_temperature_field.gd::test_the_curve_is_what_earns_that_distribution` | the same measurement before `spread()`, so removing the curve fails a test |
+| `test_temperature_field.gd::test_the_sweep_is_wide_enough_to_measure_a_climate` | brick 065's finding as geometry: the sample spacing is on the scale of a climate cell, so the measurements above cannot go back to a sweep too fine to see the field (`docs/world-generation.md` §10.4) |
 | `test_temperature_field.gd::test_a_kilometre_of_walking_never_changes_the_weather_much` | the divergence from claim 3's hard edge: no kilometre of a 400 km line crosses half the range |
+| `test_humidity_field.gd::test_the_two_climate_axes_are_measured_at_the_same_scale` | `INV-3` as an assertion: the second axis differs from the first only in its salt |
+| `test_humidity_field.gd::test_humidity_is_a_separate_axis_from_temperature` | that the pair is a square rather than a line: `\|r\| < 0.05` between the axes, on every fixture world |
+| `test_humidity_field.gd::test_humidity_is_a_separate_axis_from_the_ground` | claim 1's absent continentalness term, as the refusal 065 made deliberately: `\|r\| < 0.05` against continentalness and ground height |
+| `test_humidity_field.gd::test_every_climate_a_biome_could_ask_for_exists` | what brick 066 actually needs: every cell of a 4×4 grid of the climate square holds between 3% and 11% of the world |
+| `test_humidity_field.gd::test_the_two_axes_can_be_at_opposite_ends_at_once` | the same independence in the form a player meets it: somewhere on one 800 km line the two axes are `0.94` apart |

@@ -7,16 +7,29 @@ extends TestCase
 ## brick exists to make — that climate is a **separate axis** from the height field, and
 ## that it is something a player walks into over kilometres rather than something that
 ## changes under their feet.
+##
+## **The distribution sweep was corrected by brick 065** (`docs/world-generation.md`
+## §10.4). It was originally the 2304-column sweep `test_elevation_field.gd` and
+## `test_erosion_pass.gd` use, on the `typed` world alone, for the stated reason that
+## sharing columns with those files made the height/temperature correlation comparable to
+## them. That reason was wrong: at a spacing of 4093 voxels — a quarter of one climate cell
+## — those 2304 columns are only about 144 *independent* climate cells, and everything
+## measured on them moved by more than the thing it was measuring when the seed changed.
+## Three of the four fixture worlds failed the decile band this file asserts, and the
+## fourth passed. The measurements below now run on a climate-scale sweep, on every fixture
+## world; `TemperatureField` itself is untouched and its signature is the one 064 pinned.
 
 ## The digest of `at()` over `GenerationFixtures.columns()` for the `typed` world.
 const PINNED_SIGNATURE := "fb91406f3e801b7f"
 
-## The distribution sweep. Same shape and spacing as `test_elevation_field.gd`'s and
-## `test_erosion_pass.gd`'s, so the three files' measurements are comparable column for
-## column — which is what makes the height/temperature correlation below meaningful.
-const SWEEP_SIDE := 48
-const SWEEP_SPACING := 4093
-const SWEEP_ORIGIN := -98232
+## The climate-scale sweep: 4096 columns at a spacing wider than half a climate cell,
+## spanning 1032003 of the world's 1048576 voxels on each axis and staying inside
+## `WorldBounds` at both ends. 16381 is prime and just under the 16384-voxel cell, so
+## consecutive samples walk the phase of the lattice instead of landing on the same corner
+## of every cell. Shared, constant for constant, with `test_humidity_field.gd`.
+const SWEEP_SIDE := 64
+const SWEEP_SPACING := 16381
+const SWEEP_ORIGIN := -524192
 
 ## The long east–west line the walking tests use. Long enough to cross several climate
 ## cells (a cell is 16384 voxels), sampled every `LINE_STEP` voxels.
@@ -244,88 +257,122 @@ func test_a_voxel_reads_its_own_column() -> void:
 # What the field is for
 # ---------------------------------------------------------------------------
 
+func test_the_sweep_is_wide_enough_to_measure_a_climate() -> void:
+	# Brick 065's finding, asserted as geometry so the tests below cannot go back to a
+	# sweep too fine to see this field. A sample spacing well under one cell edge measures
+	# the same cell over and over: the 4093-voxel sweep this file used to share with the
+	# relief tests holds about 144 independent climate cells, and three of the four fixture
+	# worlds fail the decile band below on it.
+	assert_true(SWEEP_SPACING > TemperatureField.CELL_SIZE_VOXELS >> 1,
+			"the sweep spacing (%d) is on the scale of a climate cell (%d)" % [
+					SWEEP_SPACING, TemperatureField.CELL_SIZE_VOXELS])
+	var lowest := SWEEP_ORIGIN
+	var highest := SWEEP_ORIGIN + (SWEEP_SIDE - 1) * SWEEP_SPACING
+	assert_true(lowest >= -WorldBounds.HALF_EXTENT_HORIZONTAL_VOXELS
+			and highest <= WorldBounds.HALF_EXTENT_HORIZONTAL_VOXELS,
+			"the sweep (%d .. %d) stays inside the world" % [lowest, highest])
+	assert_true(highest - lowest > WorldBounds.HALF_EXTENT_HORIZONTAL_VOXELS,
+			"the sweep spans most of the world (%d voxels)" % (highest - lowest))
+
+
 func test_the_world_has_climates_at_both_ends_of_the_range() -> void:
-	# The claim of the brick. A classifier can only find a desert or a snowfield if
-	# columns near the ends of this field exist, and the sweep is where we find out.
-	var climate := _field_for(GenerationFixtures.WORLD_TYPED)
-	var values: Array[float] = []
-	for column in _sweep_columns():
-		values.append(climate.at(column))
-	var lowest := 2.0
-	var highest := -1.0
-	for value in values:
-		lowest = minf(lowest, value)
-		highest = maxf(highest, value)
-	assert_true(lowest < 0.02, "the sweep finds a coldest place (%s)" % lowest)
-	assert_true(highest > 0.98, "the sweep finds a hottest place (%s)" % highest)
+	# The claim of the brick. A classifier can only find a desert or a snowfield if columns
+	# near the ends of this field exist — in every world, not in the one the test picked.
+	for name in GenerationFixtures.world_names():
+		var climate := _field_for(name)
+		var lowest := 2.0
+		var highest := -1.0
+		for column in _sweep_columns():
+			var value := climate.at(column)
+			lowest = minf(lowest, value)
+			highest = maxf(highest, value)
+		assert_true(lowest < 0.001, "world '%s' has a coldest place (%s)" % [name, lowest])
+		assert_true(highest > 0.999, "world '%s' has a hottest place (%s)" % [
+				name, highest])
 
 
 func test_no_tenth_of_the_climate_range_is_empty() -> void:
 	# Stronger than reaching the ends, and the property biome thresholds actually depend
 	# on: wherever brick 066 puts a boundary, a useful share of the world has to fall on
-	# each side of it. A uniform field would put 10% in every decile; nothing here is
-	# allowed to fall below half of that or to take more than a sixth of the world.
-	var climate := _field_for(GenerationFixtures.WORLD_TYPED)
-	var values: Array[float] = []
-	for column in _sweep_columns():
-		values.append(climate.at(column))
-	var deciles := _deciles(values)
-	for index in deciles.size():
-		assert_in_range(deciles[index], 0.05, 0.16,
-				"decile %d holds a workable share of the world (%.4f)" % [
-						index, deciles[index]])
-	# `1 / sqrt(12)` = 0.2887 is a uniform field's standard deviation.
-	assert_true(_standard_deviation(values) > 0.26,
-			"the field is close to uniform (sd %s)" % _standard_deviation(values))
+	# each side of it. Measured over 24 climate layers, every decile holds between 7.1% and
+	# 15.8% of the world — the field is mildly U-shaped rather than uniform, because the
+	# curve pushes the tails out further than it thins the middle. The band below is that
+	# measurement with room for seed variance; it still catches both ways the curve can be
+	# got wrong (`docs/world-generation.md` §10.2).
+	for name in GenerationFixtures.world_names():
+		var climate := _field_for(name)
+		var values: Array[float] = []
+		for column in _sweep_columns():
+			values.append(climate.at(column))
+		var deciles := _deciles(values)
+		for index in deciles.size():
+			assert_in_range(deciles[index], 0.055, 0.18,
+					"world '%s' decile %d holds a workable share (%.4f)" % [
+							name, index, deciles[index]])
+		assert_in_range(_standard_deviation(values), 0.30, 0.33,
+				"world '%s' is spread across its range (sd %s)" % [
+						name, _standard_deviation(values)])
 
 
 func test_the_curve_is_what_earns_that_distribution() -> void:
-	# The same sweep before `spread()`. The raw layer reaches neither end and piles two
-	# thirds of the world into the middle four deciles — a field brick 066 could not put a
-	# desert threshold on. This is the measurement the curve exists because of, and it is
-	# here so that removing the curve fails a test rather than quietly flattening the map.
-	var climate := _field_for(GenerationFixtures.WORLD_TYPED)
-	var raw: Array[float] = []
-	for column in _sweep_columns():
-		raw.append(climate.raw_at(column))
-	var lowest := 2.0
-	var highest := -1.0
-	for value in raw:
-		lowest = minf(lowest, value)
-		highest = maxf(highest, value)
-	assert_true(lowest > 0.005 and highest < 0.995,
-			"the raw layer reaches neither end (%s .. %s)" % [lowest, highest])
-	var deciles := _deciles(raw)
-	var middle := deciles[3] + deciles[4] + deciles[5] + deciles[6]
-	assert_true(middle > 0.6,
-			"the raw layer crowds its middle (%.4f of the world in four deciles)" % middle)
-	assert_true(_standard_deviation(raw) < 0.2,
-			"the raw layer is narrower than the field (sd %s)" % _standard_deviation(raw))
+	# The same sweep before `spread()`. The raw layer piles about 60% of the world into the
+	# middle four deciles and leaves under 3% in each end decile — a field brick 066 could
+	# not put a desert threshold on. This is the measurement the curve exists because of,
+	# and it is here so that removing the curve fails a test rather than quietly flattening
+	# the map.
+	#
+	# Note what is no longer asserted: that the raw layer never reaches the ends. Over a
+	# sweep this wide it does, on a handful of columns out of 4096 — 064's narrower sweep
+	# saw `0.016 .. 0.983` and concluded otherwise. Reaching an end on 0.1% of the world is
+	# not the same as having a decile there, and the distribution is the honest claim.
+	for name in GenerationFixtures.world_names():
+		var climate := _field_for(name)
+		var raw: Array[float] = []
+		for column in _sweep_columns():
+			raw.append(climate.raw_at(column))
+		var deciles := _deciles(raw)
+		var middle := deciles[3] + deciles[4] + deciles[5] + deciles[6]
+		assert_true(middle > 0.55,
+				"world '%s' raw layer crowds its middle (%.4f in four deciles)" % [
+						name, middle])
+		assert_true(deciles[0] < 0.03 and deciles[9] < 0.03,
+				"world '%s' raw layer leaves its ends nearly empty (%.4f / %.4f)" % [
+						name, deciles[0], deciles[9]])
+		assert_true(_standard_deviation(raw) < 0.24,
+				"world '%s' raw layer is narrower than the field (sd %s)" % [
+						name, _standard_deviation(raw)])
 
 
 func test_climate_is_a_separate_axis_from_the_ground() -> void:
 	# The finding brick 064 owes `terrain-base-height-field.md` U2, as a measurement:
-	# temperature shares nothing with the height field or with continentalness. If a
-	# future edit gave climate one of their salts or derived it from a height, this is
-	# where it would show up — as a correlation, before it showed up as every mountain
-	# being cold.
-	var hash := GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED)
-	var climate := TemperatureField.for_world(hash)
-	var ground := ErosionPass.for_world(hash)
-	var macro := Continentalness.for_world(hash)
-	var temperatures: Array[float] = []
-	var heights: Array[float] = []
-	var continents: Array[float] = []
-	for column in _sweep_columns():
-		temperatures.append(climate.at(column))
-		heights.append(ground.at(column))
-		continents.append(macro.at(column))
-	var with_height := _correlation(temperatures, heights)
-	var with_continent := _correlation(temperatures, continents)
-	assert_true(absf(with_height) < 0.05,
-			"temperature is uncorrelated with ground height (r = %s)" % with_height)
-	assert_true(absf(with_continent) < 0.05,
-			"temperature is uncorrelated with continentalness (r = %s)" % with_continent)
+	# temperature shares nothing with the height field or with continentalness. If a future
+	# edit gave climate one of their salts or derived it from a height, this is where it
+	# would show up — as a correlation, before it showed up as every mountain being cold.
+	#
+	# On the climate-scale sweep, per 065: a correlation between a climate field and
+	# anything else is only as good as the number of independent *climate* samples behind
+	# it, and the old sweep had about 144 of them. It read `+0.077` on one fixture world
+	# and `+0.007` on another for the same pair of fields.
+	for name in GenerationFixtures.world_names():
+		var hash := GenerationFixtures.hash_for(name)
+		var climate := TemperatureField.for_world(hash)
+		var ground := ErosionPass.for_world(hash)
+		var macro := Continentalness.for_world(hash)
+		var temperatures: Array[float] = []
+		var heights: Array[float] = []
+		var continents: Array[float] = []
+		for column in _sweep_columns():
+			temperatures.append(climate.at(column))
+			heights.append(ground.at(column))
+			continents.append(macro.at(column))
+		var with_height := _correlation(temperatures, heights)
+		var with_continent := _correlation(temperatures, continents)
+		assert_true(absf(with_height) < 0.05,
+				"world '%s': temperature is uncorrelated with ground height (r = %s)" % [
+						name, with_height])
+		assert_true(absf(with_continent) < 0.05,
+				"world '%s': temperature is uncorrelated with continentalness (r = %s)" % [
+						name, with_continent])
 
 
 func test_the_line_geometry_is_what_it_claims() -> void:

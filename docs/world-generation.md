@@ -1893,3 +1893,129 @@ decides where a voxel goes. `GENERATION_VERSION` stays where it is.
   produces the weight they would blend with, not the blend itself.
 - **A coastal or aquatic biome, and its own edge.** §11.6, unchanged: waits for the
   waterline (080).
+
+## 14. Surface material selection (brick 075)
+
+Implementation: `world/generation/surface_material.gd` (`SurfaceMaterial`);
+`BiomeDefinition.surface_block_id` (new field on the 067 schema);
+`tools/generators/generate_surface_blocks.gd` (two new block kinds); updated
+`tools/generators/biome_catalog_generator.gd` (all six records regenerated with the field
+filled in). Tests: `tests/unit/test_surface_material.gd`;
+`tests/unit/test_biome_definition.gd`, `test_biome_registry.gd` and `test_block_set.gd`
+extended for the new field and the two new blocks.
+Reference: none — §14.5, the same finding as §12.5 and §13.5.
+
+§13's transition weight named its own future reader — "for 075's material blend" — three
+times over. This is that brick: one block id per column, blended across a biome edge by
+dithering rather than by a hard cut, because a `VoxelBlockyModel` cube cannot fade the way
+a colour can.
+
+```text
+BiomeTransition.blend_at(column) -> {primary, neighbor, neighbor_weight}
+        |
+        +-- primary biome's BiomeDefinition.surface_block_id         -> the default answer
+        +-- neighbor_weight > 0  ->  a per-column dithered roll        -> the blended answer
+                (GenerationHash.value01_column(column, SALT_SURFACE_MATERIAL))
+```
+
+### 14.1 A dither, because blocky ground cannot blend
+
+`neighbor_weight` is a continuous `[0, 0.5]` value; a block id is not continuous at all.
+`SurfaceMaterial.block_id_at()` reads a deterministic per-column roll in `[0, 1)` and picks
+the neighbor's block when the roll falls under the weight, the primary's otherwise. At
+`neighbor_weight = 0` the roll can never win, so every column away from an edge is exactly
+the primary — no different from no blend at all — and exactly on a boundary
+(`neighbor_weight = 0.5`) the two blocks are chosen with even odds, so a band of columns
+near an edge salt-and-peppers between them rather than snapping cleanly from one to the
+other. This is the discrete-ground form of the "tint that does not jump" §13.5 already
+named — the same property, produced by a coin flip instead of a blend because the medium
+here cannot fade.
+
+The roll carries its own salt, `WorldHash.SALT_SURFACE_MATERIAL`, appended rather than
+borrowed from 074's or 066's — `WorldHash`'s own rule (one salt per pass, so two passes
+near the same edge cannot correlate by accident, `docs/rng.md` §4).
+
+### 14.2 The block mapping: two new kinds, not six
+
+Only three block kinds existed before this brick (038: grass, dirt, stone) and six biomes
+need six honest grounds. Rather than invent a new block for every biome — a field nothing
+distinguishes is worse than a record that grows, applied here to blocks instead of a biome
+schema field — four of the six reuse what already exists:
+
+| Biome | Block | Why |
+|---|---|---|
+| `grassland` | `block.grass` | the reference case grass was authored for |
+| `forest` | `block.grass` | still grassy ground between trees; canopy/litter is 086–088's vegetation, not a different ground block |
+| `desert` | `block.sand` | **new** — no existing block is an honest desert floor |
+| `snow` | `block.snow` | **new** — same reason, for a snowfield |
+| `mountain` | `block.stone` | `RUGGEDNESS_MOUNTAIN` (066) already means "bare rock wins over relief"; the ground it describes already reads as stone |
+| `wetland` | `block.dirt` | swamp/marsh ground is honestly mud, and `block.dirt` is that texture already |
+
+`tools/generators/generate_surface_blocks.gd` writes the two new kinds with the same
+speckled-placeholder-PNG technique `generate_block_set.gd` (038) used for the first three —
+no Blender/bpy asset pass, matching the backlog row's own "Blender MCP: not needed by
+default." `data/blocks/` now holds five records; `tests/unit/test_block_set.gd`'s counts
+(`3` → `5`, `4` → `6` library models including the air placeholder) moved with it.
+
+### 14.3 The cross-domain check `BiomeRegistry` deliberately does not own
+
+`BiomeDefinition.surface_block_id` validates grammar and domain only
+(`StableId.validate()`, domain `block`) — the same independence `id` itself already has
+from `BiomeClassifier`'s partition, and the same reason `BlockDefinition.drop_item_id`
+(033) checks grammar only. `BiomeRegistry` stays unaware of `BlockRegistry` by the same
+logic it stays unaware of the classifier's own set at the schema layer: two different
+domains, two different registries, no field elevated to know about a registry it does not
+own. `nextsteps.md` asked whether `BiomeRegistry.self_check()`/`coverage_reason()` needed a
+new coherence check for this field; the answer is no, because the check that matters is
+cross-domain, and it lives where both domains actually meet.
+
+That is `SurfaceMaterial.for_world()` and its static half,
+`SurfaceMaterial.surface_block_reason_for(biomes, blocks)` — the same shape as
+`BiomeRegistry.coverage_reason_for()`: static and taking both registries so the failing
+branch is reachable by a test or a content tool, not just by a live catalog that
+`register_biome()` already kept clean one entry at a time. `for_world()` refuses to build
+(logged, not a crash) when either registry is unlocked, when the biome registry fails its
+own `self_check()`, or when any `surface_block_id` names a block the block registry has no
+record for — a typo here is the same shape of "broken world" bug 067 and 074 already
+guard against, just one domain over.
+
+### 14.4 Not a generation version bump — and where that stops being free
+
+§12.6's and §13.6's argument, and the last brick that gets to make it for free: **no world
+has ever had a voxel written from any Phase D pass**, so nothing this brick computes can
+contradict a world a player has already explored. `BiomeTransition.neighbor_weight_at()` is
+unchanged; the new pieces are `BiomeDefinition.surface_block_id` (a record field — §12.6's
+own stated exception) and `WorldHash.SALT_SURFACE_MATERIAL` (an appended salt with no prior
+user, `SALT_HUMIDITY`'s exact precedent from brick 065).
+
+That stops being free the moment some later brick's `VoxelGenerator` actually calls
+`block_id_at()` to fill a `VoxelBuffer`. From that point on, every input this file reads —
+the salt, every `surface_block_id`, and `BiomeTransition.TRANSITION_WIDTH` (already
+flagged generation-adjacent by §13.6 the moment it feeds a material choice, which it now
+does) — is baked into every world generated with it, and changing any of them becomes a
+version bump (§2.1) exactly as `BiomeClassifier`'s thresholds already are. This is the
+answer `nextsteps.md` asked 075 to record explicitly rather than assume: the bump policy
+takes effect at the first `VoxelBuffer` write, not before, and not automatically at this
+brick just because it is the first one whose output looks like content.
+
+### 14.5 Reference: none
+
+§12.5 and §13.5's finding a third time: the original has no discrete biome and so no
+discrete material either. `Terrain_computeBiomeColor` blends climate noise straight into
+terrain and vegetation RGBA, continuously, with no block or tile lookup anywhere in either
+binary. There is no material-selection mechanism to diverge from — only the same
+divergence already on record, applied a third time: a discrete id and a discrete block for
+everything that needs one, dithered here rather than tinted because the ground is blocky
+and theirs was not.
+
+### 14.6 Out of scope for this brick
+
+- **Subsurface layers and depth.** Still 076 — this brick is the top face of a column
+  only; what is under it is a column-depth question this file says nothing about.
+- **Caves, and what lines them.** 077–079, unchanged.
+- **An actual `VoxelGenerator` / `VoxelBuffer` write.** §14.4 — nothing before this brick
+  wrote a voxel and this brick does not start; it is a pure `(column) -> block id`
+  function for whichever later brick assembles the real generator.
+- **Real art.** The two new textures are the same deterministic speckled placeholders 038
+  used, not a Blender/bpy pass (`CLAUDE.md` §10) — consistent with the backlog row's own
+  "Blender MCP: not needed by default."

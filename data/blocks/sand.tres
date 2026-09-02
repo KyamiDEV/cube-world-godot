@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="BlockDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/terrain/block_definition.gd" id="1_5bqec"]
+
+[resource]
+script = ExtResource("1_5bqec")
+id = "block.sand"
+display_name = "Sand"
+texture_top = "res://assets/textures/blocks/sand.png"
+texture_side = "res://assets/textures/blocks/sand.png"
+texture_bottom = "res://assets/textures/blocks/sand.png"
+hardness = 0.4
+footstep_tag = "sand"

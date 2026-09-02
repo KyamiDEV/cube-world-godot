@@ -77,6 +77,10 @@ const SALT_LOOT := 9
 const SALT_CONTINENTALNESS := 10
 const SALT_RUGGEDNESS := 11
 
+## Which side of a biome transition a column's surface block dithers to
+## (`world/generation/surface_material.gd`, brick 075).
+const SALT_SURFACE_MATERIAL := 12
+
 
 ## 64-bit hash of a 3D voxel or chunk coordinate under a world seed and pass salt.
 static func hash3(seed_value: int, x: int, y: int, z: int, salt: int = 0) -> int:

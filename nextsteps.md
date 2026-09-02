@@ -36,41 +36,32 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 075–090 open)
-- Next task `075 — Implement surface material selection` (deps: 073 in `backlog.md`, but 073
-  is folded — treat the real dependency as 067's catalog + 074's transition weight, both
-  DONE). This is now the brick `BiomeDefinition` next grows for: 068–073 were folded here
-  precisely because "surface block per biome" is 075's field, not a field six separate bricks
-  should each invent a slightly different way of naming. Four things to carry in:
-  **(a)** add the field(s) to `BiomeDefinition` once, regenerate **all six** `.tres` files
-  through `tools/generators/generate_biome_catalog.gd` (never hand-edit one — that is how the
-  six drift), and update `BiomeRegistry.self_check()`/`coverage_reason()` only if the new
-  field needs its own coherence check beyond "six records exist" (it currently does not check
-  population, §12.2's note); **(b)** `BiomeTransition.neighbor_weight_at()` (074) is sitting
-  there for exactly this brick — a chunk's surface material at a column near a biome edge
-  should blend primary/neighbor material by that weight, not hard-cut, or 074 was scope
-  nobody asked for; **(c)** subsurface layers are explicitly **076**, not this brick — 075 is
-  the surface block only, `docs/world-generation.md` §12.2's table; **(d)** still not a
-  version bump on its own (`BiomeDefinition` fields never are, §12.6), but the *voxel* writer
-  075 presumably also builds — the first thing to actually call
-  `VoxelGenerator`/`VoxelBuffer` — is a different question 075 needs to answer explicitly:
-  is filling a buffer from these fields for the first time a version bump the moment it
-  starts happening, or is the *bump* only whichever later brick changes a constant under an
-  already-generated world? Decide and record it; nothing before 075 had voxels to contradict.
-  **The world still has no generated content**: a change to `WorldHash`, `GenerationHash`,
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–075 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 076–090 open)
+- Next task `076 — Implement subsurface material rules` (deps: 074 in `backlog.md`, DONE).
+  075 deliberately stopped at the **top face** of a column
+  (`world/generation/surface_material.gd`, `docs/world-generation.md` §14.6) — what a column
+  looks like *under* its surface block (depth of topsoil before stone, whether a biome's
+  subsurface differs at all) is explicitly this brick's, not 075's. Three things to carry in:
+  **(a)** `BiomeDefinition` already grew once this phase (075 added `surface_block_id`); a
+  depth/subsurface field is the second and, per §12.2's table, the *last* one this record
+  needs before 086–088 (vegetation) and 080/085 (water/snowline) each want their own — regenerate
+  all six `.tres` through `tools/generators/generate_biome_catalog.gd` again, never by hand;
+  **(b)** `TerracePass.at(column)` (063) is the height a column's surface sits at — subsurface
+  rules almost certainly read down from there, the way 075 read `BiomeTransition` rather than
+  re-deriving a boundary; **(c)** 075's version-bump answer applies unchanged: nothing has
+  written a voxel yet, so nothing 076 computes contradicts a generated world either, but 076 is
+  one brick closer to whichever later brick finally does. `docs/world-generation.md` §2.1 /
+  `docs/rng.md` §3 govern the moment that changes: a change to `WorldHash`, `GenerationHash`,
   `ValueNoise`, or the pinned constants in `Continentalness`, `ElevationField`, `ErosionPass`,
-  `TerracePass`, `TemperatureField`, `HumidityField` or `BiomeClassifier` is a generation
-  version bump (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free fix.
-  `BiomeTransition.TRANSITION_WIDTH` is deliberately **not** on that list (§13.6) — it is
-  presentation-facing and never decides where a voxel goes — but the moment 075 makes it an
-  input to a surface *material* choice rather than only a tint, re-read §13.6 before assuming
-  that is still true.
+  `TerracePass`, `TemperatureField`, `HumidityField`, `BiomeClassifier` or (as of 075)
+  `SurfaceMaterial`'s `SALT_SURFACE_MATERIAL`/mapping is a generation version bump, not a free
+  fix.
 
 ## Completed bricks
 
-`001`–`067`, `074`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no field
-under the architecture 067 built; content folded into 075–076/080/085–088, no field
+`001`–`067`, `074`–`075`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
@@ -89,7 +80,77 @@ Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
-074 biome transition blending (068–073 folded — see below).
+074 biome transition blending, 075 surface material selection (068–073 folded — see below).
+
+`075` is the brick `BiomeDefinition` grew into a second time: `world/generation/
+surface_material.gd` (`SurfaceMaterial`), one new file; `BiomeDefinition.surface_block_id`
+(new field, four total now); two new block kinds (`block.sand`, `block.snow`, via a new
+`tools/generators/generate_surface_blocks.gd`); the six `.tres` biome records regenerated
+through `generate_biome_catalog.gd` with the field filled in; no change to
+`BiomeClassifier`, `BiomeTransition` or any pinned generation signature.
+
+```text
+BiomeTransition.blend_at(column) -> {primary, neighbor, neighbor_weight}
+        |
+        +-- primary.surface_block_id                                  -> away from an edge
+        +-- neighbor_weight > 0 and roll < neighbor_weight             -> neighbor.surface_block_id
+                (roll = GenerationHash.value01_column(column, SALT_SURFACE_MATERIAL))
+```
+
+Five things worth keeping:
+
+1. **A dither, not a blend, and the reason is the medium.** `neighbor_weight` (074) is
+   continuous; a `VoxelBlockyModel` cube is one block or another. `block_id_at()` rolls a
+   deterministic per-column value in `[0, 1)` and picks the neighbor's block under the
+   weight, the primary's otherwise — `0` at `neighbor_weight = 0` (never wins, so a column
+   away from every edge is always the primary), even odds exactly on a boundary. The
+   dithered band this produces near an edge is the discrete-ground form of the "tint that
+   does not jump" §13.5 already named. Its own salt, `WorldHash.SALT_SURFACE_MATERIAL`,
+   appended rather than borrowed — `WorldHash`'s one-salt-per-pass rule.
+2. **Two new blocks, not six.** Only grass/dirt/stone existed (038). Four of six biomes
+   reuse them (grassland→grass, forest→grass — still grassy ground between trees until
+   086–088 places any, mountain→stone — `RUGGEDNESS_MOUNTAIN` already means bare rock,
+   wetland→dirt — swamp ground is honestly mud); desert→`block.sand` and snow→`block.snow`
+   are genuinely new, because nothing already on disk is an honest stand-in for either.
+   `generate_surface_blocks.gd` writes them with 038's exact speckled-placeholder-PNG
+   technique — no Blender/bpy pass, matching the backlog row's own MCP note.
+   `docs/world-generation.md` §14.2 has the full table and reasoning per biome.
+3. **The cross-domain check lives where the two domains meet, not on `BiomeRegistry`.**
+   `nextsteps.md` asked whether `BiomeRegistry.self_check()`/`coverage_reason()` needed a
+   new coherence check for the field; the answer is no — `BiomeDefinition.surface_block_id`
+   validates grammar and domain only (`BlockDefinition.drop_item_id`'s exact pattern), and
+   `BiomeRegistry` stays unaware of `BlockRegistry` the same way it stays unaware of
+   `BiomeClassifier`'s partition at the schema layer. The check that a `surface_block_id`
+   actually resolves is `SurfaceMaterial.surface_block_reason_for(biomes, blocks)` — static
+   and taking both registries, `BiomeRegistry.coverage_reason_for()`'s exact shape, and it
+   is what `SurfaceMaterial.for_world()` refuses to build past.
+4. **The version-bump question `nextsteps.md` asked 075 to answer explicitly, answered.**
+   Not a bump — same reason as every Phase D brick since 062: no world has ever had a voxel
+   written, so nothing here can contradict one. What's new is *where that stops being true*:
+   the first later brick whose `VoxelGenerator` actually calls `block_id_at()` to fill a
+   `VoxelBuffer` is where `SALT_SURFACE_MATERIAL`, every `surface_block_id` and (from that
+   point on) `BiomeTransition.TRANSITION_WIDTH` become pinned generation inputs like
+   `BiomeClassifier`'s thresholds already are. Recorded rather than assumed,
+   `docs/world-generation.md` §14.4 — this is the answer to §13.6's own forward flag, too:
+   `TRANSITION_WIDTH` is now an input to a material choice, not only a tint.
+5. **Reference: none, a third time.** §12.5 and §13.5's finding applies again — no discrete
+   biome means no discrete material either, so there is no material-selection mechanism in
+   either binary to diverge from. `docs/world-generation.md` §14.5;
+   `docs/reference/traceability.md` §4 and `matrix-world.md` §2 both updated.
+
+Docs: `docs/world-generation.md` §14 (new, six subsections); `docs/reference/
+traceability.md` §4 (075 added to the original-design list); `matrix-world.md` §2 (biome
+colour row, 075 added to `Bricks`).
+
+Tests: `tests/unit/test_surface_material.gd` (new, pins `signature()` `671f7833af3596ab`
+against the shipped catalogs on the `typed` world); `test_biome_definition.gd` (+3, the new
+field's grammar/domain/independence checks); `test_biome_registry.gd` (`_definition()`
+helper updated so every fixture registration still validates); `test_block_set.gd` (counts
+moved 3→5 records, 4→6 library models for the two new blocks). Full suite: `files=48
+tests=653 assertions=122029 failed=0`. Compile probe OK (102 scripts) — hit the same
+`BiomeTransition`-shaped shadowing gotcha 074 already recorded below (`transition`/`biomes`
+locals shadowing this file's own accessor methods of the same name; renamed). Headless boot
+OK.
 
 `074` is the brick that resolved the question 065–067 kept handing forward: bricks 068–073
 ("implement the grassland biome" through "implement the aquatic/wet biome") turned out to own

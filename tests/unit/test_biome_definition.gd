@@ -7,6 +7,7 @@ func _valid() -> BiomeDefinition:
 	definition.id = "biome.grassland"
 	definition.display_name = "Grassland"
 	definition.debug_color = Color8(106, 170, 74)
+	definition.surface_block_id = "block.grass"
 	return definition
 
 
@@ -55,6 +56,27 @@ func test_the_debug_color_must_be_opaque() -> void:
 	assert_true(problem.contains("opaque"), problem)
 
 
+func test_the_surface_block_id_is_required() -> void:
+	var definition := _valid()
+	definition.surface_block_id = ""
+	assert_ne(definition.validate(), "")
+
+
+func test_the_surface_block_id_must_be_a_stable_id() -> void:
+	for bad in ["", "Block.Grass", "block", "block..grass", "block.9grass"]:
+		var definition := _valid()
+		definition.surface_block_id = bad
+		assert_ne(definition.validate(), "", "'%s' must be rejected" % bad)
+
+
+func test_the_surface_block_id_must_be_in_the_block_domain() -> void:
+	var definition := _valid()
+	definition.surface_block_id = "biome.grassland"
+	var problem := definition.validate()
+	assert_ne(problem, "")
+	assert_true(problem.contains("'block' domain"), problem)
+
+
 func test_the_schema_does_not_know_the_partition() -> void:
 	# Deliberate: `BiomeDefinition` validates grammar and domain only. Whether an id is one
 	# `BiomeClassifier` can produce is `BiomeRegistry`'s check, so the record shape stays
@@ -62,4 +84,13 @@ func test_the_schema_does_not_know_the_partition() -> void:
 	var definition := _valid()
 	definition.id = "biome.coast"
 	assert_false(BiomeClassifier.is_biome_id(definition.id))
+	assert_eq(definition.validate(), "")
+
+
+func test_the_schema_does_not_know_the_block_catalog() -> void:
+	# Same independence, for `surface_block_id`: whether the named block actually exists is
+	# `SurfaceMaterial.for_world()`'s cross-check against a live `BlockRegistry`, not this
+	# schema's — same reason `BlockDefinition.drop_item_id` (033) checks grammar only.
+	var definition := _valid()
+	definition.surface_block_id = "block.does_not_exist"
 	assert_eq(definition.validate(), "")

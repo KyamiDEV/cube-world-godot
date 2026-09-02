@@ -179,7 +179,8 @@ func test_salt_constants_are_unique() -> void:
 	var salts := [WorldHash.SALT_ELEVATION, WorldHash.SALT_TEMPERATURE,
 			WorldHash.SALT_HUMIDITY, WorldHash.SALT_CAVES, WorldHash.SALT_TREES,
 			WorldHash.SALT_PROPS, WorldHash.SALT_STRUCTURES, WorldHash.SALT_SPAWNS,
-			WorldHash.SALT_LOOT]
+			WorldHash.SALT_LOOT, WorldHash.SALT_CONTINENTALNESS, WorldHash.SALT_RUGGEDNESS,
+			WorldHash.SALT_SURFACE_MATERIAL]
 	var seen := {}
 	for salt in salts:
 		assert_false(seen.has(salt), "salt %d is used once" % salt)

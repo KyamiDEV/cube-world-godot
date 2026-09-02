@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="BlockDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/terrain/block_definition.gd" id="1_gu4qj"]
+
+[resource]
+script = ExtResource("1_gu4qj")
+id = "block.snow"
+display_name = "Snow"
+texture_top = "res://assets/textures/blocks/snow.png"
+texture_side = "res://assets/textures/blocks/snow.png"
+texture_bottom = "res://assets/textures/blocks/snow.png"
+hardness = 0.3
+footstep_tag = "snow"

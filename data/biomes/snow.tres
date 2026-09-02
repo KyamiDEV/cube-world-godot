@@ -7,3 +7,4 @@ script = ExtResource("1_cbj88")
 id = "biome.snow"
 display_name = "Snow"
 debug_color = Color(0.9137255, 0.9411765, 0.9647059, 1)
+surface_block_id = "block.snow"

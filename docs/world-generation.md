@@ -2919,3 +2919,128 @@ the list §20.7 already opened.
   subtracted from whatever height the column already had, is what this brick's own worked
   cases needed. A flat basin floor is a real feature a later brick can add once it has a
   reason to.
+
+## 22. Ocean / large-water areas (brick 083)
+
+Implementation: `world/generation/ocean_pass.gd` (`OceanPass`).
+Tests: `tests/unit/test_ocean_pass.gd`.
+Reference: `GameController_show_region_name` (`0x004e5320`) — see §22.6. Not a coverage
+mechanism, so there is nothing here to diverge from.
+
+`LakePass`'s own §21.8 named this brick in advance, repeating `RiverPass`'s own §20.8 forward
+flag: "`LakePass` decides nothing about a large connected body of water, only isolated basins
+from the same channel field's tail — an ocean is a different shape." A river and a lake are
+both *rare, local* clips a 2D channel-noise field carves into lowland ground (1.65% and 1.82%
+of the world, §20.4/§21.3). An ocean is the opposite shape: not a carved feature at all, but
+wherever the ordinary, unclipped terrain chain already produces ground below the water plane
+`WaterLevel` (080) placed — roughly half the world (§19.2), contiguous because a coastline is
+one connected shape in `ElevationField`'s own continentalness field, not a scatter of blobs.
+
+```text
+is_ocean_at(column) = not (river.is_river_at(column) or lake.is_lake_at(column))
+                       and water.is_underwater_for(lake.surface_y(column))
+```
+
+### 22.1 A pure combination, `UndergroundMaterial`'s own shape
+
+`OceanPass` holds a `LakePass` (itself holding a `RiverPass`, itself holding a `TerracePass`)
+and a `WaterLevel`. No new noise layer, no new salt, no new constant — every number this brick
+needs already exists (`WaterLevel.SEA_LEVEL_VOXELS`, `RiverPass.is_river_at()`, `LakePass.
+is_lake_at()`). Like `UndergroundMaterial` (079) combining `CaveCarving` and
+`SubsurfaceMaterial` with nothing of its own to check, this file has no `self_check()` — there
+is no new relationship for one to assert, the same absence `UndergroundMaterial` already
+established for a pure combinator.
+
+### 22.2 The exclusion always runs first, and it is what actually keeps the three apart
+
+A column already claimed by `RiverPass.is_river_at()` or `LakePass.is_lake_at()` never reads as
+ocean, whatever its own surface height is — those are named, local features with their own
+mechanism, and giving the same column two labels would leave the next material brick (084)
+with no single answer for what covers it.
+
+This is not a rare edge case reached only in theory. Measured over the 2304-column sweep
+§19.2/§20.4/§21.3 all use: a real river column exists (`(94139, 69581)` on the `typed` world)
+whose *raw, uncarved* `TerracePass` surface already sits at `-88`, below `WaterLevel.
+SEA_LEVEL_VOXELS` (`0`) — a river genuinely running through land that was already low enough to
+be sea. The exclusion is what keeps this column reading as a river rather than acquiring a
+second, unintended "ocean" label; `test_a_river_column_never_reads_as_ocean_even_when_already_
+underwater` pins the case down with that exact column.
+
+### 22.3 Which surface height the water check reads makes no difference today — and why the pass still picks one
+
+Because the exclusion check always runs first and returns before the water-plane comparison is
+ever reached, *which* surface height that comparison reads — `LakePass.surface_y()` or
+`TerracePass`'s own, unclipped one — has no observable effect on `is_ocean_at()`'s answer:
+wherever the comparison actually executes, the exclusion has just proven the column is neither
+a river nor a lake, so `LakePass.surface_y()` and `TerracePass.surface_y()` agree there by
+definition. `is_ocean_at()` still reads `LakePass.surface_y()` rather than reaching one layer
+further down to `RiverPass.terrace().surface_y()` — the same "read through the pass already
+held, don't reach around it" convention every composed pass in this chain follows (`LakePass`
+reading `RiverPass.channel_distance_at()` rather than building a second `ValueNoise` layer,
+§21.1) — and it is the more defensive choice besides: if a future brick ever narrows the
+exclusion (a river mouth that empties into the sea reading as ocean at the columns where it
+does, say), reading the clipped surface keeps that change local to the exclusion check rather
+than also requiring a second edit here.
+
+### 22.4 Ocean measures as a large, contiguous share of the world, opposite a river or a lake
+
+Measured over the same 2304-column sweep, for the `typed` world:
+
+| | Fraction |
+|---|---:|
+| raw underwater (`WaterLevel` against unclipped `TerracePass`) | 50.2% |
+| river or lake (`RiverPass.is_river_at()` or `LakePass.is_lake_at()`) | 3.5% |
+| ocean (`is_ocean_at()`) | 47.9% |
+
+Ocean's own fraction sits close to `WaterLevel`'s raw 50.2% split minus the small river/lake
+share the exclusion carves out of it — consistent with the exclusion being a minor correction
+to an already-large, already-contiguous coverage, not a second mechanism that changes its
+shape. `test_ocean_is_a_large_contiguous_share_of_the_world_unlike_a_river_or_a_lake` bands
+both figures with headroom (`RiverPass`/`LakePass`'s own precedent) rather than pinning them
+exactly.
+
+### 22.5 Still nothing downstream reads a classified column
+
+The same shape §20.1/§21.5 already named for rivers and lakes: no wet material, no
+`VoxelGenerator` write. `OceanPass` only classifies columns the terrain chain already produces;
+`SurfaceMaterial`/`SubsurfaceMaterial` still decide what covers dry ground, and nothing yet
+decides what covers a wet one. That wiring belongs to 084, the "brick after the one that draws
+the shape" pattern `CaveCarving` (078) already established for the mask it composes.
+
+### 22.6 Reference: the same finding, a third location
+
+A case-insensitive grep of `reference/CubeWorld-Reversal` for "ocean" turns up one hit with
+content, in a different file than `Cave`'s and `Lake`'s own landmark table (`World.cpp`):
+`GameController_show_region_name` (`0x004e5320`, `cube/control/GameController.cpp`), an
+`[AUDIT] confidence: med` function that formats a displayed region name — `"Lands of <name>"`,
+or `L"Ocean"` specifically when a queried zone's own field reads negative. This is the same
+"landmark/POI display label, not a generation mechanism" finding `CaveMask` (§16.5) and
+`LakePass` (§21.6) already recorded twice, here for a third label in a different function: a
+region-naming heuristic, not a height or coverage computation. Read only far enough to answer
+this brick's one question (is there a coverage mechanism to diverge from); not traced further
+into the zone/region system either function reaches, which belongs to 089–090. There is
+nothing here to diverge from.
+
+### 22.7 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `OceanPass` adds no noise layer, no
+salt, no constant — a pure combination over three independently unchanged passes (`RiverPass`'s,
+`LakePass`'s and `WaterLevel`'s own tests all still pass; none of the three files was touched).
+The moment some later brick's `VoxelGenerator` calls `OceanPass.is_ocean_at()`/`ocean_depth_at()`
+to decide what fills a `VoxelBuffer`, every input all three passes read becomes a pinned
+generation input, the same "first `VoxelBuffer` write" boundary §14.4/§15.5/§17.5/§18.4 already
+named.
+
+### 22.8 Out of scope for this brick
+
+- **A water block, or any `VoxelGenerator` write.** Still nothing in the project writes a
+  voxel; this brick only classifies columns the terrain chain already produces.
+- **Wiring `SurfaceMaterial`/`SubsurfaceMaterial` to read `OceanPass`, or any shoreline
+  material.** §22.5. What covers an ocean or a shoreline column belongs to 084.
+- **Narrowing or otherwise changing the river/lake exclusion** (a river mouth reading as ocean
+  at the columns where it meets the sea, for instance). §22.3 leaves the door open for a later
+  brick to do this without an `OceanPass` internals change; nothing here invents it before a
+  consumer actually needs it.
+- **A flow network, or guaranteeing any particular relationship between a river/lake and the
+  ocean beyond the exclusion itself.** §7.6's own long-standing scope boundary, unchanged.

@@ -36,23 +36,23 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–082 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 083–090 open)
-- Next task `083 — Implement ocean/large-water areas`, deps `081, 082` in `backlog.md`, both
-  now DONE. Not yet scoped by this session beyond what `backlog.md`'s own row says. `082`'s
-  own out-of-scope note (§21.8) names the one forward flag on record: `LakePass` "decides
-  nothing about a large connected body of water, only isolated basins from the same channel
-  field's tail" — an ocean is a different shape (large and connected, not rare and blob-like),
-  so 083 likely needs its own mechanism rather than a third threshold on the same channel
-  layer; `WaterLevel` (080, `SEA_LEVEL_VOXELS = 0`) is the more likely composition target,
-  since "ocean" reads as "where the water plane's own coverage is large and contiguous" rather
-  than a carved local depression the way a river or lake is. Read `world/generation/water_
-  level.gd`'s class comment and `world/generation/lake_pass.gd`'s class comment, plus §19 and
-  §21 in full, before designing.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–083 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 084–090 open)
+- Next task `084 — Implement shoreline rules`, dep `083` in `backlog.md`, now DONE. Not yet
+  scoped by this session beyond what `backlog.md`'s own row says. `083`'s own out-of-scope note
+  (§22.8) names the forward flag on record: what covers an ocean or a shoreline column —
+  `SurfaceMaterial`/`SubsurfaceMaterial` (075–076) still decide dry ground alone, and nothing
+  yet decides what covers a wet one. `OceanPass.is_ocean_at()`/`ocean_depth_at()` (083) are the
+  likely composition target for "is this column wet"; a shoreline is presumably the dry columns
+  immediately adjacent to a wet one (ocean, river or lake), needing some notion of adjacency or
+  distance-to-water this project has not built yet — read `world/generation/ocean_pass.gd`'s
+  class comment and §22 in full, plus `SurfaceMaterial`'s own dither mechanism (§14.1, brick
+  075) before designing, since a shoreline material is likely to want the same
+  per-column-not-per-voxel dither `SurfaceMaterial` already uses for a biome edge.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`082`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`083`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -74,7 +74,73 @@ layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shap
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
 rules, 077 cave mask, 078 cave carving, 079 underground material rules, 080 water level
-model, 081 rivers, 082 lakes (068–073 folded — see below).
+model, 081 rivers, 082 lakes, 083 ocean/large-water areas (068–073 folded — see below).
+
+`083` is the combination `RiverPass`'s (§20.8) and `LakePass`'s (§21.8) own class comments both
+named in advance as belonging to someone else: one new file, `world/generation/ocean_pass.gd`
+(`OceanPass`), composing `LakePass` (082, itself holding `RiverPass`/`TerracePass`) and
+`WaterLevel` (080) into `is_ocean_at(column) -> bool` and `ocean_depth_at(column) -> int`. No
+new noise layer, no new salt, no new constant, no `self_check()` — a pure combinator, the same
+shape as `UndergroundMaterial` (079).
+
+```text
+is_ocean_at(column) = not (river.is_river_at(column) or lake.is_lake_at(column))
+                       and water.is_underwater_for(lake.surface_y(column))
+```
+
+Three things worth keeping:
+
+1. **A river and a lake are rare, local clips (1.65%/1.82% of the world); ocean is the opposite
+   shape — the ordinary, unclipped terrain chain's own output wherever it already sits below
+   the water plane, measured at 47.9% (vs. `WaterLevel`'s own raw 50.2% split, §19.2) over the
+   same 2304-column sweep every brick since 060 uses.** No new mechanism was needed for "large
+   and contiguous" — that shape already exists in `WaterLevel`/`TerracePass`; this brick's only
+   job was excluding the two named local features from double-claiming a column.
+2. **The exclusion (`is_river_or_lake_at()`) always runs before the water-plane comparison, and
+   a real measured case proves it is load-bearing, not decorative.** A genuine river column on
+   the `typed` world (`(94139, 69581)`) has a *raw, uncarved* `TerracePass` surface already
+   below `SEA_LEVEL_VOXELS` — a river running through land already low enough to be sea. Without
+   the exclusion running first, this column would silently read "ocean" too; `test_a_river_
+   column_never_reads_as_ocean_even_when_already_underwater` pins the case down. One real
+   surprise found while writing the class comment: because the exclusion always returns before
+   the water check runs, *which* surface height that check reads (`LakePass.surface_y()` vs. the
+   raw `TerracePass` one) turns out to make **no observable difference** to `is_ocean_at()`
+   today — the two exclusion conditions between them cover every column where the two surfaces
+   could differ. `LakePass.surface_y()` is still what the pass reads (§22.3 has the full
+   argument: "don't reach around the pass already held," plus it stays correct if the exclusion
+   is ever narrowed later), but the first draft of the class comment claimed this choice was
+   load-bearing for correctness, and the measurement sweep disproved that before it shipped —
+   worth remembering that a design argument phrased as "matters at the margin" needs the margin
+   actually swept before it is trusted.
+3. **Reference: the same landmark-label finding as caves and lakes, from a different function
+   this time.** `GameController_show_region_name` (`0x004e5320`, `GameController.cpp`, not
+   `World.cpp`) formats a displayed region name and emits `L"Ocean"` for a negative zone field —
+   an `[AUDIT] confidence: med` display-string heuristic, not a coverage computation. Same shape
+   §16.5/§21.6 already found twice, an eighth instance of 067's "no mechanism to diverge from"
+   argument, this time discovered in a different source file than the shared chunk-label table.
+
+Not a generation version bump: no world has ever had a voxel written, and `OceanPass` adds
+nothing of its own — a pure combination over three independently unchanged passes (`RiverPass`,
+`LakePass` and `WaterLevel`'s own tests all still pass, none of the three files touched).
+`docs/world-generation.md` §22.7.
+
+Docs: `docs/world-generation.md` §22 (new, eight subsections); `docs/reference/
+traceability.md` §4 (083 added to the original-design list, an eighth instance, discovered in a
+different reference location — `GameController.cpp`, not `World.cpp`).
+
+Tests: `tests/unit/test_ocean_pass.gd` (new, 15 tests; pins `signature()` `8bfd8320d3e56566`
+for `is_ocean_at()` over `GenerationFixtures.columns()` on the `typed` world — all 15 fixture
+columns read non-ocean, the same small-sample-vs-near-origin-columns finding `test_water_
+level.gd` §19.6 already recorded, so seed sensitivity used the 2304-column sweep instead, the
+identical fix). `KNOWN_OCEAN_COLUMN` (depth 96), `KNOWN_DRY_COLUMN` and `KNOWN_RIVER_ALSO_RAW_
+UNDERWATER_COLUMN` were found by a design-time sweep; `KNOWN_RIVER_COLUMN`/`KNOWN_LAKE_COLUMN`
+reused from `test_river_pass.gd`/`test_lake_pass.gd` rather than re-swept. Full suite:
+`files=56 tests=799 assertions=123230 failed=0`. Compile probe OK (120 scripts). Headless boot
+OK. Measurement used a throwaway probe (`tools/probe/temp_probe_ocean_pass.gd` + `_runner.gd`,
+thin-entry/runner split per brick 052), run twice (once for the distribution/worked-case sweep,
+once more after adding a river/lake breakdown for the raw-underwater column and the pinned
+signature), read, then deleted — never committed, the exact `077`/`078`/`082` throwaway-probe
+precedent.
 
 `082` is the clip `RiverPass`'s own class comment named in advance twice as its job: one new
 file, `world/generation/lake_pass.gd` (`LakePass`), composing `RiverPass` (081) — not

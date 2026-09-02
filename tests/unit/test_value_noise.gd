@@ -19,6 +19,11 @@ const GAIN := 0.5
 ## or a generation version bump?
 const PINNED_SIGNATURE := "0d355b4d9ddddd7d"
 
+## The digest of `value3()` over `GenerationFixtures.voxels()` for the `typed` world, at
+## the 2D form's own `CELL`/`OCTAVES`/`GAIN`/`SALT` — a real 3D layer would use its own
+## salt (`CaveMask` does), but the 3D *mechanism* is what this file tests.
+const PINNED_SIGNATURE_3D := "70c1c6e87feda219"
+
 ## Slack allowed when comparing a measured step against an analytic bound: the bound is
 ## exact in real arithmetic, and the measurement is double precision.
 const SLOPE_EPSILON := 1e-12
@@ -245,6 +250,14 @@ func test_octaves_do_not_all_agree_at_the_origin() -> void:
 	assert_size(seen, OCTAVES)
 
 
+func test_octaves_do_not_all_agree_at_the_origin_3d() -> void:
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	var seen: Dictionary = {}
+	for octave in OCTAVES:
+		seen[layer.octave_value3(Vector3i.ZERO, octave)] = true
+	assert_size(seen, OCTAVES)
+
+
 func test_max_slope_matches_the_analytic_bound() -> void:
 	# With gain 0.5 and halving cells every octave contributes the same amount to the
 	# bound — detail octaves buy detail, not coherence.
@@ -257,3 +270,115 @@ func test_max_slope_matches_the_analytic_bound() -> void:
 	var expected := OCTAVES * 2.0 * ValueNoise.FADE_MAX_SLOPE / float(CELL) / amplitude_sum
 	assert_almost_eq(layer.max_slope_per_voxel(), expected, 1e-15)
 	assert_almost_eq(layer.max_slope01_per_voxel(), expected * 0.5, 1e-15)
+
+
+# ---------------------------------------------------------------------------
+# The 3D form (brick 077) — same layer, one dimension wider
+# ---------------------------------------------------------------------------
+
+func _sampler_factory_3d() -> Callable:
+	return func(hash: GenerationHash) -> Callable:
+		var layer := _layer_for(hash)
+		return func(voxel: Vector3i) -> float: return layer.value3(voxel)
+
+
+func test_is_deterministic_3d() -> void:
+	var hash := GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED)
+	var factory: Callable = _sampler_factory_3d()
+	assert_eq(GenerationFixtures.determinism_reason(factory.bind(hash),
+			GenerationFixtures.voxels()), "")
+
+
+func test_is_seed_sensitive_3d() -> void:
+	assert_eq(GenerationFixtures.seed_sensitivity_reason(_sampler_factory_3d(),
+			GenerationFixtures.voxels()), "")
+
+
+func test_stays_in_its_stated_range_3d() -> void:
+	for name in GenerationFixtures.world_names():
+		var layer := _layer_for(GenerationFixtures.hash_for(name))
+		var signed := func(voxel: Vector3i) -> float: return layer.value3(voxel)
+		var unit := func(voxel: Vector3i) -> float: return layer.value301(voxel)
+		assert_eq(GenerationFixtures.range_reason(signed, GenerationFixtures.voxels(),
+				-1.0, 1.0), "", "world '%s' stays in [-1, 1]" % name)
+		assert_eq(GenerationFixtures.range_reason(unit, GenerationFixtures.voxels(),
+				0.0, 1.0), "", "world '%s' stays in [0, 1]" % name)
+
+
+func test_varies_across_the_sample_voxels_3d() -> void:
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	var sampler := func(voxel: Vector3i) -> float: return layer.value3(voxel)
+	assert_eq(GenerationFixtures.variation_reason(sampler, GenerationFixtures.voxels(), 8), "")
+
+
+func test_signature_is_pinned_3d() -> void:
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	var sampler := func(voxel: Vector3i) -> float: return layer.value3(voxel)
+	assert_eq(GenerationFixtures.signature(sampler, GenerationFixtures.voxels()),
+			PINNED_SIGNATURE_3D)
+
+
+func test_anchors_on_its_lattice_points_3d() -> void:
+	# The 3D counterpart of test_anchors_on_its_lattice_points(): sampled exactly on a
+	# lattice point, all three interpolation weights are 0, so the corner's own stored
+	# value comes back untouched.
+	var hash := GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED)
+	var layer := ValueNoise.layer(hash, CELL, 1, GAIN, SALT)
+	for lattice in [Vector3i(0, 0, 0), Vector3i(1, -2, 3), Vector3i(-3, -4, 2)]:
+		var expected := hash.value01_voxel(lattice, SALT) * 2.0 - 1.0
+		assert_almost_eq(layer.value3(lattice * CELL), expected, 1e-15,
+				"lattice point %s" % lattice)
+
+
+func test_is_the_normalised_sum_of_its_octaves_3d() -> void:
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	for voxel in GenerationFixtures.voxels():
+		var total := 0.0
+		var amplitude := 1.0
+		var normaliser := 0.0
+		for octave in OCTAVES:
+			total += amplitude * layer.octave_value3(voxel, octave)
+			normaliser += amplitude
+			amplitude *= GAIN
+		assert_almost_eq(layer.value3(voxel), clampf(total / normaliser, -1.0, 1.0), 1e-12,
+				"voxel %s" % voxel)
+
+
+func test_octave_value3_is_zero_outside_the_layer() -> void:
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	assert_eq(layer.octave_value3(Vector3i(3, 5, 7), -1), 0.0)
+	assert_eq(layer.octave_value3(Vector3i(3, 5, 7), OCTAVES), 0.0)
+
+
+func test_the_3d_form_does_not_collapse_to_the_2d_form() -> void:
+	# `value3(x, 0, z)` must not equal `value(x, z)`: they are hashed in different
+	# GenerationHash spaces (voxel vs column) precisely so a 2D pass and a 3D pass sharing a
+	# salt never agree cell-for-cell at y = 0.
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	var found_difference := false
+	for column in GenerationFixtures.columns():
+		var voxel := Vector3i(column.x, 0, column.y)
+		if not is_equal_approx(layer.value3(voxel), layer.value(column)):
+			found_difference = true
+			break
+	assert_true(found_difference, "the 3D and 2D forms agree at every y=0 sample")
+
+
+func test_neighbouring_voxels_stay_within_the_slope_bound_3d() -> void:
+	# The 3D coherence check, walked along a single axis at a time so the per-axis bound
+	# `max_slope_per_voxel()` still applies (it is derived holding the other two fixed).
+	var layer := _layer_for(GenerationFixtures.hash_for(GenerationFixtures.WORLD_TYPED))
+	var bound := layer.max_slope_per_voxel()
+	for axis_walk in [
+		func(step: int) -> Vector3i: return Vector3i(step, 11, -37),
+		func(step: int) -> Vector3i: return Vector3i(-19, step, -37),
+		func(step: int) -> Vector3i: return Vector3i(-19, 11, step),
+	]:
+		var largest := 0.0
+		var previous := layer.value3(axis_walk.call(-300))
+		for step in range(-299, 301):
+			var current := layer.value3(axis_walk.call(step))
+			largest = maxf(largest, absf(current - previous))
+			previous = current
+		assert_true(largest <= bound + SLOPE_EPSILON,
+				"largest step %s is within the bound %s" % [largest, bound])

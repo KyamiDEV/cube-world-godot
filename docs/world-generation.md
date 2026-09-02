@@ -2130,3 +2130,127 @@ diverge from, only the same divergence already on record, one layer further down
 - **An actual `VoxelGenerator` / `VoxelBuffer` write.** §15.5, unchanged from §14.4: this
   is still a pure `(column, y) -> block id` function for whichever later brick assembles the
   real generator.
+
+## 16. The cave mask (brick 077)
+
+Implementation: `world/generation/cave_mask.gd` (`CaveMask`), plus the 3D extension of
+`world/generation/value_noise.gd` (`ValueNoise.value3()`/`value301()`/`octave_value3()`)
+it is built on.
+Tests: `tests/unit/test_cave_mask.gd`, `tests/unit/test_value_noise.gd`.
+Reference: none — see §16.5.
+
+Every pass from §6 through §15 answers a question about one column: how high is the
+ground, and what is it made of. This is the first pass that needs a third coordinate. A
+cave is not a height and not a material choice — it is a *hollow*, the same voxel column
+saying yes in one place and no a few voxels below it — so it is the first field in this
+project sampled at a voxel rather than a column, and the first consumer of the 3D form
+§5.6 deliberately deferred: "3D noise. Caves (077–078) need a 3D form of the same layer;
+nothing before them does, and adding it now would ship an untested surface." That surface
+is `ValueNoise.value3()`/`value301()`/`octave_value3()`, added in this brick alongside the
+2D forms they mirror, sharing every constant, every construction check and — critically —
+`max_slope_per_voxel()`, which bounds a single axis holding the other two fixed and so
+needs no 3D-specific restatement.
+
+### 16.1 One layer, thresholded
+
+```text
+density_at(voxel) = noise.value301(voxel)              # [0, 1], ValueNoise.value3()'s unit form
+is_cave_at(voxel)  = density_at(voxel) < DENSITY_THRESHOLD
+```
+
+`CaveMask` holds one `ValueNoise` layer at its own salt (`WorldHash.SALT_CAVES`, reserved
+since brick 015 with no user until now) and answers a voxel with a bool. Nothing else:
+no height, no material, no dependency on `TerracePass` or `SubsurfaceMaterial` anywhere in
+the file.
+
+### 16.2 Why the mask reads neither the surface nor the material
+
+`nextsteps.md` carried this decision into the brick rather than leaving it to be
+re-derived: a mask is a boolean/density field, and it sits *between* `TerracePass` (the
+solid ground) and `SubsurfaceMaterial` (what that ground is made of) rather than reading
+either. Reading `TerracePass` here would answer two questions at once — "is this hollow"
+and "is this underground" — that brick 078 needs to ask separately: 078 is what clips this
+mask's answer against the terraced surface before it ever reaches a `VoxelBuffer`, so a
+`density_at()` sampled at, say, y = +800 stays a legitimate answer (there is noise
+everywhere in the field) without ever surfacing as a hole in the sky. Keeping the two
+questions apart is also what lets 079 (underground material rules) combine this mask with
+`SubsurfaceMaterial` as two independent inputs rather than one pass quietly deciding both.
+
+### 16.3 The scale, mirrored from `ElevationField`'s relief
+
+| Constant | Value | Why |
+|---|---|---|
+| `CELL_SIZE_VOXELS` | `128` = 64 m | an eighth of `ElevationField.RELIEF_CELL_SIZE_VOXELS` (1024) |
+| `OCTAVES` | `4` | finest cell `128 >> 3` = 16 voxels = 8 m |
+| `GAIN` | `0.5` | the conventional half, matching every other layer |
+| salt | `WorldHash.SALT_CAVES` (`4`, reserved since brick 015) | its own — a cave field sharing a salt with any other pass would correlate with it |
+
+`ErosionPass.RUGGEDNESS_CELL_SIZE_VOXELS` sits eight times *coarser* than
+`ElevationField.RELIEF_CELL_SIZE_VOXELS` because it decides *where* relief may exist, a
+coarser question than the relief itself. `CaveMask.CELL_SIZE_VOXELS` sits eight times
+*finer*, in the other direction, because a cave system is a smaller thing than a mountain
+range. The finest cave cell (16 voxels) is **half** of `ElevationField`'s own finest relief
+cell (32) — the same "half, not the whole" legibility argument bricks 074
+(`TRANSITION_WIDTH`) and 076 (`SUBSURFACE_DEPTH_VOXELS`) already used, here so the smallest
+cave detail resolves finer than the smallest hill the ground itself carries. Both
+relationships are asserted at runtime by `CaveMask.self_check()` rather than written as a
+`const` expression: GDScript's warnings-as-errors flags integer division even where the
+result is exact (`generation_grid.gd`'s `floor_div()` precedent), so `CELL_SIZE_VOXELS` is
+a literal and the derivation is checked rather than trusted from the comment —
+`SubsurfaceMaterial`'s exact precedent for the same constraint (§15.3).
+
+### 16.4 The threshold, and the measurement behind it
+
+`DENSITY_THRESHOLD = 0.25` is a round quarter of the field's own `[0, 1]` range, the same
+style of round fraction `ElevationField.SHORE_MIDPOINT`/`SHORE_WIDTH` use. What it actually
+selects is not a quarter of the world. 3D trilinear interpolation blends eight independent
+hashed corners per octave against a 2D layer's four, so a summed 3D field concentrates far
+more tightly around its own mean than any 2D layer in this project: measured at these exact
+constants over a 13824-voxel sweep (spacing 131, just under the coarsest cell, so the walk
+crosses many independent cells rather than resampling one), on each of four fixture-style
+seeds — `mean 0.499`, `sd 0.150`. A comparable 2D layer runs noticeably wider (a uniform
+field's own `1/sqrt(12) = 0.289`, and every fade-shaped 2D field measured in this project
+sits near that, `0.28 – 0.32` — §10.4's corrected `HumidityField` measurement is the most
+recent). At `0.25` that
+puts **4.1% – 4.3%** of raw 3D space below threshold, consistent across every seed
+measured — not a defect of the 3D form, but the property the threshold is chosen against:
+caves are meant to be rare and worth finding, not the majority of the underground, and the
+measured fraction already reads that way before 078 clips it down further to the ground
+that is actually underground. `test_cave_mask.gd::test_the_measured_fraction_is_a_minority`
+pins a plausible band (`0.5% – 15%`) around this rather than the exact figure, so a future
+retune has room without the test becoming the thing being tuned against.
+
+### 16.5 Reference: none
+
+The three-file grep of `reference/CubeWorld-Reversal` for "cave" (case-insensitive) finds
+exactly one hit with any content: the literal wide string `L"Cave"` in a name-to-id map in
+`server/world/World.cpp`, almost certainly a structure or POI label rather than a terrain
+generation mechanism — no recoverable density field, threshold or carving routine sits
+near it. §12.5, §13.5, §14.5 and §15.6's finding, a fifth time and the least ambiguous
+version of it yet: there is nothing to diverge from, so this is original design, clean-room
+by construction rather than by choice (`CLAUDE.md` §16).
+
+### 16.6 Not a generation version bump
+
+A new field and a new 3D noise capability, both unused by any world generated so far —
+still true of every Phase D brick since 062 (§7's `no world has ever had a voxel written`
+argument). `WorldHash.SALT_CAVES` moves from reserved-unused to reserved-and-pinned the
+moment a real `VoxelGenerator` reads it, which is the same "first `VoxelBuffer` fill"
+boundary §14.4 and §15.5 already named for `SALT_SURFACE_MATERIAL` and
+`SUBSURFACE_DEPTH_VOXELS`. Every pinned signature below this brick is untouched: `ValueNoise
+.value()`'s own `0d355b4d9ddddd7d` still passes unchanged, and the new `value3()` form pins
+its own signature (`70c1c6e87feda219`) rather than reusing or perturbing it.
+`GENERATION_VERSION` stays where it is.
+
+### 16.7 Out of scope for this brick
+
+- **Actually carving anything.** Brick 078. This file only says which voxels *would* be
+  hollow; nothing here has touched a `VoxelBuffer`.
+- **Clipping the mask to underground ground.** Also 078 — §16.2 states explicitly why this
+  file does not read `TerracePass`.
+- **What lines a cave once it is carved.** Brick 079, which combines this mask with
+  `SubsurfaceMaterial`.
+- **Worm-like tunnels, domain warping, a ridged remap.** `cave_mask.gd`'s own class
+  comment states the reason: a thresholded blob field is the smaller, honest first cut;
+  a tunnel-shaped brick can revisit this file without changing its contract.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`.

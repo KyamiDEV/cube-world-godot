@@ -19,6 +19,12 @@ extends RefCounted
 ## var u := layer.value01(column)    # [0, 1]
 ## ```
 ##
+## Every 2D form above has a **3D twin** — `value3()`, `value301()`, `octave_value3()`
+## (brick 077) — sampled at a voxel rather than a column, trilinear rather than bilinear,
+## hashed in voxel space rather than column space so the two never agree at a coordinate
+## that happens to share both forms' numbers. §5.6 deferred this deliberately until a pass
+## existed that actually needed a mask varying with height; caves are that pass.
+##
 ## Four properties this implementation is built around, each of which is a determinism
 ## decision before it is a quality one:
 ##
@@ -49,6 +55,11 @@ const FADE_MAX_SLOPE := 1.875
 ## unequal so the shift is not diagonal; the value is baked into every world generated
 ## with it and follows the same append-never-change rule as a salt (`docs/rng.md` §4).
 const OCTAVE_LATTICE_STEP := Vector2i(1013, 7717)
+
+## The 3D form of the same shift (brick 077), one more unequal odd number added for the
+## vertical axis rather than reusing either horizontal one — a shift diagonal on two axes
+## would still leave the third free to agree with the coarsest octave along it.
+const OCTAVE_LATTICE_STEP_3D := Vector3i(1013, 4001, 7717)
 
 ## The world binding every corner is hashed through. Never a bare `WorldHash`:
 ## `GenerationHash` is what carries the seed, the checked generation version and the
@@ -164,6 +175,35 @@ func value01(column: Vector2i) -> float:
 	return (value(column) + 1.0) * 0.5
 
 
+## The 3D form of `value()`, at a world voxel rather than a column (brick 077 — caves are
+## the first pass that needs a mask varying with height as well as position, §5.6's
+## deferred "3D noise").
+##
+## Trilinear rather than bilinear: each octave hashes the 8 corners of the voxel lattice
+## cell it falls in instead of 4, and blends across all three axes with the same
+## `fade()`. Everything else — the lattice living in integer voxel space, powers-of-two
+## cells, the per-octave lattice offset, the amplitude normalisation — is unchanged from
+## `value()`, which is the point: this is the *same* layer, sampled one dimension wider.
+## `max_slope_per_voxel()` still bounds the change along any single axis, holding the
+## other two fixed, so no separate 3D bound is needed.
+func value3(voxel: Vector3i) -> float:
+	var total := 0.0
+	var amplitude := 1.0
+	var cell := _cell_size
+	var shift := Vector3i.ZERO
+	for _octave in _octaves:
+		total += amplitude * _octave_at_3d(voxel, cell, shift)
+		amplitude *= _gain
+		cell >>= 1
+		shift += OCTAVE_LATTICE_STEP_3D
+	return clampf(total / _amplitude_sum, -1.0, 1.0)
+
+
+## `value3()`, remapped to `[0, 1]` — the form a density field or a mask wants.
+func value301(voxel: Vector3i) -> float:
+	return (value3(voxel) + 1.0) * 0.5
+
+
 ## One octave on its own, in `[-1, 1]`, with octave `0` the coarsest.
 ##
 ## For a debug probe, for a test that reconstructs the sum, and for a pass that wants only
@@ -172,6 +212,13 @@ func octave_value(column: Vector2i, octave: int) -> float:
 	if octave < 0 or octave >= _octaves:
 		return 0.0
 	return _octave_at(column, _cell_size >> octave, OCTAVE_LATTICE_STEP * octave)
+
+
+## The 3D form of `octave_value()`.
+func octave_value3(voxel: Vector3i, octave: int) -> float:
+	if octave < 0 or octave >= _octaves:
+		return 0.0
+	return _octave_at_3d(voxel, _cell_size >> octave, OCTAVE_LATTICE_STEP_3D * octave)
 
 
 # ---------------------------------------------------------------------------
@@ -266,3 +313,35 @@ func _octave_at(column: Vector2i, cell: int, shift: Vector2i) -> float:
 ## per-column pass that happens to share this salt.
 func _corner(lattice: Vector2i) -> float:
 	return _hash.value01_column(lattice, _salt) * 2.0 - 1.0
+
+
+## One octave of the 3D form: hash the eight corners of the voxel-space lattice cell this
+## voxel falls in, then blend across all three axes.
+func _octave_at_3d(voxel: Vector3i, cell: int, shift: Vector3i) -> float:
+	var corner := Vector3i(
+			GenerationGrid.floor_div(voxel.x, cell),
+			GenerationGrid.floor_div(voxel.y, cell),
+			GenerationGrid.floor_div(voxel.z, cell)) + shift
+	var inverse_cell := 1.0 / float(cell)
+	var weight_x := fade(float(GenerationGrid.floor_mod(voxel.x, cell)) * inverse_cell)
+	var weight_y := fade(float(GenerationGrid.floor_mod(voxel.y, cell)) * inverse_cell)
+	var weight_z := fade(float(GenerationGrid.floor_mod(voxel.z, cell)) * inverse_cell)
+	var low := lerpf(
+			lerpf(_corner3(corner), _corner3(corner + Vector3i(1, 0, 0)), weight_x),
+			lerpf(_corner3(corner + Vector3i(0, 1, 0)),
+					_corner3(corner + Vector3i(1, 1, 0)), weight_x),
+			weight_y)
+	var high := lerpf(
+			lerpf(_corner3(corner + Vector3i(0, 0, 1)),
+					_corner3(corner + Vector3i(1, 0, 1)), weight_x),
+			lerpf(_corner3(corner + Vector3i(0, 1, 1)),
+					_corner3(corner + Vector3i(1, 1, 1)), weight_x),
+			weight_y)
+	return lerpf(low, high, weight_z)
+
+
+## The value stored at one lattice point in **voxel space** — a 3D coordinate, tagged
+## separately from `_corner()`'s column space so the two forms of the same layer never
+## sample the same hashed corners.
+func _corner3(lattice: Vector3i) -> float:
+	return _hash.value01_voxel(lattice, _salt) * 2.0 - 1.0

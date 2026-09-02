@@ -36,23 +36,32 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–076 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 077–090 open)
-- Next task `077 — Implement cave mask` (deps: 075 in `backlog.md`, DONE — 076 was not a
-  dependency and did not need to be waited on). Not yet scoped by this session beyond what
-  `backlog.md`'s own row says, so the next session should read `world/generation/` and
-  §7.1/§8's shaping-pass family before designing. Two things worth carrying in, both
-  verified rather than assumed: **(a)** `WorldHash.SALT_CAVES := 4` has sat reserved and
-  unused since brick 015 (`core/random/world_hash.gd`) — 076 confirmed it is still free, so
-  077 is very likely its first user, the same way 065 was `SALT_HUMIDITY`'s; **(b)** a mask
-  is a boolean/density field, not a material choice, so it almost certainly sits *between*
-  `TerracePass` (063, the solid ground) and `SubsurfaceMaterial` (076, what that ground is
-  made of) rather than reading either — 079 (underground material rules) is where the two
-  meet, per `backlog.md`'s own dependency row (`079` depends on `075, 078`).
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–077 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 078–090 open)
+- Next task `078 — Implement cave carving`, deps `076` in `backlog.md`, DONE (077 was not a
+  dependency and did not need to be waited on, but is done anyway and is what 078 actually
+  needs). Not yet scoped by this session beyond what `backlog.md`'s own row says. Two things
+  worth carrying in, both real rather than assumed: **(a)** `CaveMask.is_cave_at(voxel)`
+  (`world/generation/cave_mask.gd`, brick 077) is the hollow/solid answer 078 carves
+  against, but it is deliberately **not** clipped to underground ground — `nextsteps.md`'s
+  076/077 handoff already flagged this, and 077's own class comment and
+  `docs/world-generation.md` §16.2 state it explicitly: 078 is the pass that combines
+  `CaveMask` with `TerracePass.surface_y()` (or an equivalent "is this voxel below the
+  terraced surface" check) so a cave never surfaces as a hole in the sky. **(b)** "carving"
+  means turning a hollow `is_cave_at() == true` **and** underground voxel into an actual
+  block choice for a future `VoxelGenerator` — almost certainly `block.air` unconditionally
+  (there is no cave-specific block yet, and inventing one is not this brick's job per
+  `CLAUDE.md` §6) — so 078 is likely a third small file (`CaveCarving`?) composing
+  `CaveMask` and `TerracePass` into one `(voxel) -> block id or ""` function, the same
+  `SurfaceMaterial`/`SubsurfaceMaterial` shape 075/076 already established, rather than a
+  change to either existing file. 079 (underground material rules) is a separate brick from
+  078 per `backlog.md`'s own row (`079` depends on `075, 078`) — 078 decides *hollow or
+  not*, 079 decides what lines the hollow, and the two should stay split the same way
+  `CaveMask` and `SubsurfaceMaterial` are split today.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`076`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`077`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -73,7 +82,96 @@ coordinate hashing, 059 deterministic generation test fixtures, 060 continentaln
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
-rules (068–073 folded — see below).
+rules, 077 cave mask (068–073 folded — see below).
+
+`077` is the first Phase D brick sampled at a **voxel** rather than a column, and the first
+consumer of the 3D noise form §5.6 deliberately deferred back at brick 060 ("Caves
+(077–078) need a 3D form of the same layer; nothing before them does, and adding it now
+would ship an untested surface"). Two new files: `world/generation/cave_mask.gd`
+(`CaveMask`) and a 3D extension of the existing `world/generation/value_noise.gd`
+(`ValueNoise.value3()`/`value301()`/`octave_value3()`, trilinear rather than bilinear,
+hashed in voxel space rather than column space). `WorldHash.SALT_CAVES = 4`, reserved
+since brick 015, gets its first user. No change to `TerracePass`, `SubsurfaceMaterial` or
+any other existing pass.
+
+```text
+CaveMask.is_cave_at(voxel) -> bool
+        |
+        +-- density_at(voxel) < DENSITY_THRESHOLD (0.25)
+                density_at(voxel) = ValueNoise(cell=128, octaves=4, salt=SALT_CAVES).value301(voxel)
+```
+
+Four things worth keeping:
+
+1. **The mask reads neither `TerracePass` nor `SubsurfaceMaterial`, and that was the
+   central design decision, carried in from the previous session's handoff rather than
+   re-derived.** A cave is a hollow, not a height and not a material choice — "is this
+   voxel hollow" and "is this voxel underground" are two different questions, and a mask
+   that answered both at once would take that split away from brick 078, which needs to
+   ask them separately (078 clips this mask's answer against the terraced surface before
+   ever carving anything, so `density_at()` sampled above the real ground stays a
+   legitimate, uneventful number rather than something this file has to guard against).
+2. **3D value noise concentrates far more tightly around its mean than the project's 2D
+   layers, and that shaped the threshold rather than being corrected away.** Trilinear
+   interpolation blends eight hashed corners per octave against a 2D layer's four; measured
+   at the shipped constants over a 13824-voxel sweep (spacing 131, just under the coarsest
+   cell) on four fixture-style seeds: `mean 0.499`, `sd 0.150`, against `sd 0.28 – 0.32` for
+   a comparable fade-shaped 2D field (`docs/world-generation.md` §10.4). `DENSITY_THRESHOLD
+   = 0.25` is a round quarter of `[0, 1]`, the same style of round constant
+   `ElevationField.SHORE_MIDPOINT`/`SHORE_WIDTH` use, but what it actually selects — **4.1%
+   – 4.3%** of raw 3D space, consistent across every seed measured — is a property of the
+   3D field, not a number aimed at. Caves reading as rare and worth finding rather than the
+   majority of the underground is the intended outcome, not a defect to retune away; the
+   pinned test (`test_the_measured_fraction_is_a_minority`) asserts a band (`0.5% – 15%`)
+   around this rather than the exact figure, so a future retune has room.
+3. **The scale mirrors `ElevationField`'s relief, deliberately inverted.**
+   `ErosionPass.RUGGEDNESS_CELL_SIZE_VOXELS` sits eight times *coarser* than
+   `ElevationField.RELIEF_CELL_SIZE_VOXELS` because it decides *where* relief may exist, a
+   coarser question than the relief itself; `CaveMask.CELL_SIZE_VOXELS` (128 voxels) sits
+   eight times **finer**, because a cave system is a smaller thing than a mountain range.
+   The finest cave cell (16 voxels) is half of `ElevationField`'s own finest relief cell
+   (32) — the "half, not the whole" legibility argument bricks 074 and 076 already used,
+   here so cave detail resolves finer than the smallest hill. Both relationships are
+   literals (GDScript's warnings-as-errors flags exact integer division the same way
+   `generation_grid.gd`'s `floor_div()` already worked around), asserted at runtime by
+   `CaveMask.self_check()` rather than trusted from a comment — `SubsurfaceMaterial`'s exact
+   precedent for the same constraint.
+4. **Reference: the clearest "nothing to diverge from" finding yet.** A three-file
+   case-insensitive grep of `reference/CubeWorld-Reversal` for "cave" turns up exactly one
+   hit with content — the wide string literal `L"Cave"` in a name-to-id map in
+   `server/world/World.cpp`, almost certainly a structure/POI label with no generation
+   mechanism anywhere near it. `docs/world-generation.md` §16.5;
+   `docs/reference/traceability.md` §4 gains a fifth row in the same shape 074/075/076
+   already established.
+
+Not a generation version bump: a new field and a new 3D noise capability, neither used by
+any world generated so far (`docs/world-generation.md` §16.6, the same "no `VoxelBuffer`
+has ever been filled" argument every Phase D brick since 062 has made). Every pinned
+signature below this brick is untouched, including `ValueNoise.value()`'s own
+`0d355b4d9ddddd7d`; the new `value3()` form pins its own (`70c1c6e87feda219`).
+
+Docs: `docs/world-generation.md` §16 (new, seven subsections); `docs/reference/
+traceability.md` §4 (077 added to the original-design list, fifth in the same shape).
+
+Tests: `tests/unit/test_cave_mask.gd` (new, 15 tests, pins `signature()` `8dce87e95aeb1d89`
+against `CaveMask.density_at()` over `GenerationFixtures.voxels()` on the `typed` world, plus
+a worked cave voxel (`Vector3i(-323, 34, -221)`) and a worked solid one (the origin) found by
+a design-time sweep — GenerationFixtures' 16-voxel sample set is too small to reliably land
+on a true `is_cave_at()` given the measured ~4% fraction, so the property "the mask actually
+calls something a cave" needed a hand-picked coordinate rather than a scan over the shared
+fixture list); `tests/unit/test_value_noise.gd` (+11 tests for the 3D form: determinism,
+seed-sensitivity, range, variation, lattice anchoring, octave summation, a pinned signature
+`70c1c6e87feda219`, a 2D/3D non-collapse check, and a per-axis coherence walk). Full suite:
+`files=50 tests=704 assertions=122379 failed=0`. Compile probe OK (106 scripts). Headless
+boot OK.
+
+**One tooling note, the same shape as 067's:** the measurement sweep behind item 2 above
+needed the thin-entry/runner split from brick 052 (`--script` compiles before autoloads
+register, and `WorldSeed`/`GenerationHash`/`ValueNoise` all touch `Log`) — a first attempt
+without the split compiled far enough to print nothing and then sat in the headless main
+loop forever rather than exiting, because the uncaught compile error meant `quit()` was
+never reached. The probe scripts themselves were never committed (`tools/probe/temp_probe_
+cave_density*.gd`, deleted after the measurement).
 
 `076` is the brick that closes out `BiomeDefinition`'s original 067 wishlist (§12.2's
 table): `world/generation/subsurface_material.gd` (`SubsurfaceMaterial`), one new file;

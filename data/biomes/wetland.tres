@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="BiomeDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/biomes/biome_definition.gd" id="1_ds6l7"]
+
+[resource]
+script = ExtResource("1_ds6l7")
+id = "biome.wetland"
+display_name = "Wetland"
+debug_color = Color(0.1882353, 0.45490196, 0.4627451, 1)

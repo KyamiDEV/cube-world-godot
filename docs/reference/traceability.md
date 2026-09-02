@@ -46,11 +46,12 @@ lowest brick number in the range.
 | 060–067 | `matrix-world.md` §2 | terrain noise/height/climate fields | `world/generation/` | MEDIUM | — |
 | 061, 089–090 | `matrix-world.md` §1 | `cube::Region` | `world/regions/` | MEDIUM | — |
 | 067, 086–090 | `matrix-world.md` §1 | `cube::WorldInfo` (client generation-logic copy, not just a cache) | `world/generation/`, `world/structures/` | MEDIUM | — |
-| 067–068 | `matrix-world.md` §2 | `WorldInfo` biome content population | `world/biomes/` | LOW | — |
+| 067, 229 | `matrix-world.md` §4 | Q4 — **RESOLVED (brick 067)**: procedural region/place naming is **not** the biome catalog (a biome record names a kind of place; a region name names one place, per world, with no id) — explicitly deferred to Phase J map/UI (229) or a brick inserted by that scoping pass | `docs/world-generation.md` §12.7 | — | resolved |
+| 067–068 | `matrix-world.md` §2 | `WorldInfo` biome content population — **067's half closed**: opened by 067 and it yields nothing about a biome *record*, only content placement (068+, 086–088, 095) | `world/biomes/` | LOW | — |
+| 067, Phase J | `matrix-world.md` §2 | biome colour from climate noise (`Terrain_computeBiomeColor`) — the original has **no** biome catalog at all; ours is a deliberate divergence | `world/biomes/biome_definition.gd`, `docs/world-generation.md` §12.5 | LOW | — |
 | 086–088 | `matrix-world.md` §2 | `WorldInfo` decoration/object scatter | `world/generation/` | LOW | — |
 | 089–090 | `matrix-world.md` §2 | region-site & feature-cell placement (structure/POI seeding) | `world/structures/` | MEDIUM | — |
 | 090–091 | `matrix-world.md` §2 | `WorldInfo` structure placement | `world/structures/` | LOW | — |
-| — (no brick) | `matrix-world.md` §4 | Q4 — procedural region/place naming (`NameGen`) has no owning brick | `world/regions/` | LOW | **Q4** |
 
 ### Phase E — World streaming & persistence (091–105)
 
@@ -177,7 +178,7 @@ still gate anything.
 | Q1 | `matrix-world.md` | 040–041 | RESOLVED — brick 040, `docs/voxel-tools.md` §7 |
 | Q2 | `matrix-world.md` | 056, 096–101 | **RESOLVED — brick 056**, `world-generation-authority.md` |
 | Q3 | `matrix-world.md` | 023, 185 | open |
-| Q4 | `matrix-world.md` | — (no brick) | open |
+| Q4 | `matrix-world.md` | 229 (Phase J scoping pass) | **RESOLVED — brick 067**, `docs/world-generation.md` §12.7 — not the biome catalog; deferred to the map/UI scoping pass |
 | Q1 | `matrix-entity.md` | 112, 116, 128, 243 | open |
 | Q2 | `matrix-entity.md` | — (no brick, `*/db/` matrix scoping) | open |
 | Q3 | `matrix-entity.md` | 213, `client/effects/` (unscheduled) | open |

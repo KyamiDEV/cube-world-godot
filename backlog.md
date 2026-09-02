@@ -96,7 +96,7 @@
 | 064 | D | Create temperature field | 062 | Not needed by default | NO | DONE |
 | 065 | D | Create humidity field | 061 | Not needed by default | NO | DONE |
 | 066 | D | Create biome classifier | 061 | Not needed by default | NO | DONE |
-| 067 | D | Define baseline biome catalog | 065, 066 | Not needed by default | NO | TODO |
+| 067 | D | Define baseline biome catalog | 065, 066 | Not needed by default | NO | DONE |
 | 068 | D | Implement grassland biome | 064, 067 | Not needed by default | NO | TODO |
 | 069 | D | Implement forest biome | 068 | Not needed by default | NO | TODO |
 | 070 | D | Implement desert biome | 069 | Not needed by default | NO | TODO |

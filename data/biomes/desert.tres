@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="BiomeDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/biomes/biome_definition.gd" id="1_dbw63"]
+
+[resource]
+script = ExtResource("1_dbw63")
+id = "biome.desert"
+display_name = "Desert"
+debug_color = Color(0.85490197, 0.7529412, 0.47843137, 1)

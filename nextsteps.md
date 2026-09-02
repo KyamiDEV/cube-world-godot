@@ -12,8 +12,11 @@
 - Reference repo: `reference/CubeWorld-Reversal` (local, gitignored, `.gdignore`d). Read so
   far: the class-mapping pass of 021–028, plus targeted full reads for 058
   (`region-coordinate-hashing.md`), 060 (`terrain-value-noise.md`), 061
-  (`terrain-base-height-field.md`) and 064 (`terrain-climate-blend.md`, re-read by
-  065 and unchanged in its claims).
+  (`terrain-base-height-field.md`), 064 (`terrain-climate-blend.md`, re-read by
+  065 and unchanged in its claims) and 067 (a targeted read of
+  `WorldInfo_generateBiomeContent` plus a `biome` sweep of the headers/GAP analysis —
+  finding: the original has **no** biome catalog at all, only a continuous colour,
+  `docs/world-generation.md` §12.5).
   `docs/reference/traceability.md` is the index.
 - Git: `main`, one commit per brick — **from brick 066 onward**. The repository was
   re-initialised after brick 065 (`81100f7`, root commit): this working copy had no
@@ -29,38 +32,36 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–066 done, 067–090 open)
-- Next task `067 — Define baseline biome catalog` (deps: 065, 066 — both DONE). 066 closed
-  the classification half: `BiomeClassifier` names **six** stable ids
-  (`biome.mountain`, `biome.snow`, `biome.desert`, `biome.wetland`, `biome.forest`,
-  `biome.grassland`), guarantees one per column, and measures each at `0.14 .. 0.21` of the
-  world on every seed (`docs/world-generation.md` §11.4). 067 owns the *records* behind
-  those ids, not the ids: `BiomeClassifier.IDS` is the closed set and
-  `BiomeClassifier.is_biome_id()` is what a catalog validates against, so 067's job is to
-  assert it covers exactly that set rather than to redefine it. Five things to carry in:
-  **(a)** the project already has a catalog pattern — `core/ids/definition_registry.gd`
-  plus `Resource` definitions in `data/` written by a `tools/generators/` script, which is
-  how `BlockSet` (038) works; 067 is the brick entitled to decide whether biomes reuse it
-  or stay a plain table, and the answer probably follows how much per-biome data 068–073
-  actually need; **(b)** 067 decides *what a biome record holds*, and most of the tempting
-  fields belong to later bricks — surface/subsurface materials are 075–076, decoration and
-  scatter are 086–088, spawns are 095/106–107; a record with a field nothing fills is worse
-  than a record that grows; **(c)** do **not** invent `biome.coast` or an aquatic id: §11.6
-  refused it deliberately and it waits for the waterline (080); **(d)** a classifier's
-  tests are not a field's — `range_reason()` does not apply to an id and
-  `variation_reason()` on the fixture columns is **2** (§11.5, and 063's §8.4 one level
-  worse), so a catalog test measures on the climate-scale sweep or not at all; **(e)**
-  every open question 065 handed 066 is now closed with a reason (no shared climate base
-  class, no coastal wetness — §11.7, §11.6), so nothing is left hanging into 067. **The
-  world still has no generated content**: a change to `WorldHash`, `GenerationHash`,
-  `ValueNoise`, or the pinned constants in `Continentalness`, `ElevationField`,
-  `ErosionPass`, `TerracePass`, `TemperatureField`, `HumidityField` or now
-  `BiomeClassifier` is a generation version bump (`docs/rng.md` §3,
-  `docs/world-generation.md` §2.1), not a free fix.
+- Phase `D — World generation` — **IN PROGRESS** (056–067 done, 068–090 open)
+- Next task `068 — Implement grassland biome` (deps: 064, 067 — both DONE). 067 built the
+  *records* behind 066's six ids: a `BiomeDefinition` resource (`id`, `display_name`,
+  `debug_color`), a `BiomeRegistry` over `DefinitionRegistry`, a `BiomeCatalog` loader, and
+  six `.tres` files in `data/biomes/` written by a generator. Five things to carry into 068:
+  **(a)** the record already exists and is *deliberately* three fields — 068 fills one
+  biome, and the fields it needs are added to `BiomeDefinition` then, by 068, with the
+  generator regenerating all six files; **(b)** but check the owner first, because most of
+  what "implement the grassland biome" suggests is somebody else's brick: surface and
+  subsurface materials are 075–076, vegetation and scatter 086–088, spawns 095/106–107,
+  transitions 074, water/snowline 080/085 (`docs/world-generation.md` §12.2 has the table).
+  If after that 068 has nothing left to add, say so and close it — six bricks (068–073)
+  each adding a field nothing reads would be worse than one brick adding the field all six
+  need once 075 exists; **(c)** whatever is added, add it to **all six** records in the same
+  brick or make it optional, because `BiomeRegistry.coverage_reason()` only checks that six
+  records exist, not that they are filled — a half-populated catalog passes today; **(d)**
+  the generator is the only writer of `data/biomes/*.tres`. Hand-editing a `.tres` is how
+  the six drift; re-run
+  `godot --headless --script res://tools/generators/generate_biome_catalog.gd`;
+  **(e)** `debug_color` is **not** the terrain tint (§12.2) — if 068 wants a ground colour
+  it is a new field with a different name, or it is 075's material. **The world still has
+  no generated content**: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the
+  pinned constants in `Continentalness`, `ElevationField`, `ErosionPass`, `TerracePass`,
+  `TemperatureField`, `HumidityField` or `BiomeClassifier` is a generation version bump
+  (`docs/rng.md` §3, `docs/world-generation.md` §2.1), not a free fix. A `BiomeDefinition`
+  field is **not** — nothing in the catalog is an input to anything generated (§12.6).
 
 ## Completed bricks
 
-`001`–`066`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
+`001`–`067`. Phase A complete; Phase B complete (011–020 contracts; 021–028 reference
 tree mapping, all 8 matrices; 029 confidence/uncertainty convention; 030 traceability
 index); Phase C complete (031 block definition schema, 032 block registry, 033
 material property schema, 034 collision property schema, 035 interaction/destruction
@@ -76,7 +77,101 @@ baseline voxel performance budget). **Phase C complete — milestone M002 exit c
 Phase D open: 056 world seed configuration, 057 generation versioning, 058 world
 coordinate hashing, 059 deterministic generation test fixtures, 060 continentalness/noise
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
-064 temperature field, 065 humidity field, 066 biome classifier.
+064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog.
+
+`067` is the first Phase D brick that is **content rather than a field**: no noise layer, no
+salt, no constant, nothing sampled at a coordinate. Four new files under `world/biomes/` and
+`tools/generators/`, six generated `.tres` files in a directory empty since brick 005, and
+**no change to any existing file** except docs and the backlog row.
+
+```text
+data/biomes/*.tres  --BiomeCatalog.load_default()-->  locked BiomeRegistry
+                                                       |
+                              BiomeClassifier.at(column) -> id -> get_biome(id)
+```
+
+Seven things worth keeping:
+
+1. **The catalog does not own the set, and that asymmetry is the brick.** `BiomeClassifier.
+   IDS` stays the closed set; the catalog is checked against it in both directions, and the
+   two failures are different animals. A record for an id nothing can classify is *dead
+   content* — caught per entry, in `register_biome()`. An id with **no** record is a *broken
+   world*, every column in it resolving to nothing, and no per-entry check can see it — so
+   `coverage_reason()` runs once over the whole catalog. `BlockSet` (038) has no equivalent
+   because blocks are an **open** set: a registry holding three or thirty is equally
+   correct. That difference is the only reason `BiomeCatalog` is its own loader instead of a
+   second call into `BlockSet`'s, and it is worth remembering before "deduplicating" the two
+   directory scans.
+2. **`coverage_reason_for(ids)` is static and list-taking on purpose.** `register_biome()`
+   refuses an unclassifiable id, so a *live* registry can only ever be short — the
+   unknown-id branch of the instance method is unreachable from any test that goes through
+   the front door. The static form makes both branches reachable, and it is also what a save
+   audit or a handshake wants: three places that hold ids before they hold definitions.
+   A branch no test can reach is a branch nobody has run.
+3. **Three fields, and the restraint is the design decision.** `id`, `display_name`,
+   `debug_color`. Everything else the word "biome" suggests belongs to a brick that has not
+   happened: materials 075–076, vegetation 086–088, spawns 095/106–107, transitions 074,
+   water and snowline 080/085. A field nothing fills is worse than a record that grows, so
+   the record is exactly what all six entries could fill today with nothing invented. §12.2
+   carries the table, so 068–073 can check the owner before adding.
+4. **`debug_color` is named for what it is for.** A flat opaque swatch for telling six
+   biomes apart on an overlay — explicitly **not** the terrain or vegetation tint, which is
+   075's material and Phase J's renderer. `palette_reason()` keeps every pair ≥ `0.25` apart
+   in RGB (a guard against two biomes getting the same swatch, not colour science); the
+   shipped palette's closest pair is grassland against mountain at **0.28**, and the test
+   pins that margin so a recolour that scrapes past the threshold is visible.
+5. **The reference has no biome catalog at all, and that is the finding.** Not a gap — a
+   divergence. Nothing in either binary names a biome or looks one up: `Terrain_
+   computeBiomeColor` and `terrain_biomeColorFromNoise` blend constants against
+   temperature/humidity/height noise straight into terrain/vegetation RGBA, so a biome there
+   is a **continuous colour**. `WorldInfo_generateBiomeContent` was opened (targeted read)
+   and closed again: a placement routine with a ~6 KB stack frame, no recoverable record
+   structure, and about content population (068+, 086–088, 095) rather than about what a
+   record holds. The one idea taken from the reading is small and honest — the only
+   per-biome datum the original carries is a *colour*, and this catalog carries one too,
+   discrete and debug-only where theirs is continuous and is the terrain itself. §12.5.
+6. **`matrix-world.md` Q4 is resolved, by decision rather than by reading.** It asked
+   whether procedural region/place naming (`NameGen::generateRegionName`) belongs to the
+   Phase D biome catalog. It does not: a biome record names a *kind* of place — six of them,
+   permanent, identical in every world, keyed by a stable id — where a region name names
+   *one* place, is generated per world from its coordinates, and is display text with no id
+   at all. Deferred explicitly to the Phase J map/UI scoping pass (229), not left open.
+   `traceability.md` §2 and §3 both updated; nothing in Phase D was ever blocked by it.
+7. **Not a generation version bump, and the reason is stronger than 066's.** 066 could at
+   least argue about its thresholds; 067 touches no hash, no layer, no salt, no threshold,
+   no coordinate. Every pinned signature stands untouched and still asserted. Worth carrying
+   forward: a `display_name` or `debug_color` edit is *never* a version bump, but adding,
+   removing or renaming a biome **is** — because the ids are `BiomeClassifier`'s, and §11.8
+   already calls a change to the partition a bump.
+
+One structural note for later: `BiomeCatalog.load_default()` and `BlockSet.load_default()`
+now share ~30 lines of `.tres` directory scan. Two uses is not yet three, and the completeness
+check makes them genuinely different loaders (item 1), so the duplication was left in place
+deliberately. The third catalog — items (Phase H) or creatures (Phase F) — is where a shared
+`core/serialization/` loader should be extracted, and that brick should take all three.
+
+Docs: `docs/world-generation.md` §12 (new, seven subsections);
+`docs/reference/matrix-world.md` §2 (biome-content row annotated, new
+`Terrain_computeBiomeColor` row, region-naming row retargeted) and §4 (Q4 resolved);
+`docs/reference/traceability.md` §2 (three rows: Q4 resolved, 067–068 row annotated, new
+biome-colour row; the stale "no brick" Q4 row removed) and §3 (Q4 status).
+`docs/README.md` already named `world/biomes/` — unchanged.
+
+Tests: `tests/unit/test_biome_definition.gd`, `test_biome_registry.gd`,
+`test_biome_catalog.gd` (new, 39 tests together). Full suite:
+`files=46 tests=618 assertions=93984 failed=0`. Compile probe OK (97 scripts), headless
+boot OK.
+
+**Tooling note that cost time this session:** the generator needed the **thin-entry/runner
+split** from brick 052 and `generate_block_set.gd` does not, which is easy to mis-copy. A
+`--script` entry file compiles before autoloads are registered, so it may not statically
+reference `BiomeClassifier`/`BiomeRegistry`/`BiomeCatalog` — all three touch `Log`, directly
+or transitively. `generate_block_set.gd` gets away with a single file purely because
+`BlockDefinition` happens to touch nothing. Also: `Color8()` is a call, not a constant
+expression, so a colour table cannot be a `const` — `records()` is a static function.
+Everything ran through the engine binary from `docs/environment.md` directly
+(`--import`, then `--script`), which remains more reliable than the `tools\scripts\*.ps1`
+wrappers under a non-interactive shell.
 
 `066` is the first brick whose answer is an **id**, and the first consumer of both climate
 axes: `world/biomes/biome_classifier.gd` (`BiomeClassifier`), one new file in a directory
@@ -2012,7 +2107,7 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 065): `check.ps1` **OK** (87 scripts compiled) · `test.ps1` **OK** — 42 files, 550 tests, 83 696 assertions, 0 failed.
+Last run (brick 067): compile probe **OK** (97 scripts) · headless boot **OK** · full suite **OK** — 46 files, 618 tests, 93 984 assertions, 0 failed. Run through the engine binary from `docs/environment.md` directly (`--headless --import`, then `--script res://tests/run_tests.gd`), which is more reliable than the `.ps1` wrappers under a non-interactive shell.
 
 ## What exists now
 
@@ -2050,6 +2145,10 @@ Last run (brick 065): `check.ps1` **OK** (87 scripts compiled) · `test.ps1` **O
 | Generation | `world/generation/terrace_pass.gd` | `TerracePass.for_world(hash)`: the block world — `at(column) = floor(erosion.at(column) / 8) * 8`, so every height is an exact terrace plane 8 voxels = 4 m apart, anchored to the datum. No salt, no noise layer, no change to anything below it. Keeps the family invariant in terraced form (`terraced(base_at) <= at <= erosion.at`, never more than one terrace lost) because `floor` is monotone; inherits 062's range because both ends are multiples of 8. **`max_step_per_voxel()` does not carry over** — the output is discontinuous on purpose, and `max_riser_voxels()` replaces it: `ceil(2.627 / 8) * 8` = one terrace, so every riser is a single 4 m face. `surface_y()` is the integer plane a generator fills up to; `continuous_at`/`removed_at`/`fraction_at`/`terrace_index_at` are the terms 075/084/085 read (063, `docs/world-generation.md` §8) |
 | Generation | `world/generation/temperature_field.gd` | `TemperatureField.for_world(hash)`: the first climate axis — `at(column) = fade(noise01(column))` in `[0, 1]`, `0` coldest and `1` hottest, no unit. Cell 16384 voxels (8192 m), 2 octaves so the finest climate cell is exactly `Continentalness`' coarsest, gain 0.5, `SALT_TEMPERATURE`. `spread()` is the quintic used as a **redistribution**, not a blend: without it the raw layer piles 70% of the world into four middle deciles and reaches neither end, so no biome threshold would select anything. Reads **no** elevation — no lapse rate, that is 085 (064, `docs/world-generation.md` §9) |
 | Generation | `world/generation/humidity_field.gd` | `HumidityField.for_world(hash)`: the second climate axis and 064's mirror — `at(column) = fade(noise01(column))` in `[0, 1]`, `0` driest and `1` wettest, no unit. Same cell, octaves and gain as `TemperatureField` (written as its constants, so the two cannot drift to different scales) and `spread()` calls its curve; the **only** difference is `SALT_HUMIDITY`. Reads **no** `Continentalness` — coastal wetness would make it the first climate axis derived from another field, and 066/074 can add it visibly on top instead. Measurably independent of temperature, ground height and continentalness (`|r| < 0.05` on every fixture world) (065, `docs/world-generation.md` §10) |
+| Biomes | `world/biomes/biome_classifier.gd` | `BiomeClassifier.for_world(hash)`: which of six biomes a column is in — a six-rule decision list over `(temperature, humidity, ruggedness)`, total by construction, `at()`/`at_voxel()`/`sample_at()` and a static pure `classify()`. `IDS` is the **closed set** every catalog is checked against; `is_biome_id()` is the membership test (066, `docs/world-generation.md` §11) |
+| Biomes | `world/biomes/biome_definition.gd` | `BiomeDefinition`: the per-biome record — `id` (domain `biome`), `display_name`, `debug_color`, plus `validate()`. Three fields on purpose: materials are 075–076, vegetation 086–088, spawns 095/106–107 (§12.2). `debug_color` is an overlay swatch, **not** the terrain tint (067) |
+| Biomes | `world/biomes/biome_registry.gd` | `BiomeRegistry`: typed `BiomeDefinition` catalogue over `DefinitionRegistry` — refuses an id `BiomeClassifier` cannot produce, and adds the check an open-set registry has no use for: `coverage_reason()` (the catalog holds exactly `BiomeClassifier.IDS`; `coverage_reason_for()` is the static list-taking form), `palette_reason()` (debug colours ≥ `0.25` apart), `self_check()` (067, §12.1) |
+| Biomes | `world/biomes/biome_catalog.gd`, `data/biomes/*.tres` | `BiomeCatalog.load_default()`: scans `data/biomes/*.tres`, registers each, locks, then `self_check()`s the result and logs loudly if the catalog as a whole is unusable — degrades per entry like `BlockSet`, but a *missing* biome is a broken world rather than a missing block. Six records written by `tools/generators/generate_biome_catalog.gd` (thin entry + runner, brick 052's split) (067, §12.3-12.4) |
 | Tests | `tests/fixtures/generation_fixtures.gd` | `GenerationFixtures`: the shared determinism floor every Phase D pass is tested against — four pinned named worlds, five coordinate sample lists (chosen for negatives, cell boundaries, `WorldBounds` corners), `determinism_reason()`/`seed_sensitivity_reason()` (factory-taking, so a visit-order-dependent pass cannot hide), `range_reason()`/`variation_reason()`, `signature()` for golden pinning, `self_check()` (059, `docs/world-generation.md` §4) |
 | Protocol | `network/protocol/*.gd` | message kinds, direction rules, handshake compatibility |
 | Authority | `network/authority/command_gate.gd` | envelope validation: owner, tick window, replay, rate limit |
@@ -2062,44 +2161,38 @@ Last run (brick 065): `check.ps1` **OK** (87 scripts compiled) · `test.ps1` **O
 
 ## Next 10 actions
 
-1. `066` create the biome classifier (next task) — dep 061 (DONE); both climate axes and
-   `ErosionPass.ruggedness_noise_at()` are in place. Read `docs/world-generation.md` §9 and
-   §10 first, and `terrain-climate-blend.md` §3/§8 per §1's rule. Six things to carry in:
-   **(a)** a classifier returns an **id**, not a float, so `range_reason()` does not apply
-   and `signature()`'s type-strict digest does; **(b)** 063's finding about
-   `variation_reason()` thresholds on the deliberately nearby fixture columns (§8.4);
-   **(c)** **measure at climate scale** — 065's finding, §10.4. Both climate test files now
-   use a 64 × 64 sweep at spacing `16381` from `−524192`, on all four fixture worlds,
-   because the 4093-voxel relief sweep resolves a 16384-voxel field only ~144 times and its
-   numbers move more than what they measure (it made 064's decile test pass on one world
-   and fail on three). A biome classifier is a climate consumer and belongs on the same
-   instrument; the fine sweep stays right for §6–§8; **(d)** the climate square is
-   **populated everywhere** — every cell of a 4×4 grid holds 3.9%–9.3% of the world on 12
-   seeds (§10.3) — so a threshold anywhere selects a real share of the map, and 066's job
-   is to choose *where*, not to worry whether anything is there. Both axes are mildly
-   U-shaped (sd `0.316`), so the extreme corners are the fattest cells, not the thinnest;
-   **(e)** 066 is the brick entitled to decide whether the two axes get **factored** into a
-   shared base class — §10.5 states exactly what is coupled today (three constants written
-   as `TemperatureField`'s, `spread()` by call) and what is not (no inheritance, no shared
-   configuration); **(f)** coastal wetness and a rain shadow were **deliberately refused**
-   by 065 (§10.1 decision 2, §10.7) and remain available to 066 or 074 as a term *on top
-   of* two independent axes, where they can be seen and removed. The version window stays
-   closed: a change to `WorldHash`, `GenerationHash`, `ValueNoise`, or the pinned constants
-   in `Continentalness`/`ElevationField`/`ErosionPass`/`TerracePass`/`TemperatureField`/
-   `HumidityField` is a **generation version bump** (`docs/rng.md` §3,
+1. `068` implement the grassland biome (next task) — deps 064, 067 (both DONE). Read
+   `docs/world-generation.md` §12 first, especially §12.2's owner table. Five things to
+   carry in: **(a)** the record exists and is deliberately three fields (`id`,
+   `display_name`, `debug_color`); 068 adds whatever field grassland actually needs to
+   `BiomeDefinition`, regenerates all six `.tres` through
+   `tools/generators/generate_biome_catalog.gd`, and never hand-edits a data file;
+   **(b)** check the owner before adding anything — surface/subsurface materials are
+   075–076, vegetation and scatter 086–088, spawns 095/106–107, transitions 074, water and
+   snowline 080/085. If nothing is left that 068 legitimately owns, the honest move is to
+   say so and close the brick (or fold 068–073 into one field-adding brick once 075 exists),
+   not to invent a field; **(c)** whatever is added must be filled for **all six** records
+   in the same brick, or be genuinely optional: `coverage_reason()` checks that six records
+   exist, not that they are populated, so a half-filled catalog passes today; **(d)**
+   `debug_color` is an overlay swatch, **not** the terrain tint (§12.2) — a ground colour is
+   a differently-named field or it is 075's material; **(e)** a `BiomeDefinition` field is
+   **not** a generation version bump (§12.6), but adding/removing/renaming a biome is,
+   because the ids belong to `BiomeClassifier` (§11.8). The version window is otherwise
+   unchanged: `WorldHash`, `GenerationHash`, `ValueNoise` and the pinned constants in
+   `Continentalness`/`ElevationField`/`ErosionPass`/`TerracePass`/`TemperatureField`/
+   `HumidityField`/`BiomeClassifier` are all bump territory (`docs/rng.md` §3,
    `docs/world-generation.md` §2.1), so 057's `GenerationVersion` checklist (§2.5) applies.
-   Then `067` (baseline biome catalog, dep 065 + 066). The throwaway-probe habit 065 used
-   is worth keeping: a `tests/unit/test_zz*.gd` file run with `test.ps1 -File zz`, deleted
-   before the brick lands. Still open and carried forward from Phase C: no `.tscn` exists,
-   and no player/camera to raycast from or to parent the 042 `VoxelViewer` under — a Phase
-   F question (039's nextsteps entry, carried by 042–065). The
-   `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
+   The throwaway-probe habit is still worth keeping: a `tests/unit/test_zz*.gd` file run
+   with `test.ps1 -File zz`, deleted before the brick lands. Still open and carried forward
+   from Phase C: no `.tscn` exists, and no player/camera to raycast from or to parent the
+   042 `VoxelViewer` under — a Phase F question (039's nextsteps entry, carried by 042–067).
+   The `docs/performance-budget.md` §3 benchmark is re-run against the real generator once
    Phase D lands (its §5 says so; feeds bricks 257–258), and generation's own row there
    stays empty until something is expensive enough to measure.
 1b. Git, **resolved after 065**: the repository is re-established on `main` with a
    single baseline commit `81100f7` covering bricks 001–065, because no history
-   existed in this working copy to restore. Brick 066 is the first brick to land as
-   its own commit. Nothing further is owed here — no remote is configured, and adding
+   existed in this working copy to restore. Bricks 066 and 067 are the first to land as
+   their own commits. Nothing further is owed here — no remote is configured, and adding
    one is the user's call.
 2. Before shipping any exported (non-editor) build: revisit `blocky_library_builder.gd`
    (037)'s `Image.load()`-based texture loading — brick 038 surfaced an engine warning
@@ -2202,6 +2295,12 @@ opening the reference tree.
   page and the actual behavior disagree, prefer reading the source directly over trusting
   the XML doc — this project's `VoxelTerrainMetrics.KEY_*` constants
   (`world/terrain/voxel_terrain_metrics.gd`) already reflect only the real 7.
+- **A `--script` entry file needs the thin-entry/runner split whenever it touches project
+  classes** — brick 067 hit this again with `generate_biome_catalog.gd`, which cannot
+  statically reference `BiomeClassifier`/`BiomeRegistry`/`BiomeCatalog`.
+  `generate_block_set.gd` is a single file only because `BlockDefinition` happens to touch
+  nothing; do not copy it as the pattern. Also: **`Color8()` is a call, not a constant
+  expression**, so a colour table cannot be a `const` — use a static function.
 - **A file passed to `--script` is compiled before project autoloads are registered as
   global identifiers.** A script that statically references a `Log`-touching project class
   at its top level (`VoxelTerrainBuilder`, `BlockSet`, `VoxelTerrainMetrics` all call `Log`

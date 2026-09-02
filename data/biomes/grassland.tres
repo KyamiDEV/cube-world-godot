@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="BiomeDefinition" format=3]
+
+[ext_resource type="Script" path="res://world/biomes/biome_definition.gd" id="1_451qy"]
+
+[resource]
+script = ExtResource("1_451qy")
+id = "biome.grassland"
+display_name = "Grassland"
+debug_color = Color(0.41568628, 0.6666667, 0.2901961, 1)

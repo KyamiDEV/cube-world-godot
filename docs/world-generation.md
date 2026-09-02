@@ -1598,3 +1598,152 @@ with them, so retuning one once a world exists is a version bump, not a tuning k
 - **Altitude, and a snowline.** Bricks 072 and 085.
 - **Caves.** Bricks 077–078. A cave is currently in the biome of the column above it.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`.
+
+## 12. The baseline biome catalog (brick 067)
+
+Implementation: `world/biomes/biome_definition.gd` (`BiomeDefinition`),
+`world/biomes/biome_registry.gd` (`BiomeRegistry`), `world/biomes/biome_catalog.gd`
+(`BiomeCatalog`), `data/biomes/*.tres`, written by
+`tools/generators/generate_biome_catalog.gd`.
+Tests: `tests/unit/test_biome_definition.gd`, `test_biome_registry.gd`,
+`test_biome_catalog.gd`.
+Reference: `docs/reference/matrix-world.md` §1 (`cube::WorldInfo`), §2 (biome content
+population) — and see §12.5, which is a divergence rather than an implementation.
+
+§11 gave six ids. This is the six **records** behind them, and the first Phase D brick that
+is content rather than a field: no noise layer, no salt, no constant, nothing sampled at a
+coordinate.
+
+```text
+data/biomes/*.tres  --BiomeCatalog.load_default()-->  locked BiomeRegistry
+                                                       |
+                              BiomeClassifier.at(column) -> id -> get_biome(id)
+```
+
+### 12.1 The classifier owns the set; the catalog is checked against it
+
+`BiomeClassifier.IDS` is closed **in code** (§11.1), and 067 does not reopen it. The catalog
+is the six records for those ids and nothing else, which makes the relationship between the
+two files an equality that can be asserted rather than a convention:
+
+| Direction | Failure | Where it is caught |
+|---|---|---|
+| a record for an id nothing can classify | dead content, usually a typo | `BiomeRegistry.register_biome()`, per entry |
+| an id with no record | a world with columns that resolve to nothing | `BiomeRegistry.coverage_reason()`, once over the whole catalog |
+
+The second is the one that matters and the one a per-entry check structurally cannot see.
+`BlockSet` (038) has no equivalent because blocks are an **open** set — a registry holding
+three or thirty is equally correct — and that difference is the whole reason `BiomeCatalog`
+is its own loader rather than a second call into `BlockSet`'s.
+
+`coverage_reason_for()` is the same comparison over a bare id list, and it exists so both
+directions are reachable: a live registry can only ever be *short*, because
+`register_biome()` refuses the other case, and a branch no test can reach is a branch
+nobody has run.
+
+### 12.2 Three fields, and the argument for stopping there
+
+| Field | Is |
+|---|---|
+| `id` | the stable id, domain `biome` — permanent, reaches saves, logs and (as a network index) packets |
+| `display_name` | tooling/UI label. Never a key |
+| `debug_color` | a flat opaque colour for telling six biomes apart in a **debug** view |
+
+Everything else one wants to write on a biome belongs to a brick that has not happened yet:
+surface and subsurface materials are 075–076, vegetation and scatter 086–088, spawn tables
+095 and 106–107, water and snowline 080 and 085, transition width 074. A field nothing fills
+is worse than a record that grows, so the record is the three things all six entries can
+fill today with nothing invented.
+
+`debug_color` is explicitly **not** the terrain or vegetation tint. That is a shading
+decision made from the surface material (075) and the renderer (Phase J); naming the field
+for what it is for keeps the first chunk-tinting brick from silently adopting a palette
+chosen for legibility on an overlay. `BiomeRegistry.palette_reason()` holds every pair at
+least `MINIMUM_DEBUG_COLOR_DISTANCE` = `0.25` apart in RGB — a guard against two biomes
+being handed the same swatch, not a colour-science claim. The shipped palette's closest pair
+is grassland against mountain, at **0.28**.
+
+### 12.3 It is a data catalog, and that was the decision to make
+
+The alternative was a static table in code, and the closed set argues for it: six entries,
+already named in `BiomeClassifier`. The data route wins on where 068–073 put their work.
+Each of those bricks fills one biome, and a per-biome `.tres` is where content belongs
+(`CLAUDE.md` §9); `data/biomes/` has existed and been empty since brick 005 waiting for
+exactly this. It also gets locking, aliases, sorted network indices and `content_hash()`
+from `DefinitionRegistry` (016) for free — and a biome id does reach the wire, so those are
+not hypothetical.
+
+`tools/generators/generate_biome_catalog.gd` writes the six files, the way
+`generate_block_set.gd` wrote the first three blocks. It reads the set from
+`BiomeClassifier.IDS` and **fails** on an id with no row, rather than quietly writing five
+files; the catalog is then self-checked in the generator before it claims success, so the
+drift `coverage_reason()` exists to catch is caught at authoring time as well as at load
+time. It needs the thin-entry/runner split (`nextsteps.md`, brick 052) that
+`generate_block_set.gd` avoids only because `BlockDefinition` happens to touch nothing.
+
+### 12.4 What a load guarantees
+
+`BiomeCatalog.load_default()` degrades per entry exactly as `BlockSet` does — a missing
+directory, an unloadable file, a wrong resource type or a rejected definition is one logged
+error, never a crash — and then runs `BiomeRegistry.self_check()` (coverage, then palette)
+over the result and logs loudly if the catalog as a whole is unusable. It still **returns**
+the registry rather than aborting: the caller decides, the same way `GenerationVersion`
+hands back a verdict.
+
+The registry comes back locked, always, including when nothing loaded. Network indices are
+therefore assigned from the moment a catalog exists, in sorted id order, so two peers that
+loaded the same six files agree without exchanging a table.
+
+The end-to-end test is the one worth naming: the real classifier runs over every fixture
+column of every fixture world and each answer is looked up in the real catalog. That asserts
+coverage against actual classifications rather than against the id list.
+
+### 12.5 The reference has no biome catalog, and that is the finding
+
+Recorded because it is a **divergence**, not a gap. The reference has no biome enum, table
+or record anywhere. Its notion of a biome is a *continuous colour* —
+`Terrain_computeBiomeColor` (`GAP_ANALYSIS.md`, LOW) blends constants against
+temperature/humidity/height noise into terrain and vegetation RGBA, and
+`terrain_biomeColorFromNoise` does the same from two noise layers — plus a content-placement
+routine, `WorldInfo_generateBiomeContent`, which populates spawns, terrain features and
+decoration. Nothing in either binary names a biome and nothing looks one up.
+
+`WorldInfo_generateBiomeContent` was opened (brick 067, targeted read) and closed again: it
+is a decompiled placement routine with a ~6 KB stack frame, calling water/path feature
+generators and a rotate-and-place helper, with no recoverable record structure. It is about
+*content population*, which is 068+, 086–088 and 095 — not about what a biome record holds.
+That resolves `matrix-world.md` §2's `067–068` row for 067's half.
+
+So the discrete, addressable, catalogued biome is ours, deliberately. `CLAUDE.md` §9's
+stable-id policy needs it, a save file and a quest condition need it, and §11 already
+committed to it. The one idea taken from the reading is small and honest: the only per-biome
+datum the original carries at all is a **colour**, and this catalog carries one too —
+discrete, per-id and debug-only, where theirs is continuous and is the terrain itself.
+
+### 12.6 This is not a generation version bump
+
+Nothing here is generation. No hash, no noise layer, no salt, no threshold, no coordinate.
+Every pinned signature below stands untouched and still asserted (`ElevationField`
+`0babd0a337dd7cab`, `ErosionPass` `cc4f0f5ecb8fa581`, `TerracePass` `2af464f70e43590a`,
+`TemperatureField` `fb91406f3e801b7f`, `HumidityField` `76802ec9aa907fee`,
+`BiomeClassifier` `33a42963660cb452`). `GENERATION_VERSION` stays where it is.
+
+Adding, removing or renaming a biome later is a different question, and it is a
+`BiomeClassifier` question before it is a catalog one: the ids are the classifier's, and
+changing the partition is what §11.8 already calls a version bump. A record's
+`display_name` or `debug_color` is not — neither is an input to anything generated.
+
+### 12.7 Out of scope for this brick
+
+- **Per-biome content** — surface and subsurface blocks (075–076), vegetation and scatter
+  (086–088), creature spawns (095, 106–107). Bricks 068–073 fill one biome each, and every
+  field they need is added then, to a record that already exists.
+- **Biome transition blending.** Brick 074, and §11.5's slivers are what it inherits.
+- **Terrain and vegetation colour.** §12.2; Phase J, from 075's materials.
+- **A coastal or aquatic biome.** §11.6, unchanged: it waits for the waterline (080).
+- **Procedural region and place naming.** `matrix-world.md` Q4 asked whether the biome
+  catalog owns it. It does not: a biome record names a *kind* of place, permanently and in
+  six copies, where a region name names *one* place and is generated per world. It is a
+  Phase J map/UI concern (229) or its own brick, and 067 declines it explicitly rather than
+  leaving the question open.
+- **Any voxel.** Still nothing is written to a `VoxelBuffer`.

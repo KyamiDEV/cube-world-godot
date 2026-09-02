@@ -114,7 +114,7 @@
 | 075 | D | Implement surface material selection | 073 | Not needed by default | NO | DONE |
 | 076 | D | Implement subsurface material rules | 074 | Not needed by default | NO | DONE |
 | 077 | D | Implement cave mask | 075 | Not needed by default | NO | DONE |
-| 078 | D | Implement cave carving | 076 | Not needed by default | NO | TODO |
+| 078 | D | Implement cave carving | 076 | Not needed by default | NO | DONE |
 | 079 | D | Implement underground material rules | 075, 078 | Not needed by default | NO | TODO |
 | 080 | D | Implement water level model | 079 | Not needed by default | NO | TODO |
 | 081 | D | Implement rivers | 080 | Not needed by default | NO | TODO |

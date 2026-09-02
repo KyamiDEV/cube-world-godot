@@ -2254,3 +2254,94 @@ its own signature (`70c1c6e87feda219`) rather than reusing or perturbing it.
   comment states the reason: a thresholded blob field is the smaller, honest first cut;
   a tunnel-shaped brick can revisit this file without changing its contract.
 - **Any voxel.** Still nothing is written to a `VoxelBuffer`.
+
+## 17. Cave carving (brick 078)
+
+Implementation: `world/generation/cave_carving.gd` (`CaveCarving`).
+Tests: `tests/unit/test_cave_carving.gd`.
+Reference: none — §16.5's finding applies unchanged; there is no carving mechanism in either
+binary to diverge from either.
+
+§16.7 named this brick's job in advance: clip `CaveMask`'s hollow-everywhere answer to the
+voxels `TerracePass` actually puts underground, so a mask value at, say, y = +800 never
+surfaces as a hole in the sky.
+
+### 17.1 One clip, and it is deliberately the whole pass
+
+```text
+is_hollow_at(voxel) = voxel.y < TerracePass.surface_y(column(voxel))
+                       and CaveMask.is_cave_at(voxel)
+```
+
+`CaveCarving` builds its own `CaveMask` and `TerracePass` (`TerracePass.for_world()`'s own
+reason, §8.2: both are stateless and small, and a shared instance would be a second way for
+two passes to disagree about which world they are generating) and answers one bool per
+voxel. Nothing else — no material, no dependency on `SubsurfaceMaterial`.
+
+### 17.2 The cheap check runs first
+
+The surface check (`TerracePass.surface_y()`: one division and a floor over an
+already-built height field) runs before the mask is ever asked (`CaveMask.is_cave_at()`:
+four octaves of 3D trilinear noise, eight hashed corners each, §16.4). Every above-ground
+voxel in the world — the overwhelming majority of any column, and all of a column above its
+own terrace — short-circuits on the cheap half, and `CaveMask.density_at()` is never called
+there. Not a micro-optimisation chased for its own sake: `CLAUDE.md` §8 ranks world
+generation and voxel meshing above every other performance concern, and a per-voxel pass
+that is about to be called from a `VoxelGenerator`'s fill loop is exactly the place ordering
+two checks by cost actually matters.
+
+### 17.3 A strict inequality, matching `SubsurfaceMaterial`'s own boundary
+
+`TerracePass.surface_y(column)` names the top **solid** voxel of the ground, not the first
+voxel of open air above it — the convention every pass since `TerracePass` itself has read,
+and the exact line `SubsurfaceMaterial.block_id_at()` already draws (`depth <= 0` is "not
+this pass's question", §15.4). Carving the surface voxel away would hollow out the one cell
+every other pass in the chain agrees is ground, so underground starts strictly below it:
+`y < surface_y(column)`. `test_cave_carving.gd::test_the_surface_voxel_itself_is_never_
+hollow` asserts this at every fixture column regardless of what `CaveMask` says there.
+
+### 17.4 A bool, not a block id — the split 079 depends on
+
+`SurfaceMaterial` and `SubsurfaceMaterial` both answer with a block id because both decide
+what a voxel is *made of*. This file never has to: hollow-or-not is the whole question
+`CaveMask` started with, and the backlog row itself calls this brick "carving", not "cave
+material". Answering with a block id here would force this file to also decide what a
+non-hollow underground voxel is made of — exactly what 079 ("implement underground material
+rules") exists to answer next, as its own brick depending on this one rather than folded
+into it, the same `CaveMask`/`SubsurfaceMaterial` split `nextsteps.md` carried forward into
+this brick (§16.2's own forward flag).
+
+### 17.5 Not a generation version bump
+
+The same boundary every Phase D brick since 062 has stated: no world has ever had a voxel
+written, so nothing this brick computes can contradict one. `CaveCarving` adds no field, no
+salt, no constant — it is a pure clip over two existing passes, each independently
+unchanged (`CaveMask.self_check()` and `TerracePass`'s own tests still pass; neither file
+was touched by this brick). The moment some later brick's `VoxelGenerator` calls
+`is_hollow_at()` to decide a `VoxelBuffer` cell, `WorldHash.SALT_CAVES` moves from
+reserved-and-unused to reserved-and-pinned exactly as §16.6 already named for `CaveMask`
+alone — this brick does not move that boundary, only inherits it.
+
+### 17.6 Testing a boolean composed from a sparse field
+
+`CaveMask.is_cave_at()` reads hollow on roughly 4% of underground space (§16.4).
+`GenerationFixtures.voxels()` — 16 samples, shared across every Phase D test file — reads
+`false` for every one of them on more than one fixture seed, so a seed-sensitivity check
+built on it (`GenerationFixtures.seed_sensitivity_reason()`) reports two seeds "agreeing" at
+every sample, which is true and uninformative rather than a bug. `test_cave_mask.gd` never
+ran that check against the boolean `is_cave_at()` either, only against the continuous
+`density_at()`, for the identical reason; `test_cave_carving.gd` follows the same
+precedent and records why in a comment rather than silently omitting the test. What actually
+exercises the boolean is three hand-picked voxels, found by the same kind of design-time
+sweep 077 used for its own `KNOWN_CAVE_VOXEL`/`KNOWN_SOLID_VOXEL`: one underground and
+hollow, one underground and solid, and — the property specific to this brick — one that
+`CaveMask` alone calls hollow but that sits 280 voxels above its own column's terraced
+surface, proving the clip is load-bearing rather than a pass-through.
+
+### 17.7 Out of scope for this brick
+
+- **What lines the hollow.** Brick 079, which combines `CaveMask`/`CaveCarving`'s hollow
+  answer with `SubsurfaceMaterial`'s material answer.
+- **Writing to a `VoxelBuffer`.** Still no `VoxelGenerator` anywhere in the project; this
+  file answers a question a future one will ask.
+- **Retuning the cave shape or threshold.** `CaveMask`'s job, unchanged by this brick.

@@ -36,32 +36,32 @@
 - Phase `C — Voxel infrastructure` — **COMPLETE** (031–055)
 - Milestone `M002 — Voxel sandbox` — exit criteria met (block registry; blocky terrain;
   deterministic edits; load/save smoke test; measured mesh block size + budget)
-- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–077 done; 068–073 FOLDED
-  (`backlog.md`, `docs/world-generation.md` §13.1); 078–090 open)
-- Next task `078 — Implement cave carving`, deps `076` in `backlog.md`, DONE (077 was not a
-  dependency and did not need to be waited on, but is done anyway and is what 078 actually
-  needs). Not yet scoped by this session beyond what `backlog.md`'s own row says. Two things
-  worth carrying in, both real rather than assumed: **(a)** `CaveMask.is_cave_at(voxel)`
-  (`world/generation/cave_mask.gd`, brick 077) is the hollow/solid answer 078 carves
-  against, but it is deliberately **not** clipped to underground ground — `nextsteps.md`'s
-  076/077 handoff already flagged this, and 077's own class comment and
-  `docs/world-generation.md` §16.2 state it explicitly: 078 is the pass that combines
-  `CaveMask` with `TerracePass.surface_y()` (or an equivalent "is this voxel below the
-  terraced surface" check) so a cave never surfaces as a hole in the sky. **(b)** "carving"
-  means turning a hollow `is_cave_at() == true` **and** underground voxel into an actual
-  block choice for a future `VoxelGenerator` — almost certainly `block.air` unconditionally
-  (there is no cave-specific block yet, and inventing one is not this brick's job per
-  `CLAUDE.md` §6) — so 078 is likely a third small file (`CaveCarving`?) composing
-  `CaveMask` and `TerracePass` into one `(voxel) -> block id or ""` function, the same
-  `SurfaceMaterial`/`SubsurfaceMaterial` shape 075/076 already established, rather than a
-  change to either existing file. 079 (underground material rules) is a separate brick from
-  078 per `backlog.md`'s own row (`079` depends on `075, 078`) — 078 decides *hollow or
-  not*, 079 decides what lines the hollow, and the two should stay split the same way
-  `CaveMask` and `SubsurfaceMaterial` are split today.
+- Phase `D — World generation` — **IN PROGRESS** (056–067, 074–078 done; 068–073 FOLDED
+  (`backlog.md`, `docs/world-generation.md` §13.1); 079–090 open)
+- Next task `079 — Implement underground material rules`, deps `075, 078` in `backlog.md`,
+  both DONE. Not yet scoped by this session beyond what `backlog.md`'s own row says. What
+  078 leaves for 079, carried in rather than re-derived: `CaveCarving.is_hollow_at(voxel)`
+  (`world/generation/cave_carving.gd`) is the final hollow/not-hollow answer, already
+  clipped to underground ground — 079 does not need to re-check the surface, only combine
+  this boolean with `SubsurfaceMaterial.block_id_at()` (076) into whatever a `VoxelGenerator`
+  actually needs at a non-hollow underground voxel. Two real open questions for 079 to
+  settle rather than assume: **(a)** whether "underground material rules" means a genuinely
+  new material for cave *walls/floors* specifically (as opposed to reusing whatever
+  `SubsurfaceMaterial` already says at that depth), since the backlog row's own title
+  ("underground material rules", not "cave lining material") reads more general than just
+  the cave boundary — worth re-reading `backlog.md`'s full context and any earlier
+  `docs/world-generation.md` ownership notes before assuming a new field is needed; **(b)**
+  whether the empty-string-is-air convention already established project-wide
+  (`world/terrain/block_edit_delta.gd`'s own comment: "`""` means air on both sides") is the
+  right return value for "carve to air" if 079 (or whichever brick first builds a
+  `VoxelGenerator`) composes `CaveCarving` and `SubsurfaceMaterial` into one final block-id
+  function — plausible, since `SurfaceMaterial`/`SubsurfaceMaterial` already use `""` to mean
+  "not this pass's question" in a context that is also physically air (at/above the
+  surface), but not yet decided by any committed file.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`077`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`078`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -82,7 +82,80 @@ coordinate hashing, 059 deterministic generation test fixtures, 060 continentaln
 layer, 061 elevation field, 062 erosion/shape pass, 063 terrace/block-world shaping pass,
 064 temperature field, 065 humidity field, 066 biome classifier, 067 baseline biome catalog,
 074 biome transition blending, 075 surface material selection, 076 subsurface material
-rules, 077 cave mask (068–073 folded — see below).
+rules, 077 cave mask, 078 cave carving (068–073 folded — see below).
+
+`078` is the clip `077`'s own class comment named in advance as its job: one new file,
+`world/generation/cave_carving.gd` (`CaveCarving`), composing `CaveMask` (077) and
+`TerracePass` (063) into a single `is_hollow_at(voxel) -> bool`. No change to either
+existing file, no new noise field, no new salt, no new constant.
+
+```text
+CaveCarving.is_hollow_at(voxel) -> bool
+        |
+        +-- voxel.y >= TerracePass.surface_y(column)   -> false   (cheap check first)
+        +-- otherwise                                  -> CaveMask.is_cave_at(voxel)
+```
+
+Four things worth keeping:
+
+1. **The cheap check runs first, and it is a real cost decision, not style.** `surface_y()`
+   is one division and a floor over an already-built height field; `CaveMask.is_cave_at()`
+   is four octaves of 3D trilinear noise, eight hashed corners each (077). Every
+   above-ground voxel — the majority of any column — short-circuits before the expensive
+   half ever runs. `CLAUDE.md` §8 ranks world generation above every other performance
+   concern, and this is the shape that ranking asks for at the one call site a future
+   `VoxelGenerator` fill loop will actually hit per voxel.
+2. **A strict inequality, matching `SubsurfaceMaterial`'s own boundary.** `surface_y(column)`
+   names the top *solid* voxel of the ground (076's exact convention, `depth <= 0` is "not
+   this pass's question"), so underground starts strictly below it: `y < surface_y(column)`.
+   Carving the surface voxel itself away would hollow the one cell every other pass in the
+   chain agrees is ground. Asserted at every fixture column regardless of what `CaveMask`
+   says there (`test_the_surface_voxel_itself_is_never_hollow`).
+3. **A bool, not a block id — the split 079 depends on.** `SurfaceMaterial`/
+   `SubsurfaceMaterial` answer with a block id because both decide what a voxel is *made
+   of*; this file never has to, because hollow-or-not is the whole question `CaveMask`
+   started with and the backlog row calls this brick "carving", not "cave material".
+   Answering with a block id here would force this file to also decide what a non-hollow
+   underground voxel is made of — 079's job, kept as its own brick depending on this one
+   rather than folded into it, the exact `CaveMask`/`SubsurfaceMaterial` split the 077
+   handoff asked 078 to preserve.
+4. **Testing a boolean composed from a sparse field needed the same restraint 077's own test
+   file already used, not a new idea.** `CaveMask.is_cave_at()` reads hollow on ~4% of
+   underground space; `GenerationFixtures.voxels()` (16 samples) reads `false` for every one
+   of them on more than one fixture seed, so a seed-sensitivity check built on it reports
+   two seeds "agreeing" everywhere — true and uninformative, not a bug. `test_cave_mask.gd`
+   never ran that check against the boolean `is_cave_at()` either, only against the
+   continuous `density_at()`; `test_cave_carving.gd` follows the identical precedent
+   (`Callable`-of-`bool`, only `test_is_deterministic()`; no `test_is_seed_sensitive()`,
+   documented in a comment rather than silently dropped) and instead exercises the boolean
+   with three hand-picked voxels found by a design-time sweep: `KNOWN_HOLLOW_VOXEL`
+   (= `CaveMask`'s own `KNOWN_CAVE_VOXEL`, `Vector3i(-323, 34, -221)`, reused rather than
+   re-swept), `KNOWN_SOLID_VOXEL` (the origin, also reused), and — the property specific to
+   this brick — `KNOWN_ABOVE_GROUND_CAVE_VOXEL` (`Vector3i(1, 344, 2)`, 280 voxels above its
+   own column's terraced surface), which `CaveMask` alone calls hollow but which
+   `CaveCarving` must not, proving the clip is load-bearing rather than a pass-through.
+
+Not a generation version bump: no world has ever had a voxel written, and `CaveCarving`
+adds no field, no salt, no constant of its own — a pure clip over two independently
+unchanged passes (`docs/world-generation.md` §17.5). `WorldHash.SALT_CAVES` stays exactly
+where 077 left it, reserved-and-unused; this brick does not move that boundary, only
+inherits it.
+
+Docs: `docs/world-generation.md` §17 (new, seven subsections); `docs/reference/
+traceability.md` §4 (078 added to the original-design list, sixth in the same shape).
+
+Tests: `tests/unit/test_cave_carving.gd` (new, 10 tests, pins `signature()`
+`20ff1ccf274a9c05` against `CaveMask`/`TerracePass` on the `typed` world over
+`GenerationFixtures.voxels()` — all 16 samples land solid, the same small-sample-vs-sparse-
+field finding item 4 above records). Full suite: `files=51 tests=714 assertions=122430
+failed=0`. Compile probe OK (108 scripts). Headless boot OK.
+
+**One tooling note, the same shape as 077's own:** the three fixture voxels above were found
+by a throwaway measurement probe (`tools/probe/temp_probe_cave_carving.gd` +
+`_runner.gd`, thin-entry/runner split per brick 052 — `Log`/`GenerationHash`/`CaveMask`/
+`TerracePass` all need autoloads registered, which a bare `--script` entry file predates),
+run once, read, then deleted — never committed, matching 077's `temp_probe_cave_density*`
+precedent exactly.
 
 `077` is the first Phase D brick sampled at a **voxel** rather than a column, and the first
 consumer of the 3D noise form §5.6 deliberately deferred back at brick 060 ("Caves

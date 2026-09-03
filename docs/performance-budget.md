@@ -12,7 +12,7 @@
 
 | # | Subsystem (`CLAUDE.md` §8 order) | Status | Owning bricks | Section |
 |--:|---|---|---|---|
-| 1 | World generation | not yet measured | 257, 262 | — |
+| 1 | World generation | **baseline recorded** | 091b; 257, 262 | §4 |
 | 2 | Voxel meshing | **baseline recorded** | 052, 053, 054, 055 | §3 |
 | 3 | Streaming | partial (cold settle only, §3) | 258 | §3 |
 | 4 | Entity simulation | not yet measured | 259 | — |
@@ -111,7 +111,92 @@ dedicated harness (measuring re-mesh latency per edit and under sustained edit r
 would be needed before `mesh_block_size = 32` could be reconsidered as the default, and
 before this row can move from "estimated" to "measured".
 
-## 4. How to reproduce §3
+## 4. World generation baseline (brick 091b)
+
+`WorldGenerator` (`world/generation/world_generator.gd`) is the first thing in the project
+that writes a voxel, so this is the first row §1 could fill for subsystem 1. It measures
+`fill_buffer()` **alone** — no terrain node, no viewer, no mesher, no streaming — so the
+number stays attributable to generation rather than to the pipeline §3 measures.
+
+### 4.1 Synthetic workload
+
+| Field | Value |
+|---|---|
+| Harness | `tools/benchmarks/benchmark_world_generation.gd` (+ `world_generation_benchmark_runner.gd`) |
+| World | `WorldSeed.from_text("cubeworld")`, generation version 1 |
+| Content | shipped `BlockSet.load_default()` (5 blocks) and `BiomeCatalog.load_default()` (6 biomes) |
+| Unit | one 16³ `VoxelBuffer` — Voxel Tools' data-block size, what `_generate_block()` is actually asked for |
+| Sample | 9 consecutive chunks in a horizontal row per band, so every chunk stays in its band |
+
+Three altitude bands, because they run different branches and cost very different amounts:
+`sky` (entirely above the ground — only the per-column `top_y()` early-out runs), `ground`
+(straddling the surface — the cover chain runs for every column), `deep` (entirely
+underground — the 3D cave field is sampled once per voxel).
+
+### 4.2 Measured baseline
+
+Median of three runs, headless, on the §2 host:
+
+| Band | ms / 16³ chunk | µs / voxel | Solid voxels in the last chunk |
+|---|---:|---:|---:|
+| `sky` | 87.8 | 21.4 | 0 / 4096 |
+| `ground` | 722.4 | 176.4 | 2304 / 4096 |
+| `deep` | 367.6 | 89.5 | 4096 / 4096 |
+
+Run-to-run spread was under 3% on every band.
+
+### 4.3 Where the time goes
+
+The `sky` band does no voxel work at all — it is 256 `column_at()` calls and nothing else, so
+**resolving a column costs ~0.34 ms**: the `Continentalness -> ElevationField -> ErosionPass ->
+TerracePass -> RiverPass -> LakePass` chain plus `StructureGenerator.site_for_column()`'s
+nine-region scan.
+
+The `ground` band adds ~2.5 ms per column on top of that, and it is one call:
+`SnowlineMaterial.block_id_at()`, whose `ShorelineMaterial` layer asks four *neighbouring*
+columns whether they are wet (§23 of `docs/world-generation.md`) and runs a full height chain
+for each. That single call is **~88% of a surface chunk**, and it is the clearly-indicated
+first target for brick 262. The obvious shape of the fix — a chunk-scoped memo of the height
+chain, shared between a column and its neighbours, owned by the fill loop rather than by any
+pass — is deliberately *not* implemented at 091b: a cache on a pass object would be a data race
+on Voxel Tools' worker threads (`docs/world-generation.md` §30.5), and a real one needs a
+profile and a brick of its own.
+
+The `deep` band's ~90 µs/voxel is `CaveMask`'s 4-octave 3D value noise, sampled per voxel with
+no early-out available. Second target, and a much harder one: it is genuinely per-voxel work.
+
+Two structural fixes already landed at 091b and are **inside** the numbers above, not pending:
+the resolved-input forms (`SubsurfaceMaterial.block_id_for_depth()`,
+`CaveCarving.is_hollow_for()`) that stopped the material passes re-deriving the surface height
+once per voxel, and the removal of `SnowlineMaterial.block_id_at()`'s triple shoreline
+evaluation. Together they took a 27-chunk sweep from 33.6 s to 9.4 s (3.6×) before this table
+was recorded.
+
+### 4.4 Budget — what counts as a regression
+
+| Metric | Baseline | Regression threshold |
+|---|---:|---|
+| `ground` band, ms / chunk | 722 | > 20% slower with no generation-version bump |
+| `deep` band, ms / chunk | 368 | > 20% slower with no generation-version bump |
+| `sky` band, ms / chunk | 88 | > 20% slower with no generation-version bump |
+
+The "with no generation-version bump" qualifier is the point: a new Phase D pass that makes
+the world genuinely richer is *expected* to cost more and re-baselines this table. A slowdown
+with no new content is a regression.
+
+### 4.5 What this does not measure
+
+- **Streaming or meshing the generated world.** §3's harness still runs against the flat
+  placeholder; re-running it against `WorldGenerator` is brick 257/258's work, and §6's own
+  trigger list already carries it.
+- **Threading.** Voxel Tools calls `_generate_block()` on a worker pool, so wall-clock time to
+  fill a view sphere is not this number times the chunk count. Measuring that needs a live
+  terrain, which is §3's shape, not this one's.
+- **Anything at a playable view distance.** `tests/integration/test_world_generation.gd` and
+  `tools/debug/world_preview.gd` both run at a deliberately small view distance for exactly the
+  reason this table records.
+
+## 5. How to reproduce §3 and §4
 
 Run the contracted engine headless against the harness, passing the block size as a
 user arg after `--` (`OS.get_cmdline_user_args()`):
@@ -130,11 +215,26 @@ Run each block size three times; take the median. The harness prints the final
 non-zero on a build failure or a settle timeout. It is a measurement tool, not a
 pass/fail check — `tools\scripts\test.ps1` does not run it.
 
-## 5. Revisit / re-measure triggers
+§4's harness is the same shape, with its own arguments:
 
-- **After Phase D** (real generation): re-run §3 against a real generator — the
-  flat-stone placeholder is not representative. This also feeds brick 257
-  (profile terrain generation) and 258 (profile meshing and streaming).
+```text
+<godot> --headless --script res://tools/benchmarks/benchmark_world_generation.gd -- --chunks=9
+<godot> --headless --script res://tools/benchmarks/benchmark_world_generation.gd -- --seed=lakes --altitude=ground
+```
+
+`--seed=<text>` picks the world (default `cubeworld`), `--chunks=<n>` the sample size per band
+(default 27), `--altitude=sky|ground|deep` restricts the run to one band. Run three times and
+take the median, exactly as §3 does. It needs no scene tree and exits as soon as it has
+printed.
+
+## 6. Revisit / re-measure triggers
+
+- **Re-run §3 against `WorldGenerator`** now that Phase D generation exists (091b): the
+  flat-stone placeholder §3 measured is not representative of meshing or streaming a real
+  world. This feeds brick 257 (profile terrain generation) and 258 (profile meshing and
+  streaming); §4 covers generation in isolation but says nothing about the pipeline.
+- **On any generation-version bump:** every §4 number is stale, and re-baselining it is part
+  of the bump (§4.4).
 - **When an edit-throughput benchmark lands:** fill §3.4 with measured numbers and
   re-check ADR 0002.
 - **When `DEFAULT_VIEW_DISTANCE` changes** (currently 128): the whole §3 table scales
@@ -142,7 +242,7 @@ pass/fail check — `tools\scripts\test.ps1` does not run it.
 - **On any Voxel Tools or engine build change:** treat every §3 number as stale until
   re-run; `tools\scripts\check.ps1` already refuses to continue on an engine mismatch.
 
-## 6. Maintenance rule
+## 7. Maintenance rule
 
 - A subsystem row moves from "not yet measured" to a filled section **only** from a
   committed benchmark harness under `tools/benchmarks/`, with the workload written down

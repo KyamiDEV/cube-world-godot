@@ -195,12 +195,27 @@ func is_snow_covered_at(column: Vector2i) -> bool:
 ## `ShorelineMaterial` already says there — including at a column it already calls wet or
 ## shoreline, where this file has no more business overriding the answer than
 ## `ShorelineMaterial` has overriding `OceanPass`'s own wet columns (see the class comment).
+## Each of the three wet/shore tests below costs a full `Continentalness -> ElevationField ->
+## ErosionPass -> TerracePass -> RiverPass -> LakePass` evaluation, and `ShorelineMaterial
+## .is_shoreline_at()` costs five of them (its own column plus four neighbours, §23). Written as
+## the obvious `if water or shoreline: return _shoreline.block_id_at()` this function evaluated
+## that check three times over — the wet test, the shore test, and the shore test again inside
+## `_shoreline.block_id_at()` — for one answer. Brick 091b measured it as the single most
+## expensive call in world generation, so the branches are ordered to ask each question once and
+## reach past `_shoreline.block_id_at()` to `_shoreline.surface()` in exactly the two cases where
+## it has already been *proved* that is what `block_id_at()` would return anyway. Same answers,
+## same order of precedence, roughly half the work.
 func block_id_at(column: Vector2i) -> String:
-	if _shoreline.is_water_at(column) or _shoreline.is_shoreline_at(column):
-		return _shoreline.block_id_at(column)
+	if _shoreline.is_water_at(column):
+		# A wet column: never a shoreline (§23's own exclusion) and never snow-capped, so
+		# `ShorelineMaterial.block_id_at()` would fall straight through to `SurfaceMaterial`.
+		return _shoreline.surface().block_id_at(column)
+	if _shoreline.is_shoreline_at(column):
+		return ShorelineMaterial.SHORE_BLOCK_ID
 	if is_snow_covered_at(column):
 		return SNOW_BLOCK_ID
-	return _shoreline.block_id_at(column)
+	# Dry and not a shoreline: `ShorelineMaterial.block_id_at()` falls through here too.
+	return _shoreline.surface().block_id_at(column)
 
 
 ## The same answer at a voxel. Y is dropped, exactly as `ShorelineMaterial.

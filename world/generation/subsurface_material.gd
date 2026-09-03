@@ -155,7 +155,24 @@ static func subsurface_block_reason_for(p_biomes: BiomeRegistry, p_blocks: Block
 ## surface once `for_world()` accepted the registries it was built from, the same guarantee
 ## `SurfaceMaterial.block_id_at()` documents.
 func block_id_at(column: Vector2i, y: int) -> String:
-	var depth := _terrace.surface_y(column) - y
+	return block_id_for_depth(column, _terrace.surface_y(column) - y)
+
+
+## The same answer for a depth already computed — the form a generator filling one chunk wants
+## (`StructureGenerator.part_of()`'s own reason, 091b).
+##
+## `block_id_at()` is exactly this with `_terrace.surface_y(column) - y` as `depth`, so the two
+## can never disagree; the split exists because a fill loop already knows how deep it is and
+## would otherwise re-run the entire `Continentalness -> ElevationField -> ErosionPass ->
+## TerracePass` chain once **per voxel** to be told the same surface height sixteen times.
+## Measured at brick 091b: that redundancy alone was ~2 s per 16³ chunk.
+##
+## It is also the only form that is correct once the ground has moved. `RiverPass`/`LakePass`
+## carve whole risers (081/082) and `StructureGenerator` levels a building pad (091), and the
+## depth those passes imply is not `_terrace.surface_y(column) - y`. A caller that has moved
+## the ground passes its own depth here rather than asking this file to know about channels or
+## pads (§20.1's "compose over, don't reach into", applied in the other direction).
+func block_id_for_depth(column: Vector2i, depth: int) -> String:
 	if depth <= 0:
 		return ""
 	if depth > SUBSURFACE_DEPTH_VOXELS:

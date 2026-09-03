@@ -6,7 +6,8 @@ Developer tooling that is not shipped game code.
 |---|---|
 | `probe/` | headless GDScript probes run via `--script` |
 | `generators/` | headless GDScript content generators run via `--script`; output is committed to `assets/`/`data/`, re-run to regenerate |
-| `benchmarks/` | headless GDScript performance measurement harnesses run via `--script`; numbers observed are recorded in `nextsteps.md`, not committed as data files |
+| `benchmarks/` | headless GDScript performance measurement harnesses run via `--script`; numbers observed are recorded in `docs/performance-budget.md`, not committed as data files |
+| `debug/` | scenes and scripts for looking at the running game by hand; **development tools, never gameplay code** — nothing in `client/`/`gameplay/` may read them |
 | `scripts/` | PowerShell entry points |
 | `local/` | machine-local overrides (gitignored) |
 
@@ -48,6 +49,13 @@ To point the tools at a different copy of the same build:
 | Benchmark | Measures |
 |---|---|
 | `benchmarks/benchmark_mesh_block_size.gd` | `VoxelTerrainBuilder.build()`'s `mesh_block_size` (16 vs 32) against the project's default block set and view distance — bricks 052/053. Entry file must not statically reference `Log`-touching project classes; see `mesh_block_size_benchmark_runner.gd`'s header comment. |
+| `benchmarks/benchmark_world_generation.gd` | `WorldGenerator.fill_buffer()` alone — no terrain node, no meshing, no streaming — in three altitude bands (`sky`/`ground`/`deep`), so the number stays attributable to generation rather than to the pipeline. `--seed=`/`--chunks=`/`--altitude=`. Brick 091b; results in `docs/performance-budget.md` §4. |
+
+## Debug scenes
+
+| Scene | Shows |
+|---|---|
+| `debug/world_preview.tscn` | The generated world, free-fly. `tools\scripts\godot.ps1 res://tools/debug/world_preview.tscn [-- --seed=x --view-distance=n]`. WASD/QE move, mouse look, `Shift` fast, `Esc` releases the mouse; the HUD names the column under the camera, its ground and terrace heights, its biome, its cover block and any structure standing there. This is how a `HUMAN_REQUIRED` world-generation brick is tested (091b). **Not** Phase F's player or camera — it implements none of those contracts. |
 
 ## Probes
 

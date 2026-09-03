@@ -131,3 +131,37 @@ func test_placeholder_generator_uses_registry_network_index_plus_one() -> void:
 	assert_eq(generator.channel, VoxelBuffer.CHANNEL_TYPE)
 	assert_eq(generator.voxel_type, 2, "network index 1 + the air offset")
 	assert_eq(generator.height, float(VoxelTerrainBuilder.PLACEHOLDER_GROUND_HEIGHT))
+
+
+# ---------------------------------------------------------------------------
+# The real world generator (091b)
+# ---------------------------------------------------------------------------
+
+func test_an_explicit_generator_replaces_the_placeholder() -> void:
+	var registry := _registry_with_stone()
+	var explicit := VoxelGeneratorFlat.new()
+	var terrain := track_node(VoxelTerrainBuilder.build(registry, null,
+			VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE, explicit))
+	assert_eq(terrain.generator, explicit)
+
+
+func test_build_world_installs_a_world_generator() -> void:
+	var blocks := BlockSet.load_default()
+	var terrain := track_node(VoxelTerrainBuilder.build_world(
+			GenerationFixtures.world(GenerationFixtures.WORLD_TYPED), blocks,
+			BiomeCatalog.load_default()))
+	assert_not_null(terrain)
+	var generator := terrain.generator as WorldGenerator
+	assert_not_null(generator, "091b: a real world uses WorldGenerator, not the placeholder")
+	assert_eq(generator.world_seed().value,
+			GenerationFixtures.world(GenerationFixtures.WORLD_TYPED).value)
+	# The rest of the baseline configuration is unchanged by the generator swap.
+	assert_eq(terrain.bounds, WorldBounds.aabb())
+	assert_eq(terrain.mesh_block_size, VoxelTerrainBuilder.DEFAULT_MESH_BLOCK_SIZE)
+	assert_true(terrain.generate_collisions)
+
+
+func test_build_world_refuses_a_seed_this_build_cannot_reproduce() -> void:
+	var future := WorldSeed.new(1234, "", GenerationVersion.CURRENT + 1)
+	assert_null(VoxelTerrainBuilder.build_world(future, BlockSet.load_default(),
+			BiomeCatalog.load_default()))

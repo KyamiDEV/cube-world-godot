@@ -94,7 +94,21 @@ static func for_world(p_hash: GenerationHash) -> CaveCarving:
 ## Pure: same voxel, same answer, whatever else was sampled first (`CLAUDE.md` §1).
 func is_hollow_at(voxel: Vector3i) -> bool:
 	var column := GenerationGrid.voxel_to_column(voxel)
-	if voxel.y >= _terrace.surface_y(column):
+	return is_hollow_for(voxel, _terrace.surface_y(column))
+
+
+## The same clip against a surface height already computed — the form a generator filling one
+## chunk wants (`StructureGenerator.part_of()`'s own reason, 091b).
+##
+## `is_hollow_at()` is exactly this with `_terrace.surface_y(column)` as `surface_y`, so the two
+## can never disagree; the split exists because a fill loop already knows its column's surface
+## and would otherwise re-run the whole height chain once **per voxel** to be told it again.
+##
+## Note that `surface_y` here is the *terraced* surface, not a ground height some later pass
+## moved: 091b passes `WorldColumn.terrace_y`, deliberately keeping caves in absolute world
+## space rather than shifting them with a river bed or a levelled building pad (§31.1).
+func is_hollow_for(voxel: Vector3i, surface_y: int) -> bool:
+	if voxel.y >= surface_y:
 		return false
 	return _caves.is_cave_at(voxel)
 

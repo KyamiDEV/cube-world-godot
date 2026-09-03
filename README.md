@@ -7,8 +7,8 @@ This repository contains newly authored code, data and assets. It ships no origi
 game binaries, assets, data files, names or trademarks, and is not affiliated with
 Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 
-> **Status: world generation in progress (Phase D).** Bricks 001–067 and 074–087 of 266 are
-> done (81 bricks; 068–073 folded into later ones rather than left owning nothing) —
+> **Status: the world generates.** Bricks 001–067, 074–091 and 091b of 266 are
+> done (86 bricks; 068–073 folded into later ones rather than left owning nothing) —
 > verified toolchain, project skeleton, test harness, the core contracts (scale, time,
 > RNG, IDs, saves, protocol, authority), the reverse-engineering reference mapping
 > (Phase B), a complete voxel edit pipeline (Phase C: block schema/registry, a generated
@@ -17,18 +17,21 @@ Picroma or Wollay. See [§ IP discipline](#ip-discipline).
 > gameplay validation, undo/delta representation, SQLite-backed save/load proven by an
 > integration test, world bounds/authority policy, chunk profiling hooks, the
 > `mesh_block_size` 16-vs-32 benchmarks and a baseline voxel performance budget
-> ([`docs/performance-budget.md`](docs/performance-budget.md))), and 26 passes of
-> procedural generation so far (Phase D: world seed, generation versioning, coordinate
+> ([`docs/performance-budget.md`](docs/performance-budget.md))), a complete pass of
+> procedural generation (Phase D: world seed, generation versioning, coordinate
 > hashing and grids, shared determinism fixtures, a value-noise primitive, the
 > continentalness → elevation → erosion → terrace chain, two independent climate axes, a
 > six-biome classifier over them, the biome catalog behind those ids, biome-edge blending,
 > per-biome surface/subsurface material selection, a 3D cave mask with carving and
 > underground material rules, a water-level model with rivers/lakes/oceans carved into it,
-> shoreline and altitude-driven snowline surface rules, and a density-driven decoration
-> mechanism spent so far on biome-aware tree spawn masks,
-> [`docs/world-generation.md`](docs/world-generation.md)). There is no playable world yet —
-> nothing is written to a `VoxelBuffer` and the main scene prints a boot report. Progress
-> is tracked in [`backlog.md`](backlog.md) and [`nextsteps.md`](nextsteps.md).
+> shoreline and altitude-driven snowline surface rules, density-driven tree and rock spawn
+> masks, and deterministic structure seeding, placement and an initial walled-plinth
+> generator, [`docs/world-generation.md`](docs/world-generation.md)) — and, as of brick
+> 091b, all of it **assembled into a real `VoxelGenerator`**: the world is written into
+> `VoxelBuffer`s, streamed by a live `VoxelTerrain`, and walkable-through in a free-fly
+> debug preview (`tools\scripts\godot.ps1 res://tools/debug/world_preview.tscn`). There is
+> still no player, camera or gameplay — that is Phase F. Progress is tracked in
+> [`backlog.md`](backlog.md) and [`nextsteps.md`](nextsteps.md).
 
 ## Technical baseline
 

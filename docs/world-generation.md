@@ -4052,3 +4052,172 @@ onward.
 - **More than one structure per region.** Still Â§28.7/Â§29.8: if 093's village needs a finer
   grid it subdivides `structure_seed` deterministically.
 - **Meshes, materials or presentation of any kind.** Phase J.
+
+## 31. Assembling the passes into a world `VoxelGenerator` (brick 091b)
+
+Implementation: `world/generation/world_generator.gd` (`WorldGenerator`),
+`world/generation/world_column.gd` (`WorldColumn`).
+Tests: `tests/unit/test_world_generator.gd`, `tests/unit/test_world_column.gd`,
+`tests/integration/test_world_generation.gd`.
+Reference: none â€” this brick composes passes the reference has no equivalent of (Â§18.5's own
+finding, repeated: the original has no discrete material system to assemble).
+
+Â§30.8 recorded a missing brick: bricks 075â€“090 each ended with "the moment brick 091's
+`VoxelGenerator` writes a `VoxelBuffer`", and no row in `backlog.md` owned that write. **091b
+is that brick, and this is the section where the sentence stops being a forward reference.**
+
+```text
+column_at(column) -> WorldColumn                   -- resolved once per column
+    terrace_y  = TerracePass.surface_y(column)
+    natural_y  = LakePass.surface_y(column)
+    site       = StructureGenerator.site_for_column(column)
+    ground_y   = StructureGenerator.surface_y_for(site, column, natural_y)   -- if site
+
+block_id_in_column(plan, y) -> String
+    1. StructureGenerator.part_of()  FLOOR/WALL -> stone, INTERIOR -> air
+    2. y > ground_y                                    -> air
+    3. y == ground_y  -> SnowlineMaterial.block_id_at()
+    4. CaveCarving.is_hollow_for(voxel, terrace_y)      -> air
+    5. SubsurfaceMaterial.block_id_for_depth(column, ground_y - y)
+
+fill_buffer(buffer, origin)   -- per column, skip if origin.y > plan.top_y(), else per voxel
+voxel value = BlockRegistry.network_index(id) + 1,  0 = air        (037's convention)
+```
+
+### 31.1 Three passes claim "where the ground is", and they compose in one order
+
+`TerracePass` quantises the ground (063). `RiverPass`/`LakePass` cut whole risers out of
+channels and basins (081/082, Â§20.5). `StructureGenerator` levels a building pad in both
+directions (091, Â§30.4). Each was written against the one below it, and none of them composes
+the other two â€” that composition is this brick's own decision:
+
+```text
+ground_y = StructureGenerator.surface_y_for(site, column, LakePass.surface_y(column))
+```
+
+Â§30.4 instructed a generator to "read `surface_y_at()`, never `TerracePass.surface_y()`". This
+follows the instruction and keeps rivers, which the instruction predates: `surface_y_at()`
+reads `TerracePass` internally, because 091 had no reason to know about channels, so calling it
+directly here would silently un-carve a river running through a pad.
+`StructureGenerator.surface_y_for()` is the same levelling with the natural height supplied by
+the caller â€” a behaviour-identical extraction, `part_of()`/`falloff_for()`'s own established
+shape, added at this brick. Every term is an exact terrace multiple, so `ground_y` still lands
+on a terrace plane; `WorldColumn.validate()` asserts it, and asserts that nothing but a pad
+ever *raises* the ground.
+
+**Depth reads `ground_y`; caves read `terrace_y`.** These are different surfaces on purpose.
+Topsoil has to follow the ground the world actually has, or a river bed gets bedrock at depth 1
+and â€” where a pad was filled â€” every voxel above the terrace plane reads as "above the surface"
+and generates as air, punching a hole through the plinth. Caves are the opposite: `CaveMask` is
+a 3D field in absolute world space (Â§16), and shifting its clip would move a cavern rather than
+move the ground over it. Keeping the raw terraced surface is also the safer answer under a
+filled pad, because `is_hollow_for()` is false at or above the surface it is given, so filled
+ground can never come back carved.
+
+### 31.2 `WorldColumn` is the per-chunk cache Â§30.5 asked for, and it is not optional
+
+Â§30.5 left a note: `StructureGenerator` is deliberately uncached, and "if this shows up in a
+Phase L profile, the fix is a per-chunk or per-thread cache owned by the caller." It showed up
+immediately. Every pass in Phase D answers a *column* question, a chunk fill asks about sixteen
+voxels per column, and the first draft of this brick spent **~2 s per 16Â³ chunk** because
+`SubsurfaceMaterial.block_id_at()` and `CaveCarving.is_hollow_at()` each re-derived the surface
+height for every voxel they were handed.
+
+Three passes therefore grew a resolved-input form, all behaviour-identical extractions with the
+original left as a one-line wrapper:
+
+| Pass | Existing form | Added form |
+|---|---|---|
+| `SubsurfaceMaterial` (076) | `block_id_at(column, y)` | `block_id_for_depth(column, depth)` |
+| `CaveCarving` (078) | `is_hollow_at(voxel)` | `is_hollow_for(voxel, surface_y)` |
+| `StructureGenerator` (091) | `surface_y_at(column)` | `surface_y_for(site, column, natural_y)` |
+
+The depth-taking form is not only faster, it is the only *correct* one once the ground has
+moved â€” Â§31.1. `WorldColumn` is what carries those numbers, and it is a fresh object owned by
+the calling thread's stack, never shared state: Â§30.5's own warning that "a mutable cache on a
+shared pass object is a data race, not an optimisation" is honoured exactly.
+
+One more redundancy was removed rather than cached: `SnowlineMaterial.block_id_at()` (085)
+evaluated `ShorelineMaterial`'s four-neighbour wet test up to three times for one answer. It now
+asks each question once. Same answers, same precedence, `test_snowline_material.gd`'s pinned
+signature unchanged.
+
+### 31.3 The structure wins, in both directions
+
+`part_of()` is consulted before the terrain, and both of its answers are honoured:
+`FLOOR`/`WALL` place masonry over whatever the terrain would have put there, and `INTERIOR`
+places **air** over it. The second half is what `clears_terrain_at()` exists for (Â§30) â€” without
+it a plinth cut into a hillside generates solid and reads as a stone block rather than a
+building.
+
+### 31.4 Water is classified, not placed
+
+Nothing fills an ocean, a river or a lake. That is Â§19.8/Â§20.8/Â§21.8/Â§22.8's own repeated
+boundary held rather than quietly crossed, and it is also a content fact: `data/blocks/` ships
+grass, dirt, stone, sand and snow (038/084/085) and has no water block. A wet column generates
+exactly the ground the terrain chain produces with air above it, and `ShorelineMaterial` still
+sands its edges, so a coastline is visible as a beach around an empty basin. Adding a
+transparent, non-solid block kind â€” and deciding how it meets `VoxelMesherBlocky`'s culling and
+`VoxelBoxMover`'s collision model â€” is a content brick of its own.
+
+### 31.5 What it measures
+
+`docs/performance-budget.md` Â§4 records the baseline, and generation is a filled row there for
+the first time. In short: **88 ms** per sky chunk, **722 ms** per surface chunk, **368 ms** per
+deep chunk (16Â³, median of three). Resolving a column costs ~0.34 ms; `SnowlineMaterial
+.block_id_at()` costs ~2.5 ms more on top of it and is ~88% of a surface chunk â€” the indicated
+first target for brick 262, whose likely fix (a chunk-scoped memo shared between a column and
+its neighbours) is deliberately left to that brick rather than invented here without a profile
+behind it.
+
+The two structural fixes above took a 27-chunk sweep from 33.6 s to 9.4 s before that table was
+recorded, so the numbers in it are post-fix, not pending.
+
+### 31.6 This **is** the generation version boundary
+
+Every Phase D section from Â§14.4 onward ends with the same clause â€” "the moment some later
+brick's `VoxelGenerator` calls this to fill a `VoxelBuffer`, these constants become pinned
+generation inputs". That moment is now. From this brick on:
+
+- Every constant Â§14.4, Â§15.5, Â§16.7, Â§17.5, Â§18.4, Â§19.7, Â§20.7, Â§21.7, Â§22.7, Â§23.7, Â§24.7,
+  Â§25.7, Â§26.6, Â§27.6, Â§28.6, Â§29.7 and Â§30.7 named is a **pinned generation input**. Changing
+  one changes the shape of already-generated worlds.
+- Changing any of them is a `GenerationVersion.CURRENT` bump with a `SaveVersion` verdict, not a
+  free edit â€” `GenerationVersion.self_check()` already fails the suite on a half-finished bump
+  (Â§2).
+- `test_world_generator.gd::test_signature_is_pinned` is the digest that makes the bump ask to
+  be made deliberately. It equals `test_underground_material.gd`'s today, which is a real result
+  rather than a copy: none of `GenerationFixtures.voxels()` sits on a surface, on a pad or in a
+  channel, so at all fifteen the assembled generator returns what 079 alone already did. The
+  composition-specific behaviour is pinned by the named-fixture tests beside it.
+- `WorldGenerator.generation_version()` is what a world save records (103).
+
+`VoxelTerrainBuilder.build_world()` (`world/terrain/voxel_terrain_builder.gd`) is the single
+place a real world is assembled; `build()` keeps its flat `VoxelGeneratorFlat`, which is now a
+**test fixture** for the 043â€“049 raycast/edit/save tests rather than a roadmap placeholder.
+
+### 31.7 Out of scope for this brick
+
+- **Water, ice or any block the block set does not ship.** Â§31.4.
+- **Trees, rocks and props.** `TreeMask` (087) and `RockMask` (088) answer "is there one here",
+  and nothing places geometry for them: that is `VoxelInstancer` work (`CLAUDE.md` Â§1), a
+  different subsystem from a `VoxelGenerator` fill, and it has no owning brick yet â€” recorded in
+  `nextsteps.md` rather than absorbed here.
+- **Houses, villages, dungeons, spawn points.** Bricks 092â€“095. The generator reads
+  `StructureGenerator` through its public parts; a second structure kind changes that pass, not
+  this one.
+- **Streaming policy, load priority, unload, interest.** Bricks 096â€“101. This brick changes no
+  view-distance default and adds no viewer logic.
+- **Persisting generated voxels.** `VoxelStreamSQLite` still saves deltas only
+  (`save_generator_output = false`, 048), which is exactly right now that the generator is
+  deterministic and reproducible from `(seed, generation version)`. Bricks 102â€“103.
+- **`VoxelGeneratorMultipassCB`.** The single-pass `VoxelGeneratorScript` is sufficient because
+  every pass here is a pure function of a column, with no neighbour-chunk write. A structure
+  that needs to write *outside* its own chunk (093's village, 094's dungeon) is what would force
+  the multipass route.
+- **LOD.** `_generate_block()` ignores `lod > 0` rather than downsampling; `VoxelTerrain` is
+  fixed-LOD and never asks. A `VoxelLodTerrain` would need a real policy.
+- **Optimising the cover chain.** Â§31.5 â€” brick 262, with a profile behind it.
+- **A player, a camera or a gameplay scene.** Phase F (115â€“122, 212).
+  `tools/debug/world_preview.gd` is a **development tool** that exists so 091b's own
+  `HUMAN_REQUIRED` test can be run at all, and implements none of those contracts.

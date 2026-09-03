@@ -38,29 +38,29 @@
   deterministic edits; load/save smoke test; measured mesh block size + budget)
 - Phase `D — World generation` — **COMPLETE** (056–067, 074–090; 068–073 FOLDED
   (`backlog.md`, `docs/world-generation.md` §13.1)).
-- Phase `E — World streaming & persistence` — **IN PROGRESS** (091 done).
-- Next task `091b — Assemble the Phase D passes into a world VoxelGenerator`, **a brick
-  inserted by 091** (`backlog.md`, `docs/world-generation.md` §30.8). It did not exist: every
-  Phase D brick from 062 on wrote "the moment brick 091's `VoxelGenerator` writes a
-  `VoxelBuffer`", but 091 is the *initial structure generator* (092 house, 093 village, 094
-  dungeon — all content), and no row owned the composition of `TerracePass`/`SurfaceMaterial`/
-  `SubsurfaceMaterial`/`UndergroundMaterial`/`CaveCarving`/`WaterLevel` into a per-column
-  fill. Writing it inside 091 would have been the silent scope expansion `CLAUDE.md` §6
-  forbids, so 091 stopped at a pure content query and inserted this row instead.
-  **091b is the real gate on every `HUMAN_REQUIRED` row from 091 onward** — until it lands
-  the game cannot show what any of them built. What it has to do: subclass
-  `VoxelGeneratorScript` (or `VoxelGeneratorMultipassCB` (1.7) if a structure spanning chunks
-  needs neighbour context), fill `CHANNEL_TYPE` with `BlockRegistry.network_index(id) + 1`
-  (voxel `0` = air), read ground from **`StructureGenerator.surface_y_at()`**, not
-  `TerracePass.surface_y()` (§30.4), honour `StructureGenerator.clears_terrain_at()` so a
-  structure is not buried by its own hillside, and replace `VoxelTerrainBuilder`'s
-  placeholder `VoxelGeneratorFlat` (039). **That write is the generation version boundary**:
-  it pins every constant and salt §14.4/§28.6/§29.7/§30.7 named, and `GenerationVersion
-  .CURRENT` must be recorded in world metadata from that moment on.
+- Phase `E — World streaming & persistence` — **IN PROGRESS** (091, 091b done).
+- Last task `091b — Assemble the Phase D passes into a world VoxelGenerator` — **DONE**.
+  **The project now writes voxels.** `WorldGenerator` (`world/generation/world_generator.gd`)
+  is a real `VoxelGeneratorScript`; `VoxelTerrainBuilder.build_world()` installs it in place
+  of the flat placeholder; `tests/integration/test_world_generation.gd` streams a live
+  `VoxelTerrain` and reads the generated ground back through `VoxelTool`. Contract:
+  `docs/world-generation.md` §31.
+- **The generation version boundary is crossed** (§31.6). Every constant and salt §14.4
+  through §30.7 named is now a pinned generation input; changing one is a
+  `GenerationVersion.CURRENT` bump with a `SaveVersion` verdict, not a free edit.
+  `test_world_generator.gd::test_signature_is_pinned` is the digest that makes the bump
+  deliberate.
+- Next task `092 — Implement initial house generator` (`backlog.md`). It extends
+  `StructureGenerator`'s `FLOOR`/`WALL`/`INTERIOR` vocabulary with a roof and a doorway, adds
+  the *second* structure kind and the draw that chooses between kinds (appended to the end of
+  the site stream — §28.4's draw-order rule makes that free), and is the first structure that
+  genuinely needs a rotation draw (§30.3). `WorldGenerator` reads structures only through
+  `part_of()`/`site_for_column()`/`surface_y_for()`, so a second kind changes
+  `StructureGenerator`, not the generator.
 
 ## Completed bricks
 
-`001`–`067`, `074`–`091`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
+`001`–`067`, `074`–`091`, `091b`. `068`–`073` **FOLDED** (`backlog.md`, §13.1 below — each owned no
 field under the architecture 067 built; content folded into 075–076/080/085–088, no field
 invented to give any of the six something to do). Phase A complete; Phase B complete
 (011–020 contracts; 021–028 reference
@@ -3345,6 +3345,61 @@ the 8 already-committed matrices from 021–028 are not retrofitted, per the bri
 and not re-run for this docs-only brick beyond the session-start check already recorded
 above.
 
+`091b` assembled the Phase D passes into `WorldGenerator`
+(`world/generation/world_generator.gd`), a real `VoxelGeneratorScript`, plus `WorldColumn`
+(`world_column.gd`), the per-column record a chunk fill resolves once. **This is the first
+brick in the project that writes a voxel**, and the boundary twenty Phase D sections named
+in advance is now crossed (`docs/world-generation.md` §31.6). Three decisions are worth
+carrying:
+
+**(1) Ground is `LakePass`, levelled by the structure pass — not `TerracePass`.** §30.4's
+instruction was "read `surface_y_at()`, never `TerracePass.surface_y()`", but
+`surface_y_at()` reads `TerracePass` internally (091 had no reason to know about channels),
+so following it literally would have silently un-carved every river running through a
+building pad. `StructureGenerator` grew `surface_y_for(site, column, natural_y)` — the same
+levelling with the natural height supplied by the caller, a behaviour-identical extraction
+in `part_of()`/`falloff_for()`'s own established shape — and the generator feeds
+`LakePass.surface_y()` into it. Verified equal to 091's own `ground_offset_at()` over a
+44 000-column sweep of 53 sites.
+
+**(2) Depth reads the moved ground; caves read the raw terrace plane.** Two different
+surfaces on purpose. `SubsurfaceMaterial` measured depth as `TerracePass.surface_y(column) -
+y`, which is wrong once a river or a pad moved the ground: a river bed gets bedrock at depth
+1, and — worse — a *filled* pad reads every voxel above the terrace plane as "above the
+surface" and generates air, punching a hole straight through a plinth. `CaveMask` is the
+opposite: a 3D field in absolute world space, so shifting its clip would move a cavern
+rather than the ground over it, and keeping the raw plane also means filled ground can never
+come back carved.
+
+**(3) Performance was a design problem here, not a Phase L one.** The first working draft
+cost **~2 s per 16³ chunk**, because both material passes re-derived the whole
+`Continentalness -> ... -> TerracePass` chain once *per voxel*. Fixing that is what
+`WorldColumn` is for — §30.5's own "the fix is a per-chunk cache owned by the caller",
+cashed in early. Two passes grew resolved-input forms
+(`SubsurfaceMaterial.block_id_for_depth()`, `CaveCarving.is_hollow_for()`), and
+`SnowlineMaterial.block_id_at()` had a triple evaluation of `ShorelineMaterial`'s
+four-neighbour wet test removed. A 27-chunk sweep went 33.6 s → 9.4 s (3.6×). All three are
+behaviour-identical: `test_snowline_material.gd`'s pinned signature is unchanged, as are
+076's and 078's.
+
+What is now measured (`docs/performance-budget.md` §4, a new section — generation is a
+filled row for the first time, from the new `tools/benchmarks/benchmark_world_generation.gd`
+harness): **88 ms** per sky chunk, **722 ms** per surface chunk, **368 ms** per deep chunk.
+Resolving a column is ~0.34 ms; `SnowlineMaterial.block_id_at()` adds ~2.5 ms and is **~88%
+of a surface chunk** — the indicated first target for brick 262, whose likely fix
+(a chunk-scoped memo shared between a column and its four neighbours, owned by the fill
+loop) is deliberately left to that brick rather than invented here without a profile.
+
+Also landed: `VoxelTerrainBuilder.build()` gained an optional `generator` argument and
+`build_world(world_seed, blocks, biomes, ...)`, the single place a real world is assembled —
+the flat `VoxelGeneratorFlat` is now a *test fixture* for the 043–049 raycast/edit/save
+tests, not a roadmap placeholder. And `tools/debug/world_preview.tscn` + `.gd`, a free-fly
+**development tool** (not Phase F's player/camera — it implements none of those contracts)
+that exists so 091b's own `HUMAN_REQUIRED` test can be run at all: the complaint §30.8
+recorded was that no `HUMAN_REQUIRED` row was runnable, and closing that was this brick's
+job. Water is still classified and never *placed* (§31.4): the block set ships no water
+block, and adding a transparent non-solid kind is a content brick of its own.
+
 ## Commands
 
 ```powershell
@@ -3354,7 +3409,9 @@ tools\scripts\run.ps1        # run the game (-Headless; game args forwarded past
 tools\scripts\godot.ps1 -e   # open the editor
 ```
 
-Last run (brick 091): compile probe **OK** (138 scripts) · headless boot **OK** · full suite **OK** — 66 files, 1001 tests, 148 910 assertions, 0 failed. Run through the engine binary from `docs/environment.md` directly (`--headless --import`, then `--script res://tests/run_tests.gd`; `--script res://tools/probe/check_scripts.gd` for the compile probe), which is more reliable than the `.ps1` wrappers under a non-interactive shell. The runner reads filters from user args: `--script res://tests/run_tests.gd -- --test-file=<substr>` (the `--` separator is required). The full suite now takes >3 min — run it with a raised tool timeout / in the background, not the 120 s default.
+Last run (brick 091b): compile probe **OK** (144 scripts) · full suite **OK** — 69 files, 1058 tests, 160 210 assertions, 0 failed. The world-generation benchmark
+(`tools/benchmarks/benchmark_world_generation.gd`) was run three times and its median is in
+`docs/performance-budget.md` §4. Run through the engine binary from `docs/environment.md` directly (`--headless --import`, then `--script res://tests/run_tests.gd`; `--script res://tools/probe/check_scripts.gd` for the compile probe), which is more reliable than the `.ps1` wrappers under a non-interactive shell. The runner reads filters from user args: `--script res://tests/run_tests.gd -- --test-file=<substr>` (the `--` separator is required). The full suite now takes >3 min — run it with a raised tool timeout / in the background, not the 120 s default.
 
 ## What exists now
 
@@ -3399,6 +3456,10 @@ Last run (brick 091): compile probe **OK** (138 scripts) · headless boot **OK**
 | Structures | `world/structures/structure_seed.gd` | `StructureSeed`: the per-region record a structure generator (091) draws from — `region`, `anchor_column` (always inside `region`), `structure_seed` (opaque 64-bit); `rng()` forks an owned stream, `validate()` guards "anchor is inside its region" (089, `docs/world-generation.md` §28) |
 | Structures | `world/structures/structure_seed_field.gd` | `StructureSeedField.for_world(hash)`: one `StructureSeed` per in-world region — `seed_at(region)` draws anchor-X, anchor-Z, then sub-seed from `GenerationHash.rng_region(region, WorldHash.SALT_STRUCTURES)` (fixed order = contract, §28.4); `null` outside `GenerationGrid.is_region_in_world()` (the reference's `INV-2`, first use); `seed_for_column`/`seed_for_voxel` resolve the region. **No** rarity gate, no terrain/biome read — presence and constraints are 090 (089, §28) |
 | Structures | `world/structures/structure_site.gd` | `StructureSite`: one *resolved* structure — `region`, `anchor_column`, `base_y` (the terrace plane at the anchor, **read** not drawn), `half_extent_voxels`, `wall_height_voxels`, `structure_seed`. Footprint is a centred **odd** square measured in **Chebyshev** distance (`distance_to_column`/`contains_column`/`is_wall_column`/`footprint_min`/`footprint_max`/`top_y`), plus `rng()` and `validate()`. No rotation field — a square ring is quarter-turn invariant, so it would be a number nothing reads (091, `docs/world-generation.md` §30.2-30.3) |
+| Generation | `world/generation/world_generator.gd` | **`WorldGenerator`: the first thing in this project that writes a voxel** (091b). `for_world(hash, biomes, blocks)`/`for_seed(seed, ...)`; `column_at()` resolves a `WorldColumn` once per column, `block_id_in_column(plan, y)` is the five-step per-voxel order (structure `FLOOR`/`WALL` → stone and `INTERIOR` → air, wins outright; above ground → air; at ground → `SnowlineMaterial`; `CaveCarving.is_hollow_for()` → air; else `SubsurfaceMaterial.block_id_for_depth()`), `fill_buffer()` writes `CHANNEL_TYPE` with `network_index(id) + 1`. Ground is `StructureGenerator.surface_y_for(site, column, LakePass.surface_y(column))` — **`LakePass`, not `TerracePass`**, or a river through a pad is un-carved (§31.1). Water is classified, never placed (§31.4). `lod > 0` is ignored: `VoxelTerrain` is fixed-LOD. Stateless and thread-safe; no `Log` on the fill path (091b, `docs/world-generation.md` §31) |
+| Generation | `world/generation/world_column.gd` | `WorldColumn`: the per-chunk column cache §30.5 asked for — `column`, `ground_y` (the moved ground, what depth is measured from), `terrace_y` (the raw plane, what caves are clipped against), `site`; `top_y()` (the sky early-out bound), `depth_at()`, `ground_shift()`, `validate()`. Holding **both** surfaces is the point: a filled pad measured against `terrace_y` generates air where solid ground belongs (091b, §31.1-31.2) |
+| Benchmarks | `tools/benchmarks/benchmark_world_generation.gd` + `world_generation_benchmark_runner.gd` | Times `WorldGenerator.fill_buffer()` alone — no terrain node, no meshing, no streaming — in three altitude bands (`sky`/`ground`/`deep`), so the number stays attributable to generation. `--seed=`/`--chunks=`/`--altitude=`. Results: `docs/performance-budget.md` §4 (091b) |
+| Tools | `tools/debug/world_preview.tscn` + `world_preview.gd` | Free-fly look at the generated world — `tools\scripts\godot.ps1 res://tools/debug/world_preview.tscn [-- --seed=x --view-distance=n]`. WASD/QE, mouse look, Esc releases the mouse; HUD shows seed, generation version, column, ground/terrace y, biome, cover block, structure. A **development tool**, filed with the benchmarks: it implements none of Phase F's player/camera contracts and nothing in `client/`/`gameplay/` may read it. View distance defaults to 48 because generation is ~0.7 s per surface chunk (091b) |
 | Structures | `world/structures/structure_generator.gd` | `StructureGenerator.for_world(hash, biomes, blocks)`: what a placed structure *is* and the ground it levels. `site_at(region)` forks `StructureSeed.rng().derive_named("structure.site")` and draws half extent (4..8) then wall height (5..9) — that order is the contract. `ground_falloff_at()`/`surface_y_at()`/`ground_offset_at()` are the `objectFalloffWeight`/`falloffSquared` levelling 090 deferred: `0` on the footprint, `t²` across an 8-voxel apron, `1` beyond — applied **above** `TerracePass`, not inside `ErosionPass`'s §7.1 product, because that would be a dependency cycle; it cuts **and** fills, bounded to one terrace by `self_check()`. `part_at()` → `NONE`/`FLOOR`/`WALL`/`INTERIOR` (stone slab + wall ring + hollow air), `block_id_at()`, `clears_terrain_at()` (`INTERIOR` is air the generator must **carve**), `is_structure_voxel_at()`. `site_for_column()` scans 3×3 regions and is provably single-valued; deliberately uncached (worker threads) (091, §30) |
 | Biomes | `world/biomes/biome_registry.gd` | `BiomeRegistry`: typed `BiomeDefinition` catalogue over `DefinitionRegistry` — refuses an id `BiomeClassifier` cannot produce, and adds the check an open-set registry has no use for: `coverage_reason()` (the catalog holds exactly `BiomeClassifier.IDS`; `coverage_reason_for()` is the static list-taking form), `palette_reason()` (debug colours ≥ `0.25` apart), `self_check()` (067, §12.1) |
 | Biomes | `world/biomes/biome_catalog.gd`, `data/biomes/*.tres` | `BiomeCatalog.load_default()`: scans `data/biomes/*.tres`, registers each, locks, then `self_check()`s the result and logs loudly if the catalog as a whole is unusable — degrades per entry like `BlockSet`, but a *missing* biome is a broken world rather than a missing block. Six records written by `tools/generators/generate_biome_catalog.gd` (thin entry + runner, brick 052's split) (067, §12.3-12.4) |
@@ -3411,34 +3472,47 @@ Last run (brick 091): compile probe **OK** (138 scripts) · headless boot **OK**
 | Reference | `docs/reference/terrain-value-noise.md` | the original's `valueNoise2D`: lattice value noise, **no seed parameter** (per-world variation was a coordinate offset, so every world is a translation of every other), a linear corner key that repeats along a diagonal, cosine interpolation through libm, and a lattice taken by truncation — mirroring the field about the origin. §9 is the divergence table 060 implements (060) |
 | Reference | `docs/reference/region-coordinate-hashing.md` | how the original turned coordinates into content: a **linear** seed fed to the process-global `srand()`, first decision from the low bit of an LCG, region grid `0..1023` counted from a corner; §9 is the divergence table 058 implements (058) |
 | Reference | `docs/reference/terrain-climate-blend.md` | how the original produced climate: `World_temperatureBlend`/`World_humidityBlend` blend **stored per-region values** over a nearest-site window and sample no noise for the value at all — so climate shares nothing with the height field but the site-jitter noise. Closes `terrain-base-height-field.md` `U2` and contradicts its claim 7; §8 is the divergence table 064 and 065 implement; `U1` checked by 065 and confirmed not to gate a noise-layer climate (064, 065) |
-| Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), the rest placeholder rows for Phase L bricks 257-263 |
+| Perf | `docs/performance-budget.md` | measured baseline per subsystem (`CLAUDE.md` §8 order) + regression thresholds + re-measure triggers; §3 filled from bricks 052-055 (voxel meshing), **§4 filled from 091b (world generation)**, the rest placeholder rows for Phase L bricks 257-263 |
+| Tests | `tests/integration/test_world_generation.gd` | The proof 091b actually exists: a real `VoxelTerrain` from `VoxelTerrainBuilder.build_world()`, streamed until the ground meshes, read back through `VoxelTool` — Voxel Tools really calls `_generate_block()` and the live volume matches `WorldGenerator`. Runs at `view_distance = 16` and waits on wall-clock, not frames (a headless frame is nearly free) (091b) |
 
 ## Next 10 actions
 
-1. `091b` assemble the Phase D passes into a world `VoxelGenerator` (next task) — **a brick
-   091 inserted into `backlog.md`**, see "Current phase / milestone / task" above for why it
-   did not exist and what it must do. Things to carry in: **(a)** read ground from
-   `StructureGenerator.surface_y_at()`, never `TerracePass.surface_y()` — the structure
-   levelling lives above the terrace pass (§30.4), and a generator reading the wrong one
-   builds structures on unlevelled ground; **(b)** honour `clears_terrain_at()` (carve the
-   `INTERIOR`) and `block_id_at()` (place `FLOOR`/`WALL`) or a structure is buried by its own
-   hillside; **(c)** voxel value is `BlockRegistry.network_index(id) + 1` on `CHANNEL_TYPE`,
-   voxel `0` = air (the 037 note below); **(d)** `VoxelGeneratorFlat.channel` defaults to
-   `CHANNEL_SDF` — a blocky generator must set `CHANNEL_TYPE` explicitly (039 note below);
-   **(e)** `StructureGenerator` is deliberately uncached and each `site_for_column()` walks
-   9 regions — resolve the site **once per chunk column**, not per voxel; **(f)** the
-   generator objects are built per-`for_world()` and are stateless, but Voxel Tools calls
-   `_generate_block` on **worker threads** — do not add shared mutable state; **(g)** this is
-   the **generation version boundary**: from this brick on, every constant §14.4/§28.6/§29.7/
-   §30.7 named is pinned, `GenerationVersion.CURRENT` goes into world metadata, and changing
-   any of them is a version bump with a `SaveVersion` verdict, not a free edit. The
-   throwaway-probe habit still applies: a `tests/unit/test_zzz_scratch_*.gd` file, run with
-   `--test-file=` (note: `-- --test-file=`, args after `--`), deleted before the brick lands.
-   Still open and carried from Phase C: no `.tscn` exists, no player/camera — a Phase F
-   question, and the *second* reason no `HUMAN_REQUIRED` row is runnable yet.
-   `docs/performance-budget.md` §3's benchmark is re-run against the real generator once
-   091b lands (feeds 257–258); generation's own row there stays empty until something is
-   expensive enough to measure — 091b is the first candidate.
+1. `092` implement the initial house generator (next task). It extends `StructureGenerator`'s
+   `FLOOR`/`WALL`/`INTERIOR` vocabulary with a roof and a doorway, adds the **second**
+   structure kind *and* the draw that chooses between kinds (appended to the end of the site
+   stream — §28.4's draw-order rule makes appending free, inserting is a version bump), and is
+   the first structure that genuinely needs a rotation draw (§30.3: a square ring is
+   quarter-turn invariant, a house with a door is not). Things to carry in: **(a)**
+   `WorldGenerator` reads structures only through `part_of()` / `site_for_column()` /
+   `surface_y_for()` / `STRUCTURE_BLOCK_ID`, so a second kind changes `StructureGenerator`,
+   not the generator — but a new `Part` value **does** need a line in
+   `WorldGenerator.block_id_in_column()`, and a new fixed block id needs one in
+   `WorldGenerator.emitted_block_ids()` (its `self_check()` will fail loudly if it is
+   unregistered, which is the point); **(b)** **the generation version is now pinned**
+   (§31.6) — a house that changes what already-placed sites look like is a
+   `GenerationVersion.CURRENT` bump with a `SaveVersion` verdict, and
+   `test_world_generator.gd::test_signature_is_pinned` plus
+   `test_structure_generator.gd::test_site_signature_is_pinned` are the two digests that make
+   it deliberate; **(c)** the throwaway-probe habit still applies: a
+   `tests/unit/test_zzz_scratch_*.gd` file, run with `-- --test-file=` (args after `--`),
+   deleted before the brick lands; **(d)** a human can now actually look at the result —
+   `tools\scripts\godot.ps1 res://tools/debug/world_preview.tscn` — so a structure brick's
+   `HUMAN_REQUIRED` row is runnable for the first time.
+1b. **Two performance follow-ups 091b measured but deliberately did not fix**, both with a
+   number behind them (`docs/performance-budget.md` §4.3): (i) `SnowlineMaterial
+   .block_id_at()` is **~88% of a surface chunk** because `ShorelineMaterial` runs a full
+   height chain for each of a column's four neighbours; the fix is a chunk-scoped memo shared
+   between a column and its neighbours, **owned by the fill loop** (never by a pass — worker
+   threads, §30.5), and it belongs to brick 262 with a profile behind it, not to the next
+   content brick. (ii) `docs/performance-budget.md` §3's meshing/streaming benchmark still
+   runs against the flat placeholder and must be re-run against `WorldGenerator` — that is
+   bricks 257/258, and §6 of that file already carries the trigger.
+1c. **`TreeMask` (087) and `RockMask` (088) place nothing, and no brick owns making them.**
+   Both answer "is there one here" and 091b did not absorb them: vegetation and props are
+   `VoxelInstancer` work (`CLAUDE.md` §1), a different subsystem from a `VoxelGenerator` fill.
+   No backlog row owns it — Phase E's rows are all streaming/persistence and Phase J's are
+   presentation. A scoping pass should insert one (the same treatment 091b itself got), most
+   naturally right after 095.
 1b. Git, **resolved at 067**: `origin` is `github.com/KyamiDEV/cube-world-godot` and the
    full per-brick history is intact from brick 001 — the earlier "history is gone"
    conclusion was drawn from a working copy that had lost its `.git`, without checking
@@ -3469,13 +3543,27 @@ opening the reference tree.
 
 ## Human test state
 
-- Last human playtest: `NOT STARTED`. Nothing visual exists yet — the main scene prints a
-  boot report to a label.
-- Backlog `091` is marked `HUMAN_REQUIRED`, and **its human test cannot be run**: 091 is a
-  pure content query, no voxel is written anywhere in the project, and there is still no
-  `.tscn`/player/camera. `backlog.md` now marks such rows `YES*` and gates them on `091b`
-  (the inserted `VoxelGenerator` brick) — run a `YES*` human test once 091b lands, not
-  before. `docs/world-generation.md` §30.8.
+- Last human playtest: `NOT STARTED` — but as of `091b` it is **runnable for the first
+  time**, and 091/091b are the two rows waiting on it.
+
+```powershell
+tools\scripts\godot.ps1 res://tools/debug/world_preview.tscn
+tools\scripts\godot.ps1 res://tools/debug/world_preview.tscn -- --seed=lakes --view-distance=64
+```
+
+- What to look for: terraced ground in 4 m steps, biome-coloured surfaces (grass / sand /
+  stone / snow), sand at the water's edge with an **empty** basin behind it (water is
+  classified, never placed — §31.4), caves underground, and — rarer, ~18% of regions —
+  a stone walled plinth with a hollow interior on levelled ground. The HUD names the column,
+  its ground and terrace heights, its biome and the structure under the camera, so a
+  disagreement between what is on screen and what the passes claim is directly visible.
+- Expect it to stream in slowly and to keep filling for a while: generation costs ~0.7 s per
+  surface chunk (`docs/performance-budget.md` §4), which is why `--view-distance` defaults to
+  48 rather than the project's 128. That is measured, not a placeholder — see "Next 10
+  actions" 1b.
+- `tools/debug/world_preview.gd` is a **development tool**. It is not Phase F's player
+  (115–122) or camera (121–122) and implements none of their contracts; rows that need a real
+  player stay gated on Phase F.
 - Last reported visual/gameplay issues: `NONE`
 
 ## Technical notes worth keeping
@@ -3498,7 +3586,28 @@ opening the reference tree.
   masked logical shift in `DeterministicRng`. Literal negative operands in shifts are a
   parse error; only runtime values work.
 - `VoxelGeneratorMultipassCB` exists in 1.7 — the route for generation needing neighbour
-  context (structures/villages, bricks 089–093).
+  context (structures/villages, bricks 089–093). **091b did not need it**: every pass in the
+  chain is a pure function of a column and no structure writes outside the chunk it was asked
+  for, so a plain `VoxelGeneratorScript` is sufficient. What would force the multipass route
+  is a structure that must *write into a neighbouring chunk* — 093's village, 094's dungeon.
+- **A `VoxelGenerator` subclass's `_generate_block(out_buffer, origin_in_voxels, lod)` is a
+  virtual only the engine calls**, so it cannot be unit-tested meaningfully on its own. 091b's
+  shape: put the real work in a public `fill_buffer(out_buffer, origin_in_voxels)` that unit
+  tests call, leave `_generate_block()` as a two-line wrapper, and prove the engine actually
+  invokes it in one integration test against a live streaming `VoxelTerrain`.
+  `_get_used_channels_mask()` must return `1 << VoxelBuffer.CHANNEL_TYPE` for a blocky world.
+- **Wait on wall-clock, not frames, when a headless test waits for streaming.** A headless
+  frame costs almost nothing, so `test_voxel_load_save.gd`'s `_MAX_WAIT_FRAMES = 120` is a
+  fraction of a second of real time — fine against the flat placeholder, useless against real
+  generation. `test_world_generation.gd` (091b) polls `Time.get_ticks_msec()` instead.
+- **Phase D passes re-answer a *column* question per *voxel* if you let them.**
+  `SubsurfaceMaterial.block_id_at(column, y)` and `CaveCarving.is_hollow_at(voxel)` each
+  re-derive `TerracePass.surface_y(column)` internally, so a naive chunk fill runs the whole
+  `Continentalness -> ElevationField -> ErosionPass -> TerracePass` chain 4096 times per
+  chunk — measured at ~2 s per 16³ chunk at 091b. Both now have resolved-input forms
+  (`block_id_for_depth()`, `is_hollow_for()`) taking the number the caller already has, and
+  `StructureGenerator` has a third (`surface_y_for()`). **A future pass in this chain should
+  ship both forms from the start.**
 - `VoxelTerrainMultiplayerSynchronizer` exists but replicates terrain blocks only; it is
   not a gameplay authority mechanism. Evaluated at brick 050 (`docs/voxel-tools.md` §15):
   the 043–046 raycast/command/validate/apply pipeline is already the real edit-authority

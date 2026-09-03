@@ -269,10 +269,23 @@ func surface_y_at(column: Vector2i) -> int:
 	var site := site_for_column(column)
 	if site == null:
 		return natural
-	var weight := falloff_for(site, _chebyshev(site.anchor_column, column))
+	return surface_y_for(site, column, natural)
+
+
+## The same levelling against a site already in hand and a natural ground height already
+## computed — the form a generator filling one chunk wants, `part_of()`'s own reason: it
+## resolves the site once for the whole column instead of once per call, and it lets a caller
+## that has moved the ground for its own reasons (091b feeds `LakePass.surface_y()` here, so a
+## river carved through a pad is not silently un-carved) level *that* height rather than
+## re-reading `TerracePass`.
+##
+## Static and pure. `surface_y_at()` is exactly this function with `_terrace.surface_y()` as
+## `natural_y`; the blend lives here so the two can never disagree.
+static func surface_y_for(site: StructureSite, column: Vector2i, natural_y: int) -> int:
+	var weight := falloff_for(site, site.distance_to_column(column))
 	if weight >= 1.0:
-		return natural
-	var blended := float(site.base_y) + weight * float(natural - site.base_y)
+		return natural_y
+	var blended := float(site.base_y) + weight * float(natural_y - site.base_y)
 	return int(TerracePass.terraced(blended))
 
 

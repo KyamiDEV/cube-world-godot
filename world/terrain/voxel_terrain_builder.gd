@@ -45,10 +45,17 @@ extends RefCounted
 ## reads this same live `terrain.bounds` property, remains the actual edit-authority
 ## enforcement.
 ##
-## The generator is an explicit, temporary placeholder: a flat plane of one registered
-## block ID, not real world generation (Phase D, bricks 056-067, deterministic
-## noise/height/climate fields per `docs/reference/matrix-world.md`). Phase D replaces
-## `terrain.generator` outright when it lands; it does not extend this file.
+## `generator` (091b): an explicit optional parameter. Passed `null` — every caller from
+## bricks 039-090 — the terrain still gets the flat placeholder below, so every Phase C test
+## keeps testing exactly what it was written to test. `build_world()` is the real path: it
+## builds a `WorldGenerator` (`world/generation/world_generator.gd`) from a seed and the
+## loaded catalogs and hands it through here, which is what "Phase D replaces
+## `terrain.generator` outright" always meant — a replacement at the call site, not an
+## extension of this file.
+##
+## The flat generator that remains is now a *test fixture*, not a roadmap placeholder: a
+## known, trivially-predictable volume for the 043-049 raycast/edit/save tests, which have no
+## business depending on where real world generation happens to put the ground.
 ##
 ## Voxel value convention (`blocky_library_builder.gd`, 037): every voxel value is
 ## `BlockRegistry.network_index(id) + 1`, with `0` reserved for air. The placeholder
@@ -98,9 +105,12 @@ const VALID_MESH_BLOCK_SIZES: PackedInt32Array = [16, 32]
 ## Returns null (and logs why) when `registry` is not locked, does not contain
 ## `PLACEHOLDER_BLOCK_ID`, or `mesh_block_size` is not one of `VALID_MESH_BLOCK_SIZES` —
 ## all three are programmer/data errors, not runtime conditions a caller should silently
-## paper over. `stream` (048) is assigned as given, `null` by default.
+## paper over. `stream` (048) is assigned as given, `null` by default. `generator` (091b) is
+## assigned as given; `null` falls back to the flat placeholder, which is also the only case
+## `PLACEHOLDER_BLOCK_ID` needs to be registered for.
 static func build(registry: BlockRegistry, stream: VoxelStream = null,
-		mesh_block_size: int = DEFAULT_MESH_BLOCK_SIZE) -> VoxelTerrain:
+		mesh_block_size: int = DEFAULT_MESH_BLOCK_SIZE,
+		generator: VoxelGenerator = null) -> VoxelTerrain:
 	if not Log.check(registry.is_locked(), Log.CH_VOXEL,
 			"block registry must be locked before building a VoxelTerrain"):
 		return null
@@ -109,8 +119,10 @@ static func build(registry: BlockRegistry, stream: VoxelStream = null,
 			"mesh_block_size must be 16 or 32", {"mesh_block_size": mesh_block_size}):
 		return null
 
-	var generator := _build_placeholder_generator(registry)
-	if generator == null:
+	var bound_generator := generator
+	if bound_generator == null:
+		bound_generator = _build_placeholder_generator(registry)
+	if bound_generator == null:
 		return null
 
 	var mesher := _build_mesher(registry)
@@ -118,7 +130,7 @@ static func build(registry: BlockRegistry, stream: VoxelStream = null,
 		return null
 
 	var terrain := VoxelTerrain.new()
-	terrain.generator = generator
+	terrain.generator = bound_generator
 	terrain.mesher = mesher
 	terrain.stream = stream
 	terrain.material_override = null
@@ -127,6 +139,23 @@ static func build(registry: BlockRegistry, stream: VoxelStream = null,
 	terrain.bounds = WorldBounds.aabb()
 	terrain.mesh_block_size = mesh_block_size
 	return terrain
+
+
+## The real world: a `VoxelTerrain` whose generator is the assembled Phase D chain (091b)
+## rather than the flat placeholder.
+##
+## Thin on purpose — it builds a `WorldGenerator` and calls `build()`. It exists so that
+## "which generator does a real world use" has exactly one answer in the project, instead of
+## every future scene, test and tool repeating the `WorldGenerator.for_seed()` + `build()`
+## pair and drifting on the arguments. Returns null (already logged) when the seed, the
+## catalogs or any Phase D pass underneath refuses.
+static func build_world(world_seed: WorldSeed, registry: BlockRegistry, biomes: BiomeRegistry,
+		stream: VoxelStream = null,
+		mesh_block_size: int = DEFAULT_MESH_BLOCK_SIZE) -> VoxelTerrain:
+	var generator := WorldGenerator.for_seed(world_seed, biomes, registry)
+	if generator == null:
+		return null
+	return build(registry, stream, mesh_block_size, generator)
 
 
 ## Returns null when `BlockyLibraryBuilder.build()` does (it already logs its own

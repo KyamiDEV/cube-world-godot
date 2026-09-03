@@ -15,6 +15,10 @@
   that brick exists (`CLAUDE.md` §6's "avoid silently expanding scope" cuts both ways: adding
   a field nothing reads is scope expansion too). The brick row states where its content went.
   Bricks 068–073 are the first case, `docs/world-generation.md` §13.1.
+- `YES*` means the row is `HUMAN_REQUIRED` but **not yet runnable**: the game cannot show what
+  the brick built. Every such row from 091 onward is gated on `091b`, the inserted brick that
+  writes the first `VoxelBuffer` (`docs/world-generation.md` §30.8). Run the human test for a
+  `YES*` row once 091b lands, not before.
 
 ## Phase map
 
@@ -127,7 +131,8 @@
 | 088 | D | Implement rock/prop spawn masks | 087 | Not needed by default | NO | DONE |
 | 089 | D | Implement deterministic structure seed selection | 088 | Not needed by default | NO | DONE |
 | 090 | D | Implement structure placement constraints | 089 | Not needed by default | NO | DONE |
-| 091 | E | Implement initial structure generator | 090 | Not needed by default | YES | TODO |
+| 091 | E | Implement initial structure generator | 090 | Not needed by default | YES* | DONE |
+| 091b | E | Assemble the Phase D passes into a world `VoxelGenerator` (**inserted** at 091 — no existing row owned the first `VoxelBuffer` write; `docs/world-generation.md` §30.8) | 091 | Not needed by default | YES | TODO |
 | 092 | E | Implement initial house generator | 091 | Not needed by default | YES | TODO |
 | 093 | E | Implement initial village generator | 092 | Not needed by default | YES | TODO |
 | 094 | E | Implement initial dungeon generator | 091 | Not needed by default | YES | TODO |

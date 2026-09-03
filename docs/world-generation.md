@@ -3869,3 +3869,186 @@ so the bump asks to be made deliberately.
 - **More than one structure per region**, and any finer-than-region placement grid. If 091
   needs one it subdivides `structure_seed` deterministically; 090 decides at region scale.
 - **A `VoxelGenerator` write, or any voxel touched at all.**
+
+## 30. The initial structure generator (brick 091)
+
+Implementation: `world/structures/structure_site.gd` (`StructureSite`),
+`world/structures/structure_generator.gd` (`StructureGenerator`).
+Tests: `tests/unit/test_structure_site.gd`, `tests/unit/test_structure_generator.gd`.
+Reference: `docs/reference/matrix-world.md` Â§2 (`World::objectFalloffWeight`,
+`World::falloffSquared`), `docs/reference/terrain-base-height-field.md` Â§3 claim 6.
+Confidence MEDIUM â€” no helper body was opened; the shapes are `matrix-world.md` Â§2's
+one-line index.
+
+`StructurePlacement` (090) answers *whether* a structure stands in a region and explicitly
+defers two things to this brick (Â§29.8): "what a structure is â€” no kind list, no footprint,
+no mesh" and "terrace / erosion flattening under a placed structure". This section is both.
+
+```text
+site_at(region)          -- null unless StructurePlacement.is_placed_at(region)
+    stream        = StructureSeed.rng().derive_named("structure.site")
+    half_extent   = stream.next_int(4, 8)      -- draw 1
+    wall_height   = stream.next_int(5, 9)      -- draw 2
+    base_y        = TerracePass.surface_y(anchor_column)      -- read, not drawn
+    -> StructureSite(region, anchor_column, base_y, half_extent, wall_height, sub-seed)
+
+ground_falloff_at(column)      -- [0, 1]: 0 on the footprint, t^2 across the apron, 1 beyond
+surface_y_at(column)           -- the ground a generator fills to, levelled under a site
+part_at(voxel)                 -- NONE | FLOOR | WALL | INTERIOR
+block_id_at(voxel)             -- "block.stone" for FLOOR/WALL, "" otherwise
+clears_terrain_at(voxel)       -- true for INTERIOR: air the generator must carve
+```
+
+### 30.1 The initial structure is a walled plinth
+
+Backlog 091 is the *initial* structure generator; 092 is a house, 093 a village, 094 a
+dungeon. The shape here is therefore the smallest thing that reads as **built rather than
+grown** â€” a solid stone floor slab filling a centred odd square, with a wall ring on its
+outermost band rising `wall_height_voxels` above it and hollow air inside. Its three parts
+(`FLOOR`, `WALL`, `INTERIOR`) are exactly the vocabulary 092's house extends with a roof and
+a doorway.
+
+No kind list is invented for kinds that do not exist yet â€” the shape Â§12.3/Â§14.6/Â§29.4 have
+named repeatedly and bricks 068â€“073 were folded to avoid. 092 adds the second kind *and* the
+draw that chooses between them, appended to the end of the site stream, which Â§28.4's
+draw-order rule makes free.
+
+`STRUCTURE_BLOCK_ID` is a single id rather than a per-part table for the same reason: the
+block set ships grass, dirt, stone, sand and snow (038, 084, 085), and stone is the only one
+of them that reads as masonry. A second material earns its place when a part exists that
+wants a different one.
+
+### 30.2 The footprint is a centred odd square, measured in Chebyshev distance
+
+Every extent question â€” `contains_column()`, `is_wall_column()`, the falloff, the site
+lookup â€” is a comparison against `max(|dx|, |dz|)`, the metric whose unit ball is a square.
+A blocky world builds squares, and using the metric the shape is actually made of makes the
+tests exact rather than an approximation of a circle drawn on a grid. The side is
+`2Â·half_extent + 1`, always odd, so the anchor is the true centre with no half-voxel offset.
+
+### 30.3 `base_y` is read, not rolled
+
+A structure's floor height is not a free choice; it is the ground. 090 already refused every
+anchor whose terraced surface spans more than one terrace across a 16-voxel pad (Â§29.3), so
+the terrace plane at the anchor is a plane the whole footprint can legitimately sit on.
+Drawing a height instead would either float the structure or bury it, and would make 090's
+slope gate decorative.
+
+There is likewise **no rotation draw**: a centred square ring is invariant under quarter
+turns, so a rotation here would be a number nothing reads. 092's house has a door and an
+asymmetric interior and genuinely needs one.
+
+### 30.4 The falloff is applied *above* `TerracePass`, not inside the erosion product
+
+Â§7.1 files "structure falloff" as one more `[0, 1]` factor in `ErosionPass`'s relief product,
+and the reference's `objectFalloffWeight` is exactly that. It cannot go there, and the reason
+is a **dependency cycle**, not a preference: `StructurePlacement`'s slope gate reads
+`TerracePass`, which reads `ErosionPass`, so an `ErosionPass` that read placement would have
+to know where structures are before deciding whether their ground is buildable. The levelling
+is therefore a pass **over** `TerracePass.surface_y()`, and `surface_y_at()` is the ground
+height every consumer downstream of this brick should read instead.
+
+```text
+falloff(d) = 0                                d <= half_extent
+           = ((d - half_extent) / PAD)^2      half_extent < d < half_extent + PAD
+           = 1                                d >= half_extent + PAD          (PAD = 8)
+
+surface_y_at(column) = terraced( base_y + falloff * (terrace.surface_y(column) - base_y) )
+```
+
+Squared rather than linear for `World::falloffSquared`'s own shape, and for the reason Â§7.2
+gives about the ruggedness weight: a squared ramp keeps most of its mass near zero, so the pad
+reads as a deliberate plateau with a soft edge rather than a cone. The blend is snapped back
+onto a terrace plane so the block world keeps its silhouette; both ends are already terrace
+multiples, so the snap only affects the apron between them.
+
+Two consequences stated plainly:
+
+1. **It levels in both directions.** Every Â§7.1 pass only ever lowers ground; this one both
+   cuts and fills, because a building pad that could only cut would leave a structure on the
+   high side of a step hanging over air. It is **not** a member of that family and does not
+   claim the family's invariant. This is the first deliberate departure from Â§7.1's shape, and
+   it is confined to the pad columns of the 0.182 of regions that carry a structure.
+2. **It is bounded by one terrace anyway.** `self_check()` asserts that the widest pad
+   (`MAX_HALF_EXTENT_VOXELS + GROUND_PAD_VOXELS` = 16) is no wider than the pad 090's slope
+   gate probes (`SITE_PROBE_RADIUS_VOXELS` = 16), which already refused a surface spanning
+   more than `MAX_SITE_RELIEF_VOXELS`. So the levelling moves ground by at most a single 4 m
+   terrace â€” a levelling, never an excavation. The measured worst case in Â§30.6 is exactly
+   that bound, so it is tight rather than generous.
+
+### 30.5 `site_for_column()` is single-valued, and the 3Ã—3 scan is complete
+
+A structure's pad routinely spills across a region boundary â€” 089's anchor jitter puts an
+anchor anywhere in its region, including one voxel from the edge. So the lookup scans the 3Ã—3
+region neighbourhood, which is complete because the widest pad (16 voxels) is far below
+`GenerationGrid.REGION_SIZE_VOXELS` (1024).
+
+At most one site can ever cover a column: two placed anchors are at least
+`MIN_STRUCTURE_SPACING_VOXELS` (768) apart, and a column inside two pads would put their
+anchors within `2 Â· 16 = 32` voxels of each other. `self_check()` asserts that gap, so the
+first placed match is the only one.
+
+The scan reaches `StructurePlacement.is_placed_at()` only for a region whose *candidate*
+anchor is already within pad range â€” normally none, so the common case is nine cheap
+`StructureSeedField` lookups rather than nine 8-neighbour spacing scans. There is deliberately
+**no memoization**: voxel generation runs on Voxel Tools worker threads, and a mutable cache
+on a shared pass object is a data race, not an optimisation. If this shows up in a Phase L
+profile (`CLAUDE.md` Â§8), the fix is a per-chunk or per-thread cache owned by the caller.
+
+### 30.6 What the pass measures
+
+Over a 1600-region sweep on the `typed` world: **292** regions carry a structure (0.182, 090's
+own measured placed fraction, unchanged â€” this brick adds no gate). Mean footprint side
+**12.84 voxels** (6.42 m), mean wall height **7.14 voxels** (3.57 m), so an average structure
+is **511 blocks** â€” 173 of floor and 339 of wall.
+
+Over every pad column of a 256-region sweep (55 945 columns): **98.02%** of pad columns are
+already at the floor plane and the levelling does nothing, **1.83%** are filled, **0.15%** are
+cut, and the worst single move is **8 voxels** â€” exactly `MAX_SITE_RELIEF_VOXELS`, so the
+bound Â§30.4 derives is tight. Fill outnumbers cut roughly 12:1 because `base_y` is the
+*floored* terrace plane at the anchor, so a neighbouring column that differs at all usually
+differs by sitting one terrace lower.
+
+### 30.7 Not a generation version bump
+
+The boundary every Phase D brick since 062 has named still holds: **nothing in this project
+writes a voxel yet** (Â§30.8). This file mixes no new `WorldHash` salt and adds no new
+`GenerationHash.Space` â€” the site draws fork `StructureSeed.rng()` with the fixed key
+`"structure.site"`, the shape 090's presence roll established. `MIN`/`MAX_HALF_EXTENT_VOXELS`,
+`MIN`/`MAX_WALL_HEIGHT_VOXELS`, `GROUND_PAD_VOXELS`, `STRUCTURE_BLOCK_ID`, the Â§30 draw order
+and the falloff curve all join 089's and 090's constants as pinned generation inputs the
+moment a `VoxelGenerator` first writes a `VoxelBuffer` from them.
+`test_structure_generator.gd::test_site_signature_is_pinned` pins `site_at()` over
+`GenerationFixtures.regions()` so the bump asks to be made deliberately.
+
+### 30.8 The missing brick: nothing assembles Phase D into a `VoxelGenerator`
+
+Bricks 075â€“090 each wrote "the moment brick 091's `VoxelGenerator` writes a `VoxelBuffer`",
+and Â§28.7/Â§29.8 attribute that write to the *range* "bricks 091â€“094". It has not happened
+here, and the reason is worth recording rather than leaving as a surprise for 092.
+
+A `VoxelGenerator` is not a structure generator. Writing one means composing
+`TerracePass` / `SurfaceMaterial` / `SubsurfaceMaterial` / `UndergroundMaterial` /
+`CaveCarving` / `WaterLevel` into a per-column fill, on top of `VoxelGeneratorScript` or
+`VoxelGeneratorMultipassCB`, and wiring it into `VoxelTerrainBuilder` in place of the
+placeholder `VoxelGeneratorFlat` (039). That is a whole brick's work owned by none of
+091â€“094, whose titles are all "*initial* &lt;kind&gt; generator". Implementing it inside 091
+would be exactly the silent scope expansion `CLAUDE.md` Â§6 forbids, so 091 stops at a pure,
+deterministic content query, as every Phase D pass before it does.
+
+**Consequence:** backlog 091 is marked `HUMAN_REQUIRED`, and that human test cannot be run â€”
+there is still no `.tscn`, no player, and now no terrain writer either. A new brick
+(**091b â€” assemble the Phase D passes into a world `VoxelGenerator`**) is recorded in
+`backlog.md` and `nextsteps.md` as the real gate on every `HUMAN_REQUIRED` row from 091
+onward.
+
+### 30.9 Out of scope for this brick
+
+- **A `VoxelGenerator` write, or any voxel touched at all.** Â§30.8.
+- **A second structure kind, a kind list, or the draw that chooses between kinds.** 092â€“094.
+- **Doors, windows, roofs, interior contents, loot or spawns.** 092+, and 095 for spawn
+  points.
+- **Rotation.** Â§30.3 â€” 092 appends the draw when it has something asymmetric to rotate.
+- **More than one structure per region.** Still Â§28.7/Â§29.8: if 093's village needs a finer
+  grid it subdivides `structure_seed` deterministically.
+- **Meshes, materials or presentation of any kind.** Phase J.
